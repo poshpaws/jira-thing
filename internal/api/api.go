@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
 const (
 	IssueEndpoint      = "/rest/api/3/issue"
-	SearchEndpoint     = "/rest/api/3/search"
+	SearchEndpoint     = "/rest/api/3/search/jql"
 	requestTimeoutSecs = 30 * time.Second
 )
 
@@ -89,18 +87,21 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 	return result, executeRequest(req, &result)
 }
 
-// SearchIssues executes a JQL search and returns matching issues.
+// SearchIssues executes a JQL search via POST /rest/api/3/search/jql and returns matching issues.
 func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
-	params := url.Values{}
-	params.Set("jql", q.JQL)
-	params.Set("maxResults", fmt.Sprintf("%d", q.MaxResults))
-	if len(q.Fields) > 0 {
-		params.Set("fields", strings.Join(q.Fields, ","))
-	}
-	req, err := newAuthRequest(conn, http.MethodGet, conn.BaseURL+SearchEndpoint+"?"+params.Encode(), nil)
+	payload, err := json.Marshal(map[string]any{
+		"jql":        q.JQL,
+		"fields":     q.Fields,
+		"maxResults": q.MaxResults,
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
+	req, err := newAuthRequest(conn, http.MethodPost, conn.BaseURL+SearchEndpoint, bytes.NewReader(payload))
+	if err != nil {
+		return SearchResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
 	var result SearchResult
 	return result, executeRequest(req, &result)
 }

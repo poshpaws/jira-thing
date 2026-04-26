@@ -1,2 +1,5 @@
- jira-client
-    *.exe
+jira-thing
+jira-client
+*.exe
+.DS_Store
+.claude/settings.local.json
