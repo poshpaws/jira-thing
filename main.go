@@ -186,11 +186,11 @@ func runMyTasks(args []string) {
 	if err != nil {
 		fatal("fetching tasks: %v", err)
 	}
-	if result.Total == 0 {
+	if len(result.Issues) == 0 {
 		fmt.Println("No tasks found.")
 		return
 	}
-	fmt.Printf("Found %d %s task(s):\n\n", result.Total, taskLabel(*notUpdated))
+	fmt.Printf("Found %d %s task(s):\n\n", len(result.Issues), taskLabel(*notUpdated))
 	printTasks(result.Issues)
 }
 
