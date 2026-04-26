@@ -1,4 +1,4 @@
-module jira-client
+module jira-thing
 
 go 1.24
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"jira-client/internal/api"
+	"jira-thing/internal/api"
 )
 
 func conn(baseURL string) api.JiraConnection {
@@ -97,7 +97,8 @@ func TestSearchIssues_ReturnsIssues(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := api.SearchIssues(conn(srv.URL), "assignee=currentUser()", []string{"summary", "status"}, 100)
+	q := api.SearchQuery{JQL: "assignee=currentUser()", Fields: []string{"summary", "status"}, MaxResults: 100}
+	result, err := api.SearchIssues(conn(srv.URL), q)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +119,8 @@ func TestSearchIssues_400(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := api.SearchIssues(conn(srv.URL), "INVALID JQL %%%", nil, 50)
+	q := api.SearchQuery{JQL: "INVALID JQL %%%", MaxResults: 50}
+	_, err := api.SearchIssues(conn(srv.URL), q)
 	if err == nil {
 		t.Fatal("expected error for 400, got nil")
 	}
