@@ -301,10 +301,14 @@ func openEditor() (string, error) {
 		return "", fmt.Errorf("creating temp file: %w", err)
 	}
 	defer os.Remove(f.Name())
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("closing temp file: %w", err)
+	}
 
+	// $EDITOR is user-supplied by design (same pattern as git, kubectl).
+	// strings.Fields splits args without shell involvement, preventing injection.
 	parts := strings.Fields(editor)
-	cmd := exec.Command(parts[0], append(parts[1:], f.Name())...)
+	cmd := exec.Command(parts[0], append(parts[1:], f.Name())...) // #nosec G204 G702
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("editor exited with error: %w", err)
