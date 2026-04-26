@@ -36,11 +36,18 @@ type SearchResult struct {
 	MaxResults int              `json:"maxResults"`
 }
 
+// APIRequest groups the HTTP method, endpoint URL, and optional body for a request.
+type APIRequest struct {
+	Method   string
+	Endpoint string
+	Body     io.Reader
+}
+
 var httpClient = &http.Client{Timeout: requestTimeoutSecs}
 
 // newAuthRequest creates an HTTP request with Basic Auth and Accept: application/json.
-func newAuthRequest(conn JiraConnection, method, endpoint string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, endpoint, body)
+func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {
+	req, err := http.NewRequest(r.Method, r.Endpoint, r.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +71,10 @@ func executeRequest(req *http.Request, out any) error {
 
 // FetchIssue retrieves a single Jira issue by key.
 func FetchIssue(conn JiraConnection, issueKey string) (map[string]any, error) {
-	req, err := newAuthRequest(conn, http.MethodGet, conn.BaseURL+IssueEndpoint+"/"+issueKey, nil)
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodGet,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +88,11 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	req, err := newAuthRequest(conn, http.MethodPost, conn.BaseURL+IssueEndpoint, bytes.NewReader(body))
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPost,
+		Endpoint: conn.BaseURL + IssueEndpoint,
+		Body:     bytes.NewReader(body),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +111,11 @@ func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
 	if err != nil {
 		return SearchResult{}, err
 	}
-	req, err := newAuthRequest(conn, http.MethodPost, conn.BaseURL+SearchEndpoint, bytes.NewReader(payload))
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPost,
+		Endpoint: conn.BaseURL + SearchEndpoint,
+		Body:     bytes.NewReader(payload),
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}

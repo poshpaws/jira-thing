@@ -19,8 +19,11 @@ var templateFields = []string{
 
 // Build extracts the reusable fields from a raw Jira issue response.
 func Build(issueData map[string]any) map[string]any {
-	fields, _ := issueData["fields"].(map[string]any)
 	result := make(map[string]any)
+	fields, ok := issueData["fields"].(map[string]any)
+	if !ok {
+		return result
+	}
 	for _, key := range templateFields {
 		if v, ok := fields[key]; ok && v != nil {
 			result[key] = v

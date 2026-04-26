@@ -128,3 +128,38 @@ func TestSearchIssues_400(t *testing.T) {
 		t.Fatal("expected error for 400, got nil")
 	}
 }
+
+func TestFetchIssue_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+	_, err := api.FetchIssue(conn(url), "PROJ-1")
+	if err == nil {
+		t.Fatal("expected network error, got nil")
+	}
+}
+
+func TestFetchIssue_InvalidURL(t *testing.T) {
+	_, err := api.FetchIssue(api.JiraConnection{BaseURL: "http://\x00invalid"}, "PROJ-1")
+	if err == nil {
+		t.Fatal("expected error for invalid URL, got nil")
+	}
+}
+
+func TestCreateIssue_InvalidURL(t *testing.T) {
+	_, err := api.CreateIssue(api.JiraConnection{BaseURL: "http://\x00invalid"}, map[string]any{"summary": "x"})
+	if err == nil {
+		t.Fatal("expected error for invalid URL, got nil")
+	}
+}
+
+func TestSearchIssues_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+	q := api.SearchQuery{JQL: "assignee=currentUser()", MaxResults: 10}
+	_, err := api.SearchIssues(conn(url), q)
+	if err == nil {
+		t.Fatal("expected network error, got nil")
+	}
+}
