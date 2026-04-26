@@ -54,9 +54,6 @@ jira-thing clear-auth
 
 ### `template` — capture a ticket as a template
 
-NOTE: you need a template for the create ticket to work.
-
-
 Fetches an existing Jira issue and saves its reusable fields (project, issue type, priority, labels, components, assignee) as a local JSON file.
 
 ```bash
@@ -151,7 +148,7 @@ jira-thing my-tasks -notupdated
 
 ### `update` — add a comment to a ticket
 
-Adds a comment to an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
+Posts a new comment on an existing Jira ticket. The existing description is **not** modified. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
 
 ```bash
 jira-thing update <TICKET-KEY> [-stdin]
@@ -161,21 +158,31 @@ jira-thing update <TICKET-KEY> [-stdin]
 |---|---|
 | `-stdin` | Read comment text from stdin instead of opening `$EDITOR` |
 
-**Example — via editor:**
+Set your preferred editor via the `EDITOR` environment variable. Editors with arguments (e.g. `code --wait`, `nano -w`) are fully supported.
+
+**Example — editor:**
 
 ```bash
+export EDITOR="nano -w"
 jira-thing update PROJ-42
-# Opens $EDITOR, then posts the saved text as a comment
-# Comment added to PROJ-42
+# (nano opens — write your comment, save, exit)
+# Updated PROJ-42
 # URL: https://yourorg.atlassian.net/browse/PROJ-42
 ```
 
-**Example — via stdin (useful in scripts):**
+**Example — stdin:**
 
 ```bash
-echo "Deployed to staging" | jira-thing update PROJ-42 -stdin
-# Comment added to PROJ-42
-# URL: https://yourorg.atlassian.net/browse/PROJ-42
+echo "Deployed to staging. Monitoring for 30 min." | jira-thing update PROJ-42 -stdin
+```
+
+**Example — heredoc (multi-line):**
+
+```bash
+jira-thing update PROJ-42 -stdin << 'EOF'
+Root cause: race condition in cache invalidation.
+Fix deployed to staging. Monitoring for 24h before prod rollout.
+EOF
 ```
 
 ---
