@@ -54,7 +54,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  template <TICKET-KEY> [-o output.json]  Fetch a ticket and save as template")
 	fmt.Fprintln(os.Stderr, "  create [-t template.json]               Create a new ticket from a template")
-	fmt.Fprintln(os.Stderr, "  update <TICKET-KEY> [-stdin]            Update ticket description via $EDITOR or stdin")
+	fmt.Fprintln(os.Stderr, "  update <TICKET-KEY> [-stdin]            Add a comment to a ticket via $EDITOR or stdin")
 	fmt.Fprintln(os.Stderr, "  my-tasks [-notupdated]                  List open tasks assigned to you")
 	fmt.Fprintln(os.Stderr, "  clear-auth                              Clear stored credentials")
 }
@@ -258,10 +258,10 @@ func nestedString(m map[string]any, key1, key2 string) string {
 	return ""
 }
 
-// runUpdate opens $EDITOR (or reads stdin with -stdin) and updates the ticket description.
+// runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.
 func runUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
-	fromStdin := fs.Bool("stdin", false, "Read description from stdin instead of opening $EDITOR")
+	fromStdin := fs.Bool("stdin", false, "Read comment from stdin instead of opening $EDITOR")
 	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing update <TICKET-KEY> [-stdin]")
 	}
@@ -277,15 +277,15 @@ func runUpdate(args []string) {
 		fatal("%v", err)
 	}
 	if strings.TrimSpace(text) == "" {
-		fatal("description is empty, aborting update")
+		fatal("comment is empty, aborting update")
 	}
 
 	key := fs.Arg(0)
 	conn := mustConnect()
-	if err := api.UpdateIssue(conn, key, map[string]any{"description": buildDescription(text)}); err != nil {
-		fatal("updating issue: %v", err)
+	if err := api.AddComment(conn, key, buildDescription(text)); err != nil {
+		fatal("adding comment: %v", err)
 	}
-	fmt.Printf("Updated %s\n", key)
+	fmt.Printf("Comment added to %s\n", key)
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
