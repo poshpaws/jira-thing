@@ -129,6 +129,47 @@ func TestSearchIssues_400(t *testing.T) {
 	}
 }
 
+func TestUpdateIssue_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding body: %v", err)
+		}
+		if body["fields"] == nil {
+			t.Error("expected fields in body")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	err := api.UpdateIssue(conn(srv.URL), "PROJ-1", map[string]any{"description": "text"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateIssue_404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	err := api.UpdateIssue(conn(srv.URL), "BAD-1", map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+}
+
+func TestUpdateIssue_InvalidURL(t *testing.T) {
+	err := api.UpdateIssue(api.JiraConnection{BaseURL: "http://\x00invalid"}, "PROJ-1", map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for invalid URL, got nil")
+	}
+}
+
 func TestFetchIssue_NetworkError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -32,6 +34,8 @@ func main() {
 		runCreate(os.Args[2:])
 	case "my-tasks":
 		runMyTasks(os.Args[2:])
+	case "update":
+		runUpdate(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
@@ -50,6 +54,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  template <TICKET-KEY> [-o output.json]  Fetch a ticket and save as template")
 	fmt.Fprintln(os.Stderr, "  create [-t template.json]               Create a new ticket from a template")
+	fmt.Fprintln(os.Stderr, "  update <TICKET-KEY> [-stdin]            Update ticket description via $EDITOR or stdin")
 	fmt.Fprintln(os.Stderr, "  my-tasks [-notupdated]                  List open tasks assigned to you")
 	fmt.Fprintln(os.Stderr, "  clear-auth                              Clear stored credentials")
 }
@@ -251,6 +256,73 @@ func nestedString(m map[string]any, key1, key2 string) string {
 		return getString(inner, key2)
 	}
 	return ""
+}
+
+// runUpdate opens $EDITOR (or reads stdin with -stdin) and updates the ticket description.
+func runUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	fromStdin := fs.Bool("stdin", false, "Read description from stdin instead of opening $EDITOR")
+	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing update <TICKET-KEY> [-stdin]")
+	}
+
+	var text string
+	var err error
+	if *fromStdin {
+		text, err = readAllStdin()
+	} else {
+		text, err = openEditor()
+	}
+	if err != nil {
+		fatal("%v", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		fatal("description is empty, aborting update")
+	}
+
+	key := fs.Arg(0)
+	conn := mustConnect()
+	if err := api.UpdateIssue(conn, key, map[string]any{"description": buildDescription(text)}); err != nil {
+		fatal("updating issue: %v", err)
+	}
+	fmt.Printf("Updated %s\n", key)
+	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
+}
+
+// openEditor writes a temp file, opens $EDITOR, and returns the saved content.
+// EDITOR may contain arguments (e.g. "code --wait") — split before exec to avoid shell injection.
+func openEditor() (string, error) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		return "", fmt.Errorf("EDITOR is not set; use -stdin or set the EDITOR environment variable")
+	}
+	f, err := os.CreateTemp("", "jira-thing-update-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(f.Name())
+	f.Close()
+
+	parts := strings.Fields(editor)
+	cmd := exec.Command(parts[0], append(parts[1:], f.Name())...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("editor exited with error: %w", err)
+	}
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		return "", fmt.Errorf("reading editor output: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// readAllStdin drains stdin and returns the trimmed content.
+func readAllStdin() (string, error) {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("reading stdin: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 // threeBusinessDaysAgo returns the date 3 weekdays before now, skipping Sat/Sun.
