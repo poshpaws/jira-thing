@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"jira-client/internal/template"
+	"jira-thing/internal/template"
 )
 
 var sampleIssue = map[string]any{
