@@ -12,14 +12,32 @@ Download the latest release for your platform from the [Releases](../../releases
 |---|---|
 | macOS (Apple Silicon) | `jira-thing-darwin-arm64` |
 | macOS (Intel) | `jira-thing-darwin-amd64` |
+| Linux (x86-64) | `jira-thing-linux-amd64` |
+| Linux (ARM64) | `jira-thing-linux-arm64` |
 | Windows | `jira-thing-windows-amd64.exe` |
 
-Make the binary executable (macOS/Linux):
+**macOS:**
 
 ```bash
 chmod +x jira-thing-darwin-arm64
-mv jira-thing-darwin-arm64 /usr/local/bin/jira-thing
+sudo mv jira-thing-darwin-arm64 /usr/local/bin/jira-thing
 ```
+
+**Linux:**
+
+```bash
+chmod +x jira-thing-linux-amd64
+sudo mv jira-thing-linux-amd64 /usr/local/bin/jira-thing
+```
+
+**Linux (ARM64 — Raspberry Pi, AWS Graviton, etc.):**
+
+```bash
+chmod +x jira-thing-linux-arm64
+sudo mv jira-thing-linux-arm64 /usr/local/bin/jira-thing
+```
+
+**Windows:** rename to `jira-thing.exe` and place on your `PATH`.
 
 ### Build from source
 
@@ -33,7 +51,9 @@ make build
 
 ## Authentication
 
-On first use, `jira-thing` will prompt for your Jira credentials and store them securely in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
+On first use, `jira-thing` will prompt for your Jira credentials and store them securely in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service via D-Bus).
+
+> **Linux note:** requires a running Secret Service daemon — GNOME Keyring or KWallet. On headless servers install and unlock `gnome-keyring` or use `secret-tool` to verify D-Bus is available.
 
 ```
 Jira base URL (e.g. https://yourorg.atlassian.net): https://yourorg.atlassian.net
