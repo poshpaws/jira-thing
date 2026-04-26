@@ -38,8 +38,8 @@ Templates are stored as local JSON files (see `ticket_template.json`). No databa
 
 
 ## Git discipline
-    Commit the current working state before starting each new change:
-    `git add -A && git commit -m "checkpoint: <what exists now>"`
+Commit the current working state before starting each new change:
+`git add -A && git commit -m "checkpoint: <what exists now>"`
 
 ## Quality Target — CodeScene
 

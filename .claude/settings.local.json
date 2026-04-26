@@ -8,7 +8,15 @@
       "Bash(curl -s \"https://proxy.golang.org/github.com/zalando/go-keyring/@v/list\")",
       "Bash(go build:*)",
       "Bash(go test:*)",
-      "Bash(xargs sed:*)"
+      "Bash(xargs sed:*)",
+      "Skill(update-config)",
+      "Bash(chmod +x /Users/gavreid/Developer/jira-clone/.claude/rebuild.sh)",
+      "Bash(bash /Users/gavreid/Developer/jira-clone/.claude/rebuild.sh)",
+      "Bash(make clean:*)",
+      "Bash(make build:*)",
+      "Bash(make test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ]
   }
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"jira-thing/internal/api"
@@ -79,11 +78,15 @@ func TestCreateIssue_400(t *testing.T) {
 
 func TestSearchIssues_ReturnsIssues(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
-		if !strings.Contains(r.URL.RawQuery, "jql=") {
-			t.Error("expected jql query param")
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+		if body["jql"] == "" {
+			t.Error("expected jql in request body")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
