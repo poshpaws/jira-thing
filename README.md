@@ -146,6 +146,37 @@ jira-thing my-tasks -notupdated
 
 ---
 
+### `update` — add a comment to a ticket
+
+Adds a comment to an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
+
+```bash
+jira-thing update <TICKET-KEY> [-stdin]
+```
+
+| Flag | Description |
+|---|---|
+| `-stdin` | Read comment text from stdin instead of opening `$EDITOR` |
+
+**Example — via editor:**
+
+```bash
+jira-thing update PROJ-42
+# Opens $EDITOR, then posts the saved text as a comment
+# Comment added to PROJ-42
+# URL: https://yourorg.atlassian.net/browse/PROJ-42
+```
+
+**Example — via stdin (useful in scripts):**
+
+```bash
+echo "Deployed to staging" | jira-thing update PROJ-42 -stdin
+# Comment added to PROJ-42
+# URL: https://yourorg.atlassian.net/browse/PROJ-42
+```
+
+---
+
 ### `clear-auth` — remove stored credentials
 
 Deletes all stored Jira credentials from the OS keychain.
@@ -171,7 +202,10 @@ jira-thing create -t templates/task.json
 # 3. Check what's on your plate
 jira-thing my-tasks
 
-# 4. Find tickets you haven't touched in a while
+# 4. Add a progress update to a ticket
+jira-thing update PROJ-42
+
+# 5. Find tickets you haven't touched in a while
 jira-thing my-tasks -notupdated
 ```
 

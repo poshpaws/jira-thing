@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"jira-thing/internal/api"
@@ -129,42 +130,48 @@ func TestSearchIssues_400(t *testing.T) {
 	}
 }
 
-func TestUpdateIssue_Success(t *testing.T) {
+func TestAddComment_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
+		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/comment") {
+			t.Errorf("expected /comment path, got %s", r.URL.Path)
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decoding body: %v", err)
 		}
-		if body["fields"] == nil {
-			t.Error("expected fields in body")
+		if body["body"] == nil {
+			t.Error("expected body in payload")
 		}
-		w.WriteHeader(http.StatusNoContent)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"id": "12345"})
 	}))
 	defer srv.Close()
 
-	err := api.UpdateIssue(conn(srv.URL), "PROJ-1", map[string]any{"description": "text"})
+	body := map[string]any{"type": "doc", "version": 1, "content": []any{}}
+	err := api.AddComment(conn(srv.URL), "PROJ-1", body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestUpdateIssue_404(t *testing.T) {
+func TestAddComment_404(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
 
-	err := api.UpdateIssue(conn(srv.URL), "BAD-1", map[string]any{})
+	err := api.AddComment(conn(srv.URL), "BAD-1", map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
 	}
 }
 
-func TestUpdateIssue_InvalidURL(t *testing.T) {
-	err := api.UpdateIssue(api.JiraConnection{BaseURL: "http://\x00invalid"}, "PROJ-1", map[string]any{})
+func TestAddComment_InvalidURL(t *testing.T) {
+	err := api.AddComment(api.JiraConnection{BaseURL: "http://\x00invalid"}, "PROJ-1", map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for invalid URL, got nil")
 	}
