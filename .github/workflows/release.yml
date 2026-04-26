@@ -28,6 +28,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Build
         env:
@@ -57,9 +58,11 @@ jobs:
           merge-multiple: true
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          files: dist/*
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          gh release create "build-${RUN_NUMBER}" \
+            --title "Build ${RUN_NUMBER}" \
+            --generate-notes \
+            dist/*
