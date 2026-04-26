@@ -14,6 +14,12 @@ import (
 	"jira-thing/internal/template"
 )
 
+// getCredentialsFn resolves Jira credentials; replaced in tests.
+var getCredentialsFn = auth.GetCredentials
+
+// osExit calls os.Exit; replaced in tests to prevent process termination.
+var osExit = os.Exit
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -27,7 +33,9 @@ func main() {
 	case "my-tasks":
 		runMyTasks(os.Args[2:])
 	case "clear-auth":
-		auth.ClearCredentials()
+		if err := auth.ClearCredentials(); err != nil {
+			fatal("clearing credentials: %v", err)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -48,7 +56,7 @@ func printUsage() {
 
 // buildConnection resolves credentials and returns a JiraConnection.
 func buildConnection() (api.JiraConnection, error) {
-	creds, err := auth.GetCredentials()
+	creds, err := getCredentialsFn()
 	if err != nil {
 		return api.JiraConnection{}, err
 	}
@@ -67,7 +75,7 @@ func mustConnect() api.JiraConnection {
 // fatal prints an error to stderr and exits with code 1.
 func fatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
-	os.Exit(1)
+	osExit(1)
 }
 
 // runTemplate fetches a Jira ticket and saves it as a local JSON template.
@@ -120,7 +128,7 @@ func runCreate(args []string) {
 	if err != nil {
 		fatal("creating issue: %v", err)
 	}
-	key, _ := result["key"].(string)
+	key := getString(result, "key")
 	fmt.Printf("Created ticket: %s\n", key)
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
@@ -214,10 +222,13 @@ func printTasks(issues []map[string]any) {
 
 // printTaskRow prints a single issue line: key, status, priority, last-updated date, summary.
 func printTaskRow(issue map[string]any) {
-	key, _ := issue["key"].(string)
-	f, _ := issue["fields"].(map[string]any)
-	summary, _ := f["summary"].(string)
-	updated, _ := f["updated"].(string)
+	key := getString(issue, "key")
+	f, ok := issue["fields"].(map[string]any)
+	if !ok {
+		f = map[string]any{}
+	}
+	summary := getString(f, "summary")
+	updated := getString(f, "updated")
 	if len(updated) >= 10 {
 		updated = updated[:10]
 	}
@@ -225,11 +236,19 @@ func printTaskRow(issue map[string]any) {
 		key, nestedString(f, "status", "name"), nestedString(f, "priority", "name"), updated, summary)
 }
 
+// getString safely extracts a string value from a map by key.
+func getString(m map[string]any, key string) string {
+	v, ok := m[key].(string)
+	if !ok {
+		return ""
+	}
+	return v
+}
+
 // nestedString safely extracts m[key1][key2] as a string.
 func nestedString(m map[string]any, key1, key2 string) string {
 	if inner, ok := m[key1].(map[string]any); ok {
-		s, _ := inner[key2].(string)
-		return s
+		return getString(inner, key2)
 	}
 	return ""
 }
