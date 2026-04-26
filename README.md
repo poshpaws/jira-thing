@@ -54,6 +54,9 @@ jira-thing clear-auth
 
 ### `template` — capture a ticket as a template
 
+NOTE: you need a template for the create ticket to work.
+
+
 Fetches an existing Jira issue and saves its reusable fields (project, issue type, priority, labels, components, assignee) as a local JSON file.
 
 ```bash
