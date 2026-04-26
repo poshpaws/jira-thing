@@ -503,18 +503,23 @@ func TestOpenEditor_EditorWithArgs(t *testing.T) {
 
 func TestRunUpdate_Stdin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
+		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
-		w.WriteHeader(http.StatusNoContent)
+		if !strings.HasSuffix(r.URL.Path, "/comment") {
+			t.Errorf("expected /comment path, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"id": "12345"})
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer pipeStdinLines(t, "new description text")()
+	defer pipeStdinLines(t, "new comment text")()
 
 	out := captureStdout(func() { runUpdate([]string{"-stdin", "PROJ-1"}) })
-	if !strings.Contains(out, "PROJ-1") {
-		t.Errorf("expected PROJ-1 in output, got: %s", out)
+	if !strings.Contains(out, "Comment added to PROJ-1") {
+		t.Errorf("expected 'Comment added to PROJ-1' in output, got: %s", out)
 	}
 }
 

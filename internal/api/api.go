@@ -105,22 +105,23 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 	return result, executeRequest(req, &result)
 }
 
-// UpdateIssue updates fields on an existing Jira issue via PUT. Returns nil on success (204).
-func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) error {
-	body, err := json.Marshal(map[string]any{"fields": fields})
+// AddComment posts a comment on an existing Jira issue.
+func AddComment(conn JiraConnection, issueKey string, body map[string]any) error {
+	payload, err := json.Marshal(map[string]any{"body": body})
 	if err != nil {
 		return err
 	}
 	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodPut,
-		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey,
-		Body:     bytes.NewReader(body),
+		Method:   http.MethodPost,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/comment",
+		Body:     bytes.NewReader(payload),
 	})
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return executeRequest(req, nil)
+	var result map[string]any
+	return executeRequest(req, &result)
 }
 
 // SearchIssues executes a JQL search via POST /rest/api/3/search/jql and returns matching issues.
