@@ -4,3 +4,4 @@ jira-client
 .DS_Store
 .claude/settings.local.json
 ticket_template.json
+.idea/
