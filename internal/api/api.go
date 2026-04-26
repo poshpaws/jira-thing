@@ -57,6 +57,7 @@ func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {
 }
 
 // executeRequest sends req, asserts a 2xx status, and JSON-decodes the body into out.
+// Pass nil for out when no response body is expected (e.g. 204 No Content).
 func executeRequest(req *http.Request, out any) error {
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -65,6 +66,9 @@ func executeRequest(req *http.Request, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -99,6 +103,24 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 	req.Header.Set("Content-Type", "application/json")
 	var result map[string]any
 	return result, executeRequest(req, &result)
+}
+
+// UpdateIssue updates fields on an existing Jira issue via PUT. Returns nil on success (204).
+func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) error {
+	body, err := json.Marshal(map[string]any{"fields": fields})
+	if err != nil {
+		return err
+	}
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPut,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey,
+		Body:     bytes.NewReader(body),
+	})
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return executeRequest(req, nil)
 }
 
 // SearchIssues executes a JQL search via POST /rest/api/3/search/jql and returns matching issues.
