@@ -2,13 +2,13 @@ package auth
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"golang.org/x/term"
-
 	gokeyring "github.com/zalando/go-keyring"
+	"golang.org/x/term"
 )
 
 const (
@@ -25,19 +25,24 @@ type Credentials struct {
 	Token string
 }
 
+// readPassword reads a password from the terminal. Overridden in tests.
+var readPassword = func() ([]byte, error) {
+	return term.ReadPassword(int(os.Stdin.Fd()))
+}
+
 // Keyring abstracts credential storage to allow test injection.
 type Keyring interface {
-	Get(service, key string) (string, error)
-	Set(service, key, value string) error
-	Delete(service, key string) error
+	Get(key string) (string, error)
+	Set(key, value string) error
+	Delete(key string) error
 }
 
 // systemKeyring delegates to the OS keyring via go-keyring.
 type systemKeyring struct{}
 
-func (systemKeyring) Get(service, key string) (string, error) { return gokeyring.Get(service, key) }
-func (systemKeyring) Set(service, key, value string) error    { return gokeyring.Set(service, key, value) }
-func (systemKeyring) Delete(service, key string) error        { return gokeyring.Delete(service, key) }
+func (systemKeyring) Get(key string) (string, error)        { return gokeyring.Get(keyringService, key) }
+func (systemKeyring) Set(key, value string) error           { return gokeyring.Set(keyringService, key, value) }
+func (systemKeyring) Delete(key string) error               { return gokeyring.Delete(keyringService, key) }
 
 // backend is the active keyring implementation; replaced in tests.
 var backend Keyring = systemKeyring{}
@@ -49,9 +54,18 @@ func GetCredentials() (Credentials, error) {
 
 // getCredentials loads credentials from kr, falling back to interactive prompt.
 func getCredentials(kr Keyring) (Credentials, error) {
-	url, _ := kr.Get(keyringService, keyURL)
-	email, _ := kr.Get(keyringService, keyEmail)
-	token, _ := kr.Get(keyringService, keyToken)
+	url, err := kr.Get(keyURL)
+	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
+		return Credentials{}, fmt.Errorf("reading URL from keyring: %w", err)
+	}
+	email, err := kr.Get(keyEmail)
+	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
+		return Credentials{}, fmt.Errorf("reading email from keyring: %w", err)
+	}
+	token, err := kr.Get(keyToken)
+	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
+		return Credentials{}, fmt.Errorf("reading token from keyring: %w", err)
+	}
 	if url == "" || email == "" || token == "" {
 		return promptAndStore(kr)
 	}
@@ -91,7 +105,7 @@ func readCredentials() (Credentials, error) {
 	email := strings.TrimSpace(emailLine)
 
 	fmt.Print("Jira API token: ")
-	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	tokenBytes, err := readPassword()
 	fmt.Println()
 	if err != nil {
 		return Credentials{}, fmt.Errorf("reading token: %w", err)
@@ -106,24 +120,27 @@ func readCredentials() (Credentials, error) {
 
 // storeCredentials writes credential values into kr.
 func storeCredentials(kr Keyring, creds Credentials) error {
-	if err := kr.Set(keyringService, keyURL, creds.URL); err != nil {
+	if err := kr.Set(keyURL, creds.URL); err != nil {
 		return err
 	}
-	if err := kr.Set(keyringService, keyEmail, creds.Email); err != nil {
+	if err := kr.Set(keyEmail, creds.Email); err != nil {
 		return err
 	}
-	return kr.Set(keyringService, keyToken, creds.Token)
+	return kr.Set(keyToken, creds.Token)
 }
 
 // ClearCredentials removes all stored Jira credentials from the keyring.
-func ClearCredentials() {
-	clearCredentials(backend)
+func ClearCredentials() error {
+	return clearCredentials(backend)
 }
 
-// clearCredentials deletes all credential keys from kr, ignoring missing-key errors.
-func clearCredentials(kr Keyring) {
+// clearCredentials deletes all credential keys from kr; not-found errors are ignored.
+func clearCredentials(kr Keyring) error {
 	for _, key := range []string{keyURL, keyEmail, keyToken} {
-		_ = kr.Delete(keyringService, key)
+		if err := kr.Delete(key); err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
+			return fmt.Errorf("clearing %s: %w", key, err)
+		}
 	}
 	fmt.Println("Credentials cleared.")
+	return nil
 }

@@ -116,3 +116,30 @@ func TestLoad_FileNotFound(t *testing.T) {
 		t.Fatal("expected error for missing file, got nil")
 	}
 }
+
+func TestLoad_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := template.Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestLoad_ReadError(t *testing.T) {
+	// Passing a directory path triggers a read error that is not os.IsNotExist.
+	_, err := template.Load(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error reading a directory as file, got nil")
+	}
+}
+
+func TestSave_WriteError(t *testing.T) {
+	_, err := template.Save(map[string]any{"key": "x"}, "/nonexistent/dir/file.json")
+	if err == nil {
+		t.Fatal("expected error writing to nonexistent directory, got nil")
+	}
+}
