@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const defaultTemplateFile = "ticket_template.json"
@@ -43,7 +44,7 @@ func Save(tmpl map[string]any, path string) (string, error) {
 		return "", err
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -54,7 +55,7 @@ func Load(path string) (map[string]any, error) {
 	if path == "" {
 		path = defaultTemplateFile
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("template not found: %s", path)
