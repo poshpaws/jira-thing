@@ -48,11 +48,11 @@ func printUsage() {
 
 // buildConnection resolves credentials and returns a JiraConnection.
 func buildConnection() (api.JiraConnection, error) {
-	url, email, token, err := auth.GetCredentials()
+	creds, err := auth.GetCredentials()
 	if err != nil {
 		return api.JiraConnection{}, err
 	}
-	return api.JiraConnection{BaseURL: url, Email: email, APIToken: token}, nil
+	return api.JiraConnection{BaseURL: creds.URL, Email: creds.Email, APIToken: creds.Token}, nil
 }
 
 // mustConnect calls buildConnection and exits on failure.
@@ -89,7 +89,10 @@ func runTemplate(args []string) {
 		fatal("saving template: %v", err)
 	}
 	fmt.Printf("Template saved to %s\n", saved)
-	out, _ := json.MarshalIndent(tmpl, "", "  ")
+	out, err := json.MarshalIndent(tmpl, "", "  ")
+	if err != nil {
+		fatal("marshalling template: %v", err)
+	}
 	fmt.Println(string(out))
 }
 
@@ -97,7 +100,9 @@ func runTemplate(args []string) {
 func runCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	templatePath := fs.String("t", "", "Path to template file")
-	fs.Parse(args) //nolint:errcheck
+	if err := fs.Parse(args); err != nil {
+		fatal("parsing flags: %v", err)
+	}
 
 	tmpl, err := template.Load(*templatePath)
 	if err != nil {
@@ -124,13 +129,19 @@ func runCreate(args []string) {
 func promptTicketFields() (summary, description string, err error) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter ticket summary: ")
-	line, _ := reader.ReadString('\n')
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", "", fmt.Errorf("reading summary: %w", err)
+	}
 	summary = strings.TrimSpace(line)
 	if summary == "" {
 		return "", "", fmt.Errorf("summary is required")
 	}
 	fmt.Print("Enter ticket description: ")
-	line, _ = reader.ReadString('\n')
+	line, err = reader.ReadString('\n')
+	if err != nil {
+		return "", "", fmt.Errorf("reading description: %w", err)
+	}
 	return summary, strings.TrimSpace(line), nil
 }
 
@@ -153,7 +164,9 @@ func buildDescription(text string) map[string]any {
 func runMyTasks(args []string) {
 	fs := flag.NewFlagSet("my-tasks", flag.ExitOnError)
 	notUpdated := fs.Bool("notupdated", false, "Only show tasks with no updates in the last 3 business days")
-	fs.Parse(args) //nolint:errcheck
+	if err := fs.Parse(args); err != nil {
+		fatal("parsing flags: %v", err)
+	}
 
 	conn := mustConnect()
 	q := api.SearchQuery{
@@ -176,7 +189,7 @@ func runMyTasks(args []string) {
 // buildMyTasksJQL constructs the JQL for the my-tasks query.
 // When notUpdated is true, it adds an upper bound on the updated date.
 func buildMyTasksJQL(notUpdated bool) string {
-	base := `assignee = currentUser() AND statusCategory != Done`
+	base := `assignee = currentUser() AND resolution = Unresolved`
 	if notUpdated {
 		cutoff := threeBusinessDaysAgo(time.Now())
 		return fmt.Sprintf(`%s AND updated <= "%s" ORDER BY updated ASC`, base, cutoff.Format("2006/01/02"))

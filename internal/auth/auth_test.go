@@ -7,7 +7,7 @@ import (
 
 // mockKeyring is an in-memory Keyring for tests.
 type mockKeyring struct {
-	store map[string]string
+	store  map[string]string
 	delErr error
 }
 
@@ -36,18 +36,18 @@ func TestGetCredentials_ReturnsStored(t *testing.T) {
 		keyEmail: "a@b.com",
 		keyToken: "tok",
 	}}
-	url, email, token, err := getCredentials(kr)
+	creds, err := getCredentials(kr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if url != "https://x.atlassian.net" {
-		t.Errorf("url = %q, want %q", url, "https://x.atlassian.net")
+	if creds.URL != "https://x.atlassian.net" {
+		t.Errorf("URL = %q, want %q", creds.URL, "https://x.atlassian.net")
 	}
-	if email != "a@b.com" {
-		t.Errorf("email = %q, want %q", email, "a@b.com")
+	if creds.Email != "a@b.com" {
+		t.Errorf("Email = %q, want %q", creds.Email, "a@b.com")
 	}
-	if token != "tok" {
-		t.Errorf("token = %q, want %q", token, "tok")
+	if creds.Token != "tok" {
+		t.Errorf("Token = %q, want %q", creds.Token, "tok")
 	}
 }
 
@@ -58,7 +58,7 @@ func TestGetCredentials_MissingTriggersPrompt(t *testing.T) {
 	// taken by checking that the returned error is non-nil when the store is
 	// empty (promptAndStore fails because stdin is not a terminal in tests).
 	kr := &mockKeyring{store: map[string]string{}}
-	_, _, _, err := getCredentials(kr)
+	_, err := getCredentials(kr)
 	if err == nil {
 		t.Fatal("expected error when credentials missing and stdin is not a TTY")
 	}
