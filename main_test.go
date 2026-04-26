@@ -454,6 +454,107 @@ func TestRunCreate_TemplateError(t *testing.T) {
 	}
 }
 
+// --- readAllStdin ---
+
+func TestReadAllStdin(t *testing.T) {
+	defer pipeStdinLines(t, "hello world")()
+	text, err := readAllStdin()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text != "hello world" {
+		t.Errorf("got %q, want hello world", text)
+	}
+}
+
+// --- openEditor ---
+
+func TestOpenEditor_NoEditor(t *testing.T) {
+	old := os.Getenv("EDITOR")
+	os.Unsetenv("EDITOR")
+	defer os.Setenv("EDITOR", old)
+
+	_, err := openEditor()
+	if err == nil {
+		t.Fatal("expected error when EDITOR not set")
+	}
+}
+
+func TestOpenEditor_EditorWithArgs(t *testing.T) {
+	// Simulate "code --wait" arg splitting: EDITOR="cp <src>" gets split into
+	// ["cp", "<src>"] and the temp file is appended, producing: cp <src> <tmp>.
+	src := filepath.Join(t.TempDir(), "content.txt")
+	if err := os.WriteFile(src, []byte("test content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Setenv("EDITOR", "cp "+src)
+	defer os.Unsetenv("EDITOR")
+
+	text, err := openEditor()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text != "test content" {
+		t.Errorf("got %q, want test content", text)
+	}
+}
+
+// --- runUpdate ---
+
+func TestRunUpdate_Stdin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer pipeStdinLines(t, "new description text")()
+
+	out := captureStdout(func() { runUpdate([]string{"-stdin", "PROJ-1"}) })
+	if !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected PROJ-1 in output, got: %s", out)
+	}
+}
+
+func TestRunUpdate_EmptyInput(t *testing.T) {
+	defer mockCreds("http://unused")()
+	defer pipeStdinLines(t)() // nothing written → empty stdin
+
+	exited := captureExit(func() {
+		captureStderr(func() { runUpdate([]string{"-stdin", "PROJ-1"}) })
+	})
+	if !exited {
+		t.Error("expected osExit for empty input")
+	}
+}
+
+func TestRunUpdate_NoArgs(t *testing.T) {
+	exited := captureExit(func() {
+		captureStderr(func() { runUpdate([]string{}) })
+	})
+	if !exited {
+		t.Error("expected osExit for missing ticket key")
+	}
+}
+
+func TestRunUpdate_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer pipeStdinLines(t, "some update text")()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runUpdate([]string{"-stdin", "BAD-1"}) })
+	})
+	if !exited {
+		t.Error("expected osExit for API error")
+	}
+}
+
 func TestThreeBusinessDaysAgo(t *testing.T) {
 	tests := []struct {
 		name string
