@@ -15,7 +15,7 @@ const (
 	keyringService = "jira-thing-poc"
 	keyURL         = "jira_url"
 	keyEmail       = "jira_email"
-	keyToken       = "jira_api_token"
+	keyToken       = "jira_api_token" // #nosec G101 -- keyring lookup key, not a credential value
 )
 
 // Credentials holds the three Jira connection values.

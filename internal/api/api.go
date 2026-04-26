@@ -59,7 +59,7 @@ func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {
 // executeRequest sends req, asserts a 2xx status, and JSON-decodes the body into out.
 // Pass nil for out when no response body is expected (e.g. 204 No Content).
 func executeRequest(req *http.Request, out any) error {
-	resp, err := httpClient.Do(req)
+	resp, err := httpClient.Do(req) // #nosec G704 -- URL originates from user's own OS keychain config, not external input
 	if err != nil {
 		return err
 	}
