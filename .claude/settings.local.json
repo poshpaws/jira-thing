@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod:*)",
+      "Bash(go list:*)",
+      "Bash(GONOSUMCHECK=* GOFLAGS=\"-mod=mod\" go get:*)",
+      "Bash(GOPROXY=direct go get:*)",
+      "Bash(curl -s \"https://proxy.golang.org/github.com/zalando/go-keyring/@v/list\")",
+      "Bash(go build:*)",
+      "Bash(go test:*)"
+    ]
+  }
+}

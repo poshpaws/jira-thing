@@ -1,0 +1,29 @@
+{
+  "components": [],
+  "issuetype": {
+    "avatarId": 10318,
+    "description": "A small, distinct piece of work.",
+    "entityId": "cd3903cf-3abc-4ed6-b754-ffa3a649a61d",
+    "hierarchyLevel": 0,
+    "iconUrl": "https://swissunixsupport.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+    "id": "10003",
+    "name": "Task",
+    "self": "https://swissunixsupport.atlassian.net/rest/api/3/issuetype/10003",
+    "subtask": false
+  },
+  "labels": [],
+  "project": {
+    "avatarUrls": {
+      "16x16": "https://swissunixsupport.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10402?size=xsmall",
+      "24x24": "https://swissunixsupport.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10402?size=small",
+      "32x32": "https://swissunixsupport.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10402?size=medium",
+      "48x48": "https://swissunixsupport.atlassian.net/rest/api/3/universal_avatar/view/type/project/avatar/10402"
+    },
+    "id": "10000",
+    "key": "SCRUM",
+    "name": "House Defects",
+    "projectTypeKey": "software",
+    "self": "https://swissunixsupport.atlassian.net/rest/api/3/project/10000",
+    "simplified": true
+  }
+}
