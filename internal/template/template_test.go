@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"jira-thing/internal/template"
@@ -134,6 +135,54 @@ func TestLoad_ReadError(t *testing.T) {
 	_, err := template.Load(t.TempDir())
 	if err == nil {
 		t.Fatal("expected error reading a directory as file, got nil")
+	}
+}
+
+func TestLoad_DefaultFallbackErrorListsPaths(t *testing.T) {
+	// Change cwd to an empty temp dir so no template exists in any fallback location.
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(orig) //nolint:errcheck
+
+	_, loadErr := template.Load("")
+	if loadErr == nil {
+		t.Fatal("expected error when no template found in any location")
+	}
+	msg := loadErr.Error()
+	if !strings.Contains(msg, "tried:") {
+		t.Errorf("error should list tried paths, got: %s", msg)
+	}
+}
+
+func TestLoad_FallbackCWD(t *testing.T) {
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(orig) //nolint:errcheck
+
+	tmpl := map[string]any{"project": map[string]any{"key": "CWD"}}
+	if _, err := template.Save(tmpl, filepath.Join(dir, "ticket_template.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := template.Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	proj, _ := loaded["project"].(map[string]any)
+	if proj["key"] != "CWD" {
+		t.Errorf("expected CWD project, got %v", proj)
 	}
 }
 
