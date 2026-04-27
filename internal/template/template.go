@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const defaultTemplateFile = "ticket_template.json"
@@ -50,16 +51,47 @@ func Save(tmpl map[string]any, path string) (string, error) {
 	return path, nil
 }
 
-// Load reads a template from a JSON file. Uses defaultTemplateFile if path is empty.
+// Load reads a template from a JSON file.
+// When path is empty, tries cwd, binary directory, platform config dir, then ~/.config/jira-thing.
 func Load(path string) (map[string]any, error) {
-	if path == "" {
-		path = defaultTemplateFile
+	if path != "" {
+		return loadFile(path)
 	}
+	candidates := candidatePaths()
+	for _, p := range candidates {
+		tmpl, err := loadFile(p)
+		if err == nil {
+			return tmpl, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("template not found; tried: %s", strings.Join(candidates, ", "))
+}
+
+// candidatePaths returns ordered fallback locations for the default template file.
+func candidatePaths() []string {
+	var paths []string
+	if cwd, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(cwd, defaultTemplateFile))
+	}
+	if exe, err := os.Executable(); err == nil {
+		paths = append(paths, filepath.Join(filepath.Dir(exe), defaultTemplateFile))
+	}
+	if cfgDir, err := os.UserConfigDir(); err == nil {
+		paths = append(paths, filepath.Join(cfgDir, "jira-thing", defaultTemplateFile))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", "jira-thing", defaultTemplateFile))
+	}
+	return paths
+}
+
+// loadFile reads and parses a JSON template from the given path.
+func loadFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("template not found: %s", path)
-		}
 		return nil, err
 	}
 	var result map[string]any
