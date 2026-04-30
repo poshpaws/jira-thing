@@ -113,8 +113,8 @@ func TestGetString(t *testing.T) {
 
 func TestNestedString(t *testing.T) {
 	m := map[string]any{
-		"status":   map[string]any{"name": "In Progress"},
-		"notAMap":  "string value",
+		"status":  map[string]any{"name": "In Progress"},
+		"notAMap": "string value",
 	}
 	if got := nestedString(m, "status", "name"); got != "In Progress" {
 		t.Errorf("got %q, want In Progress", got)
@@ -131,9 +131,9 @@ func TestPrintTaskRow(t *testing.T) {
 	issue := map[string]any{
 		"key": "PROJ-42",
 		"fields": map[string]any{
-			"summary": "Fix the thing",
-			"updated": "2026-04-20T10:00:00.000Z",
-			"status":  map[string]any{"name": "In Progress"},
+			"summary":  "Fix the thing",
+			"updated":  "2026-04-20T10:00:00.000Z",
+			"status":   map[string]any{"name": "In Progress"},
 			"priority": map[string]any{"name": "High"},
 		},
 	}

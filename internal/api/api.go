@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	IssueEndpoint      = "/rest/api/3/issue"
-	SearchEndpoint     = "/rest/api/3/search/jql"
-	requestTimeoutSecs = 30 * time.Second
+	IssueEndpoint  = "/rest/api/3/issue"
+	SearchEndpoint = "/rest/api/3/search/jql"
+	requestTimeout = 30 * time.Second
 )
 
 // JiraConnection holds the connection details for the Jira API.
@@ -43,7 +43,7 @@ type APIRequest struct {
 	Body     io.Reader
 }
 
-var httpClient = &http.Client{Timeout: requestTimeoutSecs}
+var httpClient = &http.Client{Timeout: requestTimeout}
 
 // newAuthRequest creates an HTTP request with Basic Auth and Accept: application/json.
 func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {

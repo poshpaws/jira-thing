@@ -40,9 +40,9 @@ type Keyring interface {
 // systemKeyring delegates to the OS keyring via go-keyring.
 type systemKeyring struct{}
 
-func (systemKeyring) Get(key string) (string, error)        { return gokeyring.Get(keyringService, key) }
-func (systemKeyring) Set(key, value string) error           { return gokeyring.Set(keyringService, key, value) }
-func (systemKeyring) Delete(key string) error               { return gokeyring.Delete(keyringService, key) }
+func (systemKeyring) Get(key string) (string, error) { return gokeyring.Get(keyringService, key) }
+func (systemKeyring) Set(key, value string) error    { return gokeyring.Set(keyringService, key, value) }
+func (systemKeyring) Delete(key string) error        { return gokeyring.Delete(keyringService, key) }
 
 // backend is the active keyring implementation; replaced in tests.
 var backend Keyring = systemKeyring{}
