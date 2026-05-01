@@ -75,8 +75,15 @@ func Load(path string) (map[string]any, error) {
 	return nil, fmt.Errorf("template not found; tried: %s", strings.Join(candidates, ", "))
 }
 
+// CandidatePathsFunc allows tests to override fallback path resolution.
+var CandidatePathsFunc = defaultCandidatePaths
+
 // candidatePaths returns ordered fallback locations for the default template file.
 func candidatePaths() []string {
+	return CandidatePathsFunc()
+}
+
+func defaultCandidatePaths() []string {
 	var paths []string
 	if cwd, err := os.Getwd(); err == nil {
 		paths = append(paths, filepath.Join(cwd, defaultTemplateFile))

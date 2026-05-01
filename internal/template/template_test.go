@@ -67,7 +67,7 @@ func TestBuild_SkipsNilFields(t *testing.T) {
 func TestBuild_IncludesCustomFields(t *testing.T) {
 	issue := map[string]any{
 		"fields": map[string]any{
-			"project":            map[string]any{"key": "PROJ"},
+			"project":           map[string]any{"key": "PROJ"},
 			"customfield_10001": map[string]any{"name": "My Team"},
 			"customfield_10050": "some-value",
 			"customfield_99999": nil,
@@ -160,16 +160,14 @@ func TestLoad_ReadError(t *testing.T) {
 }
 
 func TestLoad_DefaultFallbackErrorListsPaths(t *testing.T) {
-	// Change cwd to an empty temp dir so no template exists in any fallback location.
 	dir := t.TempDir()
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+
+	// Override candidate paths so only the empty temp dir is searched.
+	original := template.CandidatePathsFunc
+	template.CandidatePathsFunc = func() []string {
+		return []string{filepath.Join(dir, "ticket_template.json")}
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(orig) //nolint:errcheck
+	defer func() { template.CandidatePathsFunc = original }()
 
 	_, loadErr := template.Load("")
 	if loadErr == nil {
