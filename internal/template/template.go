@@ -31,6 +31,11 @@ func Build(issueData map[string]any) map[string]any {
 			result[key] = v
 		}
 	}
+	for key, v := range fields {
+		if strings.HasPrefix(key, "customfield_") && v != nil {
+			result[key] = v
+		}
+	}
 	return result
 }
 
