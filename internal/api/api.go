@@ -77,7 +77,7 @@ func executeRequest(req *http.Request, out any) error {
 func FetchIssue(conn JiraConnection, issueKey string) (map[string]any, error) {
 	req, err := newAuthRequest(conn, APIRequest{
 		Method:   http.MethodGet,
-		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "?fields=*all",
 	})
 	if err != nil {
 		return nil, err
