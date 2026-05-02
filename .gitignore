@@ -2,5 +2,7 @@ jira-thing
 jira-client
 *.exe
 .DS_Store
-.claude/settings.local.json
+.claude/
+CLAUDE.md
+.idea/
 ticket_template.json
