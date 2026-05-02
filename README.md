@@ -239,6 +239,8 @@ jira-thing update PROJ-42
 # 5. Find tickets you haven't touched in a while
 jira-thing my-tasks -notupdated
 ```
+## Agent Skill
+SKILL.md provided but not had a lot of testing , please feedback via issues 
 
 ## Template file format
 
