@@ -79,6 +79,7 @@ Fetches an existing Jira issue and saves its reusable fields (project, issue typ
 ```bash
 jira-thing template <TICKET-KEY> [-o output.json]
 ```
+Note replace <TICKET-KEY> with the actual key of the ticket you want to capture, e.g. `PROJ-42`.
 
 | Flag | Default | Description |
 |---|---|---|
