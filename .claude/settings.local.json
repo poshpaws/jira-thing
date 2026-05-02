@@ -21,7 +21,10 @@
       "Bash(python3 *)",
       "Bash(staticcheck *)",
       "Bash(gosec *)",
-      "Bash(make all *)"
+      "Bash(make all *)",
+      "Bash(git checkout *)",
+      "Bash(./jira-thing create *)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

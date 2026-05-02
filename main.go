@@ -119,6 +119,9 @@ func runCreate(args []string) {
 
 	tmpl, err := template.Load(*templatePath)
 	if err != nil {
+		if *templatePath == "" {
+			fatal("no template found in search path.\n\nCreate one first:\n  jira-thing template <TICKET-KEY> [-o ticket_template.json]\n\nThen place ticket_template.json in one of:\n  - current directory\n  - same directory as the jira-thing binary\n  - $XDG_CONFIG_HOME/jira-thing/\n  - ~/.config/jira-thing/\n\nOr specify a path directly:\n  jira-thing create -t /path/to/template.json")
+		}
 		fatal("loading template: %v", err)
 	}
 	summary, description, err := promptTicketFields()

@@ -1,5 +1,5 @@
 BINARY := jira-thing
-SOURCES := $(wildcard *.go)
+SOURCES := $(shell find . -name '*.go' -not -path './.git/*')
 GOBIN   := $(shell go env GOPATH)/bin
 
 .PHONY: all build test lint security clean
@@ -9,7 +9,7 @@ tools:
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
         
-all: lint security test build
+all: lint security test clean build
 
 build: $(BINARY)
 
