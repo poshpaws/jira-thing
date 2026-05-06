@@ -36,6 +36,8 @@ func main() {
 		runMyTasks(os.Args[2:])
 	case "update":
 		runUpdate(os.Args[2:])
+	case "last-comment":
+		runLastComment(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
@@ -56,6 +58,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  create [-t template.json]               Create a new ticket from a template")
 	fmt.Fprintln(os.Stderr, "  update <TICKET-KEY> [-stdin]            Add a comment to a ticket via $EDITOR or stdin")
 	fmt.Fprintln(os.Stderr, "  my-tasks [-notupdated]                  List open tasks assigned to you")
+	fmt.Fprintln(os.Stderr, "  last-comment <TICKET-KEY>               Show last comment, rendered as markdown")
 	fmt.Fprintln(os.Stderr, "  clear-auth                              Clear stored credentials")
 }
 
@@ -259,6 +262,20 @@ func nestedString(m map[string]any, key1, key2 string) string {
 		return getString(inner, key2)
 	}
 	return ""
+}
+
+// runLastComment fetches and renders the last comment on a Jira ticket.
+func runLastComment(args []string) {
+	fs := flag.NewFlagSet("last-comment", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing last-comment <TICKET-KEY>")
+	}
+	conn := mustConnect()
+	comment, err := api.FetchLastComment(conn, fs.Arg(0))
+	if err != nil {
+		fatal("fetching comment: %v", err)
+	}
+	renderLastComment(comment)
 }
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.
