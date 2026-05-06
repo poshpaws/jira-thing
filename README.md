@@ -208,6 +208,31 @@ EOF
 
 ---
 
+### `last-comment` — show the last comment on a ticket
+
+Fetches the most recent comment on a Jira ticket and renders it as formatted markdown in the terminal.
+
+```bash
+jira-thing last-comment <TICKET-KEY>
+```
+
+**Example:**
+
+```bash
+jira-thing last-comment PROJ-42
+# Last comment by Jane Smith on 2026-05-05:
+#
+#  ┌─────────────────────────────────────────────────────┐
+#  │ Deployed to staging. Monitoring logs for 24 h.      │
+#  │                                                     │
+#  │ **Root cause:** race condition in cache layer.       │
+#  └─────────────────────────────────────────────────────┘
+```
+
+Jira comment bodies are stored internally as Atlassian Document Format (ADF). `jira-thing` converts ADF to markdown and renders it with colour and formatting using [glamour](https://github.com/charmbracelet/glamour).
+
+---
+
 ### `clear-auth` — remove stored credentials
 
 Deletes all stored Jira credentials from the OS keychain.
@@ -236,7 +261,10 @@ jira-thing my-tasks
 # 4. Add a progress update to a ticket
 jira-thing update PROJ-42
 
-# 5. Find tickets you haven't touched in a while
+# 5. Check the last comment before replying
+jira-thing last-comment PROJ-42
+
+# 6. Find tickets you haven't touched in a while
 jira-thing my-tasks -notupdated
 ```
 ## Agent Skill
