@@ -43,6 +43,19 @@ type APIRequest struct {
 	Body     io.Reader
 }
 
+// Comment represents a single Jira issue comment.
+type Comment struct {
+	Author  map[string]any `json:"author"`
+	Body    map[string]any `json:"body"`
+	Created string         `json:"created"`
+}
+
+// CommentResult holds the Jira comment list response.
+type CommentResult struct {
+	Comments []Comment `json:"comments"`
+	Total    int       `json:"total"`
+}
+
 var httpClient = &http.Client{Timeout: requestTimeout}
 
 // newAuthRequest creates an HTTP request with Basic Auth and Accept: application/json.
@@ -122,6 +135,40 @@ func AddComment(conn JiraConnection, issueKey string, body map[string]any) error
 	req.Header.Set("Content-Type", "application/json")
 	var result map[string]any
 	return executeRequest(req, &result)
+}
+
+// FetchLastComment retrieves the most recent comment on a Jira issue.
+func FetchLastComment(conn JiraConnection, issueKey string) (Comment, error) {
+	first, err := fetchCommentPage(conn, issueKey, 0, 1)
+	if err != nil {
+		return Comment{}, err
+	}
+	if first.Total == 0 {
+		return Comment{}, fmt.Errorf("no comments on %s", issueKey)
+	}
+	if first.Total == 1 {
+		return first.Comments[0], nil
+	}
+	page, err := fetchCommentPage(conn, issueKey, first.Total-1, 1)
+	if err != nil {
+		return Comment{}, err
+	}
+	if len(page.Comments) == 0 {
+		return Comment{}, fmt.Errorf("no comments found")
+	}
+	return page.Comments[0], nil
+}
+
+// fetchCommentPage retrieves a page of comments from a Jira issue.
+func fetchCommentPage(conn JiraConnection, issueKey string, startAt, maxResults int) (CommentResult, error) {
+	endpoint := fmt.Sprintf("%s%s/%s/comment?startAt=%d&maxResults=%d",
+		conn.BaseURL, IssueEndpoint, issueKey, startAt, maxResults)
+	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
+	if err != nil {
+		return CommentResult{}, err
+	}
+	var result CommentResult
+	return result, executeRequest(req, &result)
 }
 
 // SearchIssues executes a JQL search via POST /rest/api/3/search/jql and returns matching issues.
