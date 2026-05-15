@@ -3,9 +3,11 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -58,6 +60,47 @@ type CommentResult struct {
 
 var httpClient = &http.Client{Timeout: requestTimeout}
 
+// APIError represents a non-2xx HTTP response from Jira, carrying the raw body.
+type APIError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *APIError) Error() string {
+	if len(e.Body) > 0 {
+		return fmt.Sprintf("HTTP %d: %s", e.StatusCode, strings.TrimSpace(string(e.Body)))
+	}
+	return fmt.Sprintf("HTTP %d", e.StatusCode)
+}
+
+// coreFields are the fields that must never be silently stripped — errors on
+// these represent genuine problems the user needs to fix.
+var coreFields = map[string]bool{
+	"summary":     true,
+	"description": true,
+	"project":     true,
+	"issuetype":   true,
+}
+
+// strippableErrorFields parses a Jira 400 body and returns the field names that
+// are safe to remove and retry — any field in the "errors" map that is not a
+// core required field.
+func strippableErrorFields(apiErr *APIError) []string {
+	var resp struct {
+		Errors map[string]string `json:"errors"`
+	}
+	if err := json.Unmarshal(apiErr.Body, &resp); err != nil {
+		return nil
+	}
+	var bad []string
+	for field := range resp.Errors {
+		if !coreFields[field] {
+			bad = append(bad, field)
+		}
+	}
+	return bad
+}
+
 // newAuthRequest creates an HTTP request with Basic Auth and Accept: application/json.
 func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {
 	req, err := http.NewRequest(r.Method, r.Endpoint, r.Body)
@@ -78,7 +121,8 @@ func executeRequest(req *http.Request, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return &APIError{StatusCode: resp.StatusCode, Body: body}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -100,22 +144,42 @@ func FetchIssue(conn JiraConnection, issueKey string) (map[string]any, error) {
 }
 
 // CreateIssue creates a new Jira issue with the provided fields payload.
+// On a 400 caused solely by read-only custom fields ("does not support update"),
+// those fields are stripped and the request is retried once.
 func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, error) {
-	body, err := json.Marshal(map[string]any{"fields": fields})
-	if err != nil {
+	for attempt := 0; attempt < 2; attempt++ {
+		body, err := json.Marshal(map[string]any{"fields": fields})
+		if err != nil {
+			return nil, err
+		}
+		req, err := newAuthRequest(conn, APIRequest{
+			Method:   http.MethodPost,
+			Endpoint: conn.BaseURL + IssueEndpoint,
+			Body:     bytes.NewReader(body),
+		})
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		var result map[string]any
+		err = executeRequest(req, &result)
+		if err == nil {
+			return result, nil
+		}
+		if attempt == 0 {
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
+				if bad := strippableErrorFields(apiErr); len(bad) > 0 {
+					for _, k := range bad {
+						delete(fields, k)
+					}
+					continue
+				}
+			}
+		}
 		return nil, err
 	}
-	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodPost,
-		Endpoint: conn.BaseURL + IssueEndpoint,
-		Body:     bytes.NewReader(body),
-	})
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	var result map[string]any
-	return result, executeRequest(req, &result)
+	return nil, fmt.Errorf("unreachable")
 }
 
 // AddComment posts a comment on an existing Jira issue.

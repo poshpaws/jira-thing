@@ -77,6 +77,66 @@ func TestCreateIssue_400(t *testing.T) {
 	}
 }
 
+func TestCreateIssue_RetriesOnUnsupportedFields(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var payload struct {
+			Fields map[string]any `json:"fields"`
+		}
+		json.NewDecoder(r.Body).Decode(&payload)
+
+		if attempts == 1 {
+			http.Error(w, `{"errors":{"customfield_10038":"Field does not support update 'customfield_10038'","customfield_10020":"The Sprint (id) must be a number","rankBeforeIssue":"expected Object"}}`, http.StatusBadRequest)
+			return
+		}
+		// Verify all three bad fields were stripped
+		for _, field := range []string{"customfield_10038", "customfield_10020", "rankBeforeIssue"} {
+			if _, present := payload.Fields[field]; present {
+				t.Errorf("%s should have been stripped on retry", field)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"key": "PROJ-3"})
+	}))
+	defer srv.Close()
+
+	fields := map[string]any{
+		"summary":           "Test",
+		"customfield_10038": "bad",
+		"customfield_10020": map[string]any{"id": "sprint-abc"},
+		"rankBeforeIssue":   map[string]any{},
+	}
+	result, err := api.CreateIssue(conn(srv.URL), fields)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["key"] != "PROJ-3" {
+		t.Errorf("got key %v, want PROJ-3", result["key"])
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestCreateIssue_NoRetryOnCoreFieldErrors(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, `{"errors":{"summary":"Field 'summary' cannot be empty"}}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	_, err := api.CreateIssue(conn(srv.URL), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt (no retry on core field error), got %d", attempts)
+	}
+}
+
 func TestSearchIssues_ReturnsIssues(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

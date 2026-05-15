@@ -1,6 +1,6 @@
 module jira-thing
 
-go 1.24.0
+go 1.26.3
 
 require (
 	github.com/zalando/go-keyring v0.2.8

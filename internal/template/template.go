@@ -19,6 +19,15 @@ var templateFields = []string{
 	"assignee",
 }
 
+// excludedCustomFields are customfield_* keys that cannot be set on issue
+// creation — sprint (managed by board), team, and lexorank (triggers
+// rankBeforeIssue/rankAfterIssue errors that cannot be satisfied via API).
+var excludedCustomFields = map[string]bool{
+	"customfield_10019": true, // LexoRank
+	"customfield_10020": true, // Sprint
+	"customfield_10001": true, // Team
+}
+
 // Build extracts the reusable fields from a raw Jira issue response.
 func Build(issueData map[string]any) map[string]any {
 	result := make(map[string]any)
@@ -32,7 +41,7 @@ func Build(issueData map[string]any) map[string]any {
 		}
 	}
 	for key, v := range fields {
-		if strings.HasPrefix(key, "customfield_") && v != nil {
+		if strings.HasPrefix(key, "customfield_") && v != nil && !excludedCustomFields[key] {
 			result[key] = v
 		}
 	}

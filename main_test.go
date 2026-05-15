@@ -560,6 +560,32 @@ func TestRunUpdate_APIError(t *testing.T) {
 	}
 }
 
+func TestNormalizeTemplateForCreate_SprintConverted(t *testing.T) {
+	fields := map[string]any{
+		"summary":           "Test",
+		"customfield_10019": "0|zz9rib:",
+		"customfield_10020": []any{map[string]any{"id": float64(99), "name": "Sprint 99"}},
+		"customfield_10001": map[string]any{"id": "team-abc"},
+	}
+	normalizeTemplateForCreate(fields)
+	for _, f := range []string{"customfield_10019", "customfield_10020", "customfield_10001"} {
+		if _, ok := fields[f]; ok {
+			t.Errorf("%s should be removed", f)
+		}
+	}
+	if fields["summary"] != "Test" {
+		t.Error("summary should be unchanged")
+	}
+}
+
+func TestNormalizeTemplateForCreate_NoSprint(t *testing.T) {
+	fields := map[string]any{"summary": "Test"}
+	normalizeTemplateForCreate(fields) // must not panic or alter other fields
+	if fields["summary"] != "Test" {
+		t.Error("summary should be unchanged")
+	}
+}
+
 func TestThreeBusinessDaysAgo(t *testing.T) {
 	tests := []struct {
 		name string

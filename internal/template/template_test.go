@@ -68,20 +68,37 @@ func TestBuild_IncludesCustomFields(t *testing.T) {
 	issue := map[string]any{
 		"fields": map[string]any{
 			"project":           map[string]any{"key": "PROJ"},
-			"customfield_10001": map[string]any{"name": "My Team"},
 			"customfield_10050": "some-value",
 			"customfield_99999": nil,
 		},
 	}
 	result := template.Build(issue)
-	if result["customfield_10001"] == nil {
-		t.Error("customfield_10001 (Team) should be included")
-	}
 	if result["customfield_10050"] == nil {
 		t.Error("customfield_10050 should be included")
 	}
 	if _, ok := result["customfield_99999"]; ok {
 		t.Error("nil custom field should be excluded")
+	}
+}
+
+func TestBuild_ExcludesUncreateableCustomFields(t *testing.T) {
+	issue := map[string]any{
+		"fields": map[string]any{
+			"project":           map[string]any{"key": "PROJ"},
+			"customfield_10019": "0|zz9rib:",
+			"customfield_10020": []any{map[string]any{"id": float64(42), "name": "Sprint 1"}},
+			"customfield_10001": map[string]any{"name": "My Team"},
+			"customfield_10050": "should-be-kept",
+		},
+	}
+	result := template.Build(issue)
+	for _, f := range []string{"customfield_10019", "customfield_10020", "customfield_10001"} {
+		if _, ok := result[f]; ok {
+			t.Errorf("%s should be excluded from template", f)
+		}
+	}
+	if result["customfield_10050"] == nil {
+		t.Error("customfield_10050 should still be included")
 	}
 }
 

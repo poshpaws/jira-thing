@@ -112,6 +112,14 @@ func runTemplate(args []string) {
 	fmt.Println(string(out))
 }
 
+// normalizeTemplateForCreate removes fields that cannot be set via the Jira
+// create API. This handles templates captured before these exclusions were added.
+func normalizeTemplateForCreate(fields map[string]any) {
+	delete(fields, "customfield_10019") // LexoRank — triggers rank ordering errors
+	delete(fields, "customfield_10020") // Sprint   — managed by board, not settable on create
+	delete(fields, "customfield_10001") // Team     — not settable on create
+}
+
 // runCreate loads a template, prompts for summary/description, and creates a Jira ticket.
 func runCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
@@ -133,6 +141,7 @@ func runCreate(args []string) {
 	}
 	tmpl["summary"] = summary
 	tmpl["description"] = buildDescription(description)
+	normalizeTemplateForCreate(tmpl)
 
 	conn := mustConnect()
 	result, err := api.CreateIssue(conn, tmpl)
