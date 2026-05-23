@@ -75,6 +75,9 @@ func TestCreateIssue_400(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 400, got nil")
 	}
+	if !strings.Contains(err.Error(), `"summary"`) {
+		t.Errorf("error should include response body, got: %v", err)
+	}
 }
 
 func TestSearchIssues_ReturnsIssues(t *testing.T) {

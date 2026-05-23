@@ -60,3 +60,21 @@ func TestLoad_EmptyPath(t *testing.T) {
 		t.Errorf("expected empty config, got %+v", cfg)
 	}
 }
+
+func TestLoad_ConfluenceFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jira-thing.json")
+	os.WriteFile(path, []byte(`{"confluence_space":"ENG","ticket_hanger":"Toil Tracker"}`), 0o644)
+
+	old := ConfigPath
+	ConfigPath = func() string { return path }
+	defer func() { ConfigPath = old }()
+
+	cfg := Load()
+	if cfg.ConfluenceSpace != "ENG" {
+		t.Errorf("ConfluenceSpace = %q, want ENG", cfg.ConfluenceSpace)
+	}
+	if cfg.TicketHanger != "Toil Tracker" {
+		t.Errorf("TicketHanger = %q, want Toil Tracker", cfg.TicketHanger)
+	}
+}
