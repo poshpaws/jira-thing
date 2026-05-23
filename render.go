@@ -135,6 +135,9 @@ func prefixLines(text, prefix string) string {
 func adfHeading(node map[string]any) string {
 	attrs, _ := node["attrs"].(map[string]any)
 	level, _ := attrs["level"].(float64)
+	if level < 1 || level > 6 {
+		level = 1
+	}
 	return strings.Repeat("#", int(level)) + " " + joinChildren(node) + "\n\n"
 }
 
