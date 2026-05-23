@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
 )
@@ -444,6 +445,41 @@ func TestRunCreate_Success(t *testing.T) {
 	}
 }
 
+func TestRunCreate_StripsBlockedFields(t *testing.T) {
+	var capturedFields map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		capturedFields, _ = body["fields"].(map[string]any)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"key": "PROJ-99"})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer pipeStdinLines(t, "My ticket", "desc")()
+
+	dir := t.TempDir()
+	tmplPath := filepath.Join(dir, "tpl.json")
+	os.WriteFile(tmplPath, []byte(`{
+		"issuetype":        {"name":"Task"},
+		"rankBeforeIssue":  {"key":"OTHER-1"},
+		"rankAfterIssue":   {"key":"OTHER-2"},
+		"customfield_10019": "0|i0000v:"
+	}`), 0o644)
+
+	captureStdout(func() { runCreate([]string{"-t", tmplPath}) })
+	if _, ok := capturedFields["rankBeforeIssue"]; ok {
+		t.Error("rankBeforeIssue must be stripped before sending to Jira")
+	}
+	if _, ok := capturedFields["rankAfterIssue"]; ok {
+		t.Error("rankAfterIssue must be stripped before sending to Jira")
+	}
+	if _, ok := capturedFields["customfield_10019"]; ok {
+		t.Error("customfield_10019 (rank) must be stripped before sending to Jira")
+	}
+}
+
 func TestRunCreate_TemplateError(t *testing.T) {
 	exited := captureExit(func() {
 		captureStderr(func() {
@@ -705,5 +741,242 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	}
 	if !strings.Contains(receivedJQL, "updated >= -1w") {
 		t.Errorf("JQL missing time filter: %s", receivedJQL)
+	}
+}
+
+// --- extractNotes ---
+
+func TestExtractNotes_Found(t *testing.T) {
+	body := "<!-- jira-thing:notes:start --><p>my notes</p><!-- jira-thing:notes:end -->"
+	got := extractNotes(body)
+	if got != "<p>my notes</p>" {
+		t.Errorf("extractNotes = %q, want <p>my notes</p>", got)
+	}
+}
+
+func TestExtractNotes_Missing(t *testing.T) {
+	if got := extractNotes("<p>no markers</p>"); got != "" {
+		t.Errorf("extractNotes = %q, want empty", got)
+	}
+}
+
+// --- renderTicketPage ---
+
+func testIssue(key, summary string) map[string]any {
+	return map[string]any{
+		"key": key,
+		"fields": map[string]any{
+			"summary":  summary,
+			"updated":  "2026-05-20T10:00:00.000Z",
+			"status":   map[string]any{"name": "Open"},
+			"priority": map[string]any{"name": "High"},
+		},
+	}
+}
+
+func TestRenderTicketPage_ContainsDetailsAndNotes(t *testing.T) {
+	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "")
+	for _, want := range []string{
+		"jira-thing:details:start", "jira-thing:details:end",
+		"jira-thing:notes:start", "jira-thing:notes:end",
+		"ac:structured-macro", `ac:name="jira"`, "CRSS-1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in output: %s", want, out)
+		}
+	}
+}
+
+func TestRenderTicketPage_PreservesExistingNotes(t *testing.T) {
+	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "<p>saved note</p>")
+	if !strings.Contains(out, "<p>saved note</p>") {
+		t.Errorf("notes not preserved: %s", out)
+	}
+}
+
+func TestRenderTicketPage_KeyEscaped(t *testing.T) {
+	out := renderTicketPage(testIssue(`<script>`, "irrelevant"), "")
+	if strings.Contains(out, "<script>") {
+		t.Errorf("unescaped key in output: %s", out)
+	}
+}
+
+func TestRenderTicketPage_NewPageHasDateAndNotePanel(t *testing.T) {
+	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "")
+	if !strings.Contains(out, `<time datetime=`) {
+		t.Errorf("new page missing time element: %s", out)
+	}
+	if !strings.Contains(out, `ac:adf-extension`) {
+		t.Errorf("new page missing adf-extension: %s", out)
+	}
+	if !strings.Contains(out, `panelType`) || !strings.Contains(out, `note`) {
+		t.Errorf("new page missing note panelType: %s", out)
+	}
+}
+
+func TestRenderTicketPage_ExistingNotesNoDatePanel(t *testing.T) {
+	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "<p>existing note</p>")
+	if strings.Contains(out, `<time datetime=`) {
+		t.Errorf("existing notes page should not inject date element: %s", out)
+	}
+	if strings.Contains(out, `ac:adf-extension`) {
+		t.Errorf("existing notes page should not inject panel: %s", out)
+	}
+}
+
+// --- renderHangerPage ---
+
+func TestRenderHangerPage_WithIssues(t *testing.T) {
+	issues := []map[string]any{
+		testIssue("CRSS-1", "Fix toil"),
+		testIssue("CRSS-2", "More toil"),
+	}
+	out := renderHangerPage(issues, nil)
+	for _, want := range []string{"CRSS-1", "CRSS-2", "ac:link", "ri:page"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in hanger page: %s", want, out)
+		}
+	}
+}
+
+func TestRenderHangerPage_Empty(t *testing.T) {
+	out := renderHangerPage([]map[string]any{}, nil)
+	if !strings.Contains(out, "No open TOIL tickets") {
+		t.Errorf("expected no-ticket message, got: %s", out)
+	}
+}
+
+func TestRenderHangerPage_IncludesManualPages(t *testing.T) {
+	issues := []map[string]any{testIssue("CRSS-1", "Fix toil")}
+	manuals := []api.ConfluencePageWithBody{
+		{ConfluencePage: api.ConfluencePage{Title: "Team Notes"}},
+		{ConfluencePage: api.ConfluencePage{Title: "Process Guide"}},
+	}
+	out := renderHangerPage(issues, manuals)
+	for _, want := range []string{"CRSS-1", "Team Notes", "Process Guide", "ac:link", "ri:page"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in hanger page: %s", want, out)
+		}
+	}
+}
+
+// --- runToilSync ---
+
+func mockConfluenceConfig(space, hanger string) func() {
+	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
+	path := filepath.Join(dir, "jira-thing.json")
+	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":"ECP_TOIL","toil_team":"ECP_SEC_TEAM","confluence_space":%q,"ticket_hanger":%q}`, space, hanger)
+	os.WriteFile(path, []byte(data), 0o644)
+	old := config.ConfigPath
+	config.ConfigPath = func() string { return path }
+	return func() { config.ConfigPath = old; os.RemoveAll(dir) }
+}
+
+// confluenceTestServer routes all Confluence + Jira API calls for toil-sync tests.
+// hangerID is the page ID returned for the hanger page lookup.
+// existingChildren is a map of page title → body for pre-existing child pages.
+func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodPost && strings.Contains(p, "search"):
+			json.NewEncoder(w).Encode(map[string]any{
+				"issues": []any{map[string]any{"key": "CRSS-1", "fields": map[string]any{
+					"summary": "Toil task", "updated": "2026-05-20T10:00:00.000Z",
+					"status": map[string]any{"name": "Open"}, "priority": map[string]any{"name": "Medium"},
+				}}},
+				"total": 1, "maxResults": 100,
+			})
+		case r.Method == http.MethodGet && strings.Contains(p, "child/page"):
+			results := []any{}
+			ver := 1
+			for title, body := range existingChildren {
+				results = append(results, map[string]any{
+					"id": "child-" + title, "title": title,
+					"version": map[string]any{"number": float64(ver)},
+					"body":    map[string]any{"storage": map[string]any{"value": body}},
+				})
+				ver++
+			}
+			json.NewEncoder(w).Encode(map[string]any{"results": results, "size": len(results)})
+		case r.Method == http.MethodGet && strings.Contains(p, "content"):
+			json.NewEncoder(w).Encode(map[string]any{
+				"results": []any{map[string]any{
+					"id": hangerID, "title": "Toil Tracker",
+					"version": map[string]any{"number": float64(3)},
+				}},
+				"size": 1,
+			})
+		case r.Method == http.MethodPost && strings.Contains(p, "content"):
+			json.NewEncoder(w).Encode(map[string]any{"id": "new-1", "title": "CRSS-1", "version": map[string]any{"number": float64(1)}})
+		case r.Method == http.MethodPut:
+			json.NewEncoder(w).Encode(map[string]any{"id": p})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestRunToilSync_CreatesNewChildPage(t *testing.T) {
+	srv := confluenceTestServer(t, "99", nil)
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+
+	out := captureStdout(func() { runToilSync() })
+	if !strings.Contains(out, "Created") || !strings.Contains(out, "CRSS-1") {
+		t.Errorf("expected 'Created CRSS-1' in output, got: %s", out)
+	}
+}
+
+func TestRunToilSync_UpdatesExistingChildPage(t *testing.T) {
+	existing := map[string]string{
+		"CRSS-1": "<!-- jira-thing:notes:start --><p>saved note</p><!-- jira-thing:notes:end -->",
+	}
+	srv := confluenceTestServer(t, "99", existing)
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+
+	out := captureStdout(func() { runToilSync() })
+	if !strings.Contains(out, "Updated") || !strings.Contains(out, "CRSS-1") {
+		t.Errorf("expected 'Updated CRSS-1' in output, got: %s", out)
+	}
+}
+
+func TestRunToilSync_MissingConfig(t *testing.T) {
+	old := config.ConfigPath
+	config.ConfigPath = func() string { return "/nonexistent/path.json" }
+	defer func() { config.ConfigPath = old }()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runToilSync() })
+	})
+	if !exited {
+		t.Error("expected osExit when config missing")
+	}
+}
+
+func TestRunToilSync_PageNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost:
+			json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "size": 0})
+		}
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runToilSync() })
+	})
+	if !exited {
+		t.Error("expected osExit when page not found")
 	}
 }

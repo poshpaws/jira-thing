@@ -8,10 +8,12 @@ import (
 
 // Config holds user-configurable settings loaded from ~/.config/jira-thing/jira-thing.json.
 type Config struct {
-	Project    string `json:"project"`
-	ToilMarker string `json:"toil_marker"`
-	ToilTeam   string `json:"toil_team"`
-	Editor     string `json:"editor"`
+	Project         string `json:"project"`
+	ToilMarker      string `json:"toil_marker"`
+	ToilTeam        string `json:"toil_team"`
+	Editor          string `json:"editor"`
+	ConfluenceSpace string `json:"confluence_space"`
+	TicketHanger    string `json:"ticket_hanger"`
 }
 
 // ConfigPath returns the path to the config file.
