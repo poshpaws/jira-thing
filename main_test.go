@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"jira-thing/internal/auth"
+	"jira-thing/internal/config"
 )
 
 func date(y, m, d int) time.Time {
@@ -474,6 +475,10 @@ func TestOpenEditor_NoEditor(t *testing.T) {
 	os.Unsetenv("EDITOR")
 	defer os.Setenv("EDITOR", old)
 
+	oldCfg := config.ConfigPath
+	config.ConfigPath = func() string { return "/nonexistent/jira-thing.json" }
+	defer func() { config.ConfigPath = oldCfg }()
+
 	_, err := openEditor()
 	if err == nil {
 		t.Fatal("expected error when EDITOR not set")
@@ -604,5 +609,101 @@ func TestThreeBusinessDaysAgo(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+// --- runToilCheck ---
+
+func mockConfig(marker, team string) func() {
+	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
+	path := filepath.Join(dir, "jira-thing.json")
+	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":%q,"toil_team":%q}`, marker, team)
+	os.WriteFile(path, []byte(data), 0o644)
+	old := config.ConfigPath
+	config.ConfigPath = func() string { return path }
+	return func() { config.ConfigPath = old; os.RemoveAll(dir) }
+}
+
+func TestRunToilCheck_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"issues": []any{
+				map[string]any{"key": "CRSS-10", "fields": map[string]any{
+					"summary":  "Toil task",
+					"updated":  "2026-05-20T10:00:00.000Z",
+					"status":   map[string]any{"name": "Open"},
+					"priority": map[string]any{"name": "Medium"},
+				}},
+			},
+			"total": 1, "maxResults": 100,
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+
+	out := captureStdout(func() { runToilCheck() })
+	if !strings.Contains(out, "CRSS-10") {
+		t.Errorf("expected CRSS-10 in output, got: %s", out)
+	}
+	if !strings.Contains(out, "1 toil ticket") {
+		t.Errorf("expected ticket count in output, got: %s", out)
+	}
+}
+
+func TestRunToilCheck_NoResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+
+	out := captureStdout(func() { runToilCheck() })
+	if !strings.Contains(out, "No toil tickets found") {
+		t.Errorf("expected 'No toil tickets found', got: %s", out)
+	}
+}
+
+func TestRunToilCheck_MissingConfig(t *testing.T) {
+	old := config.ConfigPath
+	config.ConfigPath = func() string { return "/nonexistent/path.json" }
+	defer func() { config.ConfigPath = old }()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runToilCheck() })
+	})
+	if !exited {
+		t.Error("expected osExit when config is missing")
+	}
+}
+
+func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
+	var receivedJQL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		receivedJQL, _ = body["jql"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+
+	captureStdout(func() { runToilCheck() })
+	if !strings.Contains(receivedJQL, `labels = "ECP_TOIL"`) {
+		t.Errorf("JQL missing toil_marker label: %s", receivedJQL)
+	}
+	if !strings.Contains(receivedJQL, `labels = "ECP_SEC_TEAM"`) {
+		t.Errorf("JQL missing toil_team label: %s", receivedJQL)
+	}
+	if !strings.Contains(receivedJQL, `project = "CRSS"`) {
+		t.Errorf("JQL missing project: %s", receivedJQL)
+	}
+	if !strings.Contains(receivedJQL, "updated >= -1w") {
+		t.Errorf("JQL missing time filter: %s", receivedJQL)
 	}
 }
