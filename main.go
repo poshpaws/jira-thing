@@ -29,21 +29,21 @@ func main() {
 		os.Exit(1)
 	}
 	switch os.Args[1] {
-	case "template":
+	case "template", "te":
 		runTemplate(os.Args[2:])
-	case "create":
+	case "create", "cr":
 		runCreate(os.Args[2:])
-	case "my-tasks":
+	case "my-tasks", "mt":
 		runMyTasks(os.Args[2:])
-	case "update":
+	case "update", "up":
 		runUpdate(os.Args[2:])
-	case "last-comment":
+	case "last-comment", "lc":
 		runLastComment(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
 		}
-	case "toil-check", "toil":
+	case "toil-check", "toil", "tc":
 		runToilCheck()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
@@ -57,13 +57,13 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: jira-thing <command> [options]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  template <TICKET-KEY> [-o output.json]  Fetch a ticket and save as template")
-	fmt.Fprintln(os.Stderr, "  create [-t template.json]               Create a new ticket from a template")
-	fmt.Fprintln(os.Stderr, "  update <TICKET-KEY> [-stdin]            Add a comment to a ticket via $EDITOR or stdin")
-	fmt.Fprintln(os.Stderr, "  my-tasks [-notupdated]                  List open tasks assigned to you")
-	fmt.Fprintln(os.Stderr, "  last-comment <TICKET-KEY>               Show last comment, rendered as markdown")
-	fmt.Fprintln(os.Stderr, "  toil-check                              List toil tickets from the last week")
-	fmt.Fprintln(os.Stderr, "  clear-auth                              Clear stored credentials")
+	fmt.Fprintln(os.Stderr, "  template|te <TICKET-KEY> [-o output.json]  Fetch a ticket and save as template")
+	fmt.Fprintln(os.Stderr, "  create|cr   [-t template.json]            Create a new ticket from a template")
+	fmt.Fprintln(os.Stderr, "  update|up   <TICKET-KEY> [-stdin]         Add a comment to a ticket via $EDITOR or stdin")
+	fmt.Fprintln(os.Stderr, "  my-tasks|mt [-notupdated]                 List open tasks assigned to you")
+	fmt.Fprintln(os.Stderr, "  last-comment|lc <TICKET-KEY>              Show last comment, rendered as markdown")
+	fmt.Fprintln(os.Stderr, "  toil-check|tc                             List toil tickets from the last week")
+	fmt.Fprintln(os.Stderr, "  clear-auth                                Clear stored credentials")
 }
 
 // buildConnection resolves credentials and returns a JiraConnection.
@@ -313,12 +313,15 @@ func runUpdate(args []string) {
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
-// openEditor writes a temp file, opens $EDITOR, and returns the saved content.
+// openEditor writes a temp file, opens $EDITOR (or config editor), and returns the saved content.
 // EDITOR may contain arguments (e.g. "code --wait") — split before exec to avoid shell injection.
 func openEditor() (string, error) {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		return "", fmt.Errorf("EDITOR is not set; use -stdin or set the EDITOR environment variable")
+		editor = config.Load().Editor
+	}
+	if editor == "" {
+		return "", fmt.Errorf("EDITOR is not set; use -stdin, set the EDITOR environment variable, or add \"editor\" to ~/.config/jira-thing/jira-thing.json")
 	}
 	f, err := os.CreateTemp("", "jira-thing-update-*.txt")
 	if err != nil {
@@ -374,7 +377,7 @@ func runToilCheck() {
 	}
 	conn := mustConnect()
 	jql := fmt.Sprintf(
-		`project = %s AND labels = %s AND labels = %s AND updated >= -1w`,
+		`project = "%s" AND labels = "%s" AND labels = "%s" AND updated >= -1w`,
 		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
 	)
 	q := api.SearchQuery{

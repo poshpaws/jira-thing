@@ -475,6 +475,10 @@ func TestOpenEditor_NoEditor(t *testing.T) {
 	os.Unsetenv("EDITOR")
 	defer os.Setenv("EDITOR", old)
 
+	oldCfg := config.ConfigPath
+	config.ConfigPath = func() string { return "/nonexistent/jira-thing.json" }
+	defer func() { config.ConfigPath = oldCfg }()
+
 	_, err := openEditor()
 	if err == nil {
 		t.Fatal("expected error when EDITOR not set")
@@ -690,13 +694,13 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
 
 	captureStdout(func() { runToilCheck() })
-	if !strings.Contains(receivedJQL, "labels = ECP_TOIL") {
+	if !strings.Contains(receivedJQL, `labels = "ECP_TOIL"`) {
 		t.Errorf("JQL missing toil_marker label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, "labels = ECP_SEC_TEAM") {
+	if !strings.Contains(receivedJQL, `labels = "ECP_SEC_TEAM"`) {
 		t.Errorf("JQL missing toil_team label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, "project = CRSS") {
+	if !strings.Contains(receivedJQL, `project = "CRSS"`) {
 		t.Errorf("JQL missing project: %s", receivedJQL)
 	}
 	if !strings.Contains(receivedJQL, "updated >= -1w") {

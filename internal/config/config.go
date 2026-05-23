@@ -11,6 +11,7 @@ type Config struct {
 	Project    string `json:"project"`
 	ToilMarker string `json:"toil_marker"`
 	ToilTeam   string `json:"toil_team"`
+	Editor     string `json:"editor"`
 }
 
 // ConfigPath returns the path to the config file.
