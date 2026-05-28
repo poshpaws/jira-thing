@@ -78,6 +78,10 @@ func executeRequest(req *http.Request, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if len(bytes.TrimSpace(body)) > 0 {
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
+		}
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {

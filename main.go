@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"os/exec"
@@ -15,10 +16,14 @@ import (
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
 	"jira-thing/internal/template"
+	"jira-thing/internal/tui"
 )
 
 // getCredentialsFn resolves Jira credentials; replaced in tests.
 var getCredentialsFn = auth.GetCredentials
+
+// showTableFn launches the interactive TUI; replaced in tests.
+var showTableFn = tui.ShowTable
 
 // osExit calls os.Exit; replaced in tests to prevent process termination.
 var osExit = os.Exit
@@ -45,6 +50,8 @@ func main() {
 		}
 	case "toil-check", "toil", "tc":
 		runToilCheck()
+	case "toil-sync", "ts":
+		runToilSync()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -63,6 +70,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  my-tasks|mt [-notupdated]                 List open tasks assigned to you")
 	fmt.Fprintln(os.Stderr, "  last-comment|lc <TICKET-KEY>              Show last comment, rendered as markdown")
 	fmt.Fprintln(os.Stderr, "  toil-check|tc                             List toil tickets from the last week")
+	fmt.Fprintln(os.Stderr, "  toil-sync|ts                              Sync open TOIL tickets to Confluence page")
 	fmt.Fprintln(os.Stderr, "  clear-auth                                Clear stored credentials")
 }
 
@@ -138,13 +146,17 @@ func runCreate(args []string) {
 	tmpl["summary"] = summary
 	tmpl["description"] = buildDescription(description)
 
+	for _, f := range []string{"rankBeforeIssue", "rankAfterIssue", "customfield_10019"} {
+		delete(tmpl, f)
+	}
+
 	conn := mustConnect()
 	result, err := api.CreateIssue(conn, tmpl)
 	if err != nil {
 		fatal("creating issue: %v", err)
 	}
 	key := getString(result, "key")
-	fmt.Printf("Created ticket: %s\n", key)
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(key))
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
@@ -205,8 +217,28 @@ func runMyTasks(args []string) {
 		fmt.Println("No tasks found.")
 		return
 	}
-	fmt.Printf("Found %d %s task(s):\n\n", len(result.Issues), taskLabel(*notUpdated))
+	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d %s task(s):", len(result.Issues), taskLabel(*notUpdated))))
+	fmt.Println()
 	printTasks(result.Issues)
+}
+
+// issuesToTickets converts Jira search results to TUI tickets.
+func issuesToTickets(issues []map[string]any) []tui.Ticket {
+	tickets := make([]tui.Ticket, 0, len(issues))
+	for _, issue := range issues {
+		f, _ := issue["fields"].(map[string]any)
+		if f == nil {
+			f = map[string]any{}
+		}
+		tickets = append(tickets, tui.Ticket{
+			Key:      getString(issue, "key"),
+			Status:   nestedString(f, "status", "name"),
+			Priority: nestedString(f, "priority", "name"),
+			Updated:  getString(f, "updated"),
+			Summary:  getString(f, "summary"),
+		})
+	}
+	return tickets
 }
 
 // buildMyTasksJQL constructs the JQL for the my-tasks query.
@@ -247,8 +279,12 @@ func printTaskRow(issue map[string]any) {
 	if len(updated) >= 10 {
 		updated = updated[:10]
 	}
-	fmt.Printf("  %-12s  %-14s  %-8s  updated: %s  %s\n",
-		key, nestedString(f, "status", "name"), nestedString(f, "priority", "name"), updated, summary)
+	fmt.Printf("  %s  %s  %s  %s  %s\n",
+		tui.KeyStyle.Render(fmt.Sprintf("%-12s", key)),
+		tui.StatusStyle.Render(fmt.Sprintf("%-14s", nestedString(f, "status", "name"))),
+		tui.PriorityStyle.Render(fmt.Sprintf("%-8s", nestedString(f, "priority", "name"))),
+		tui.DateStyle.Render("updated: "+updated),
+		tui.SummaryStyle.Render(summary))
 }
 
 // getString safely extracts a string value from a map by key.
@@ -309,7 +345,7 @@ func runUpdate(args []string) {
 	if err := api.AddComment(conn, key, buildDescription(text)); err != nil {
 		fatal("adding comment: %v", err)
 	}
-	fmt.Printf("Comment added to %s\n", key)
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Comment added to"), tui.KeyStyle.Render(key))
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
@@ -393,6 +429,174 @@ func runToilCheck() {
 		fmt.Println("No toil tickets found.")
 		return
 	}
-	fmt.Printf("Found %d toil ticket(s):\n\n", len(result.Issues))
+	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d toil ticket(s):", len(result.Issues))))
+	fmt.Println()
 	printTasks(result.Issues)
+}
+
+const (
+	notesStart = "<!-- jira-thing:notes:start -->"
+	notesEnd   = "<!-- jira-thing:notes:end -->"
+)
+
+// runToilSync queries open TOIL tickets and syncs each to a child Confluence page,
+// then updates the hanger page with links to all children.
+func runToilSync() {
+	cfg := config.Load()
+	if cfg.ConfluenceSpace == "" || cfg.TicketHanger == "" {
+		fatal("confluence_space and ticket_hanger must be set in ~/.config/jira-thing/jira-thing.json")
+	}
+	conn := mustConnect()
+	jql := fmt.Sprintf(
+		`project = "%s" AND labels = "%s" AND labels = "%s" AND resolution = Unresolved ORDER BY updated DESC`,
+		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
+	)
+	result, err := api.SearchIssues(conn, api.SearchQuery{
+		JQL:        jql,
+		Fields:     []string{"summary", "status", "priority", "updated"},
+		MaxResults: 100,
+	})
+	if err != nil {
+		fatal("fetching toil tickets: %v", err)
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No toil tickets found.")
+		return
+	}
+
+	tickets := issuesToTickets(result.Issues)
+	selected, err := showTableFn(tickets)
+	if err != nil {
+		fatal("TUI: %v", err)
+	}
+	if len(selected) == 0 {
+		fmt.Println("No tickets selected.")
+		return
+	}
+
+	selectedIssues := filterSelectedIssues(result.Issues, selected)
+
+	hanger, err := api.FetchConfluencePage(conn, cfg.ConfluenceSpace, cfg.TicketHanger)
+	if err != nil {
+		fatal("%v", err)
+	}
+	children, err := api.ListChildPages(conn, hanger.ID)
+	if err != nil {
+		fatal("listing child pages: %v", err)
+	}
+	childMap := make(map[string]api.ConfluencePageWithBody, len(children))
+	for _, c := range children {
+		childMap[c.Title] = c
+	}
+	ticketKeys := make(map[string]bool, len(selectedIssues))
+	for _, issue := range selectedIssues {
+		ticketKeys[getString(issue, "key")] = true
+		syncTicketPage(conn, cfg.ConfluenceSpace, hanger.ID, issue, childMap)
+	}
+	var manualPages []api.ConfluencePageWithBody
+	for _, c := range children {
+		if !ticketKeys[c.Title] {
+			manualPages = append(manualPages, c)
+		}
+	}
+	if err := api.UpdateConfluencePage(conn, hanger.ID, hanger.Version, hanger.Title, renderHangerPage(selectedIssues, manualPages)); err != nil {
+		fatal("updating hanger page: %v", err)
+	}
+	fmt.Printf("%s %d ticket(s) to %q (%s)\n", tui.SuccessStyle.Render("Synced"), len(selectedIssues), hanger.Title, cfg.ConfluenceSpace)
+}
+
+// filterSelectedIssues returns only the issues whose keys match the TUI selection.
+func filterSelectedIssues(issues []map[string]any, selected []tui.Ticket) []map[string]any {
+	keys := make(map[string]bool, len(selected))
+	for _, t := range selected {
+		keys[t.Key] = true
+	}
+	filtered := make([]map[string]any, 0, len(selected))
+	for _, issue := range issues {
+		if keys[getString(issue, "key")] {
+			filtered = append(filtered, issue)
+		}
+	}
+	return filtered
+}
+
+// syncTicketPage creates or updates a child page for one Jira issue, preserving existing notes.
+func syncTicketPage(conn api.JiraConnection, spaceKey, parentID string, issue map[string]any, existing map[string]api.ConfluencePageWithBody) {
+	key := getString(issue, "key")
+	notes := extractNotes(existing[key].Body)
+	body := renderTicketPage(issue, notes)
+	if child, ok := existing[key]; ok {
+		if err := api.UpdateConfluencePage(conn, child.ID, child.Version, key, body); err != nil {
+			fatal("updating page %s: %v", key, err)
+		}
+		fmt.Printf("  %s %s\n", tui.SuccessStyle.Render("Updated:"), tui.KeyStyle.Render(key))
+		return
+	}
+	if _, err := api.CreateConfluencePage(conn, spaceKey, key, parentID, body); err != nil {
+		fatal("creating page %s: %v", key, err)
+	}
+	fmt.Printf("  %s %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(key))
+}
+
+// extractNotes returns the content between note markers in a Confluence page body.
+func extractNotes(body string) string {
+	start := strings.Index(body, notesStart)
+	end := strings.Index(body, notesEnd)
+	if start < 0 || end < 0 || end <= start {
+		return ""
+	}
+	return body[start+len(notesStart) : end]
+}
+
+// renderTicketPage builds a Confluence storage-format page for one Jira issue.
+// The details section embeds the live Jira issue via the Confluence Jira macro.
+// Existing notes are preserved; empty string produces a blank notes section.
+func renderTicketPage(issue map[string]any, notes string) string {
+	key := html.EscapeString(getString(issue, "key"))
+	if notes == "" {
+		today := time.Now().Format("2006-01-02")
+		notes = fmt.Sprintf(
+			`<p><time datetime="%s" /></p>`+
+				`<ac:adf-extension><ac:adf-node type="panel"><ac:adf-attribute key="panelType">note</ac:adf-attribute><ac:adf-content><p> </p></ac:adf-content></ac:adf-node></ac:adf-extension>`,
+			today,
+		)
+	}
+	return fmt.Sprintf(
+		`<!-- jira-thing:details:start --><h2>Jira Details</h2>`+
+			`<ac:structured-macro ac:name="jira" ac:schema-version="1">`+
+			`<ac:parameter ac:name="key">%s</ac:parameter>`+
+			`</ac:structured-macro>`+
+			`<!-- jira-thing:details:end -->`+
+			`<h2>Notes</h2>%s%s%s`,
+		key, notesStart, notes, notesEnd,
+	)
+}
+
+// renderHangerPage builds a Confluence storage-format page listing tickets and any manually
+// created child pages as links.
+func renderHangerPage(issues []map[string]any, manualPages []api.ConfluencePageWithBody) string {
+	if len(issues) == 0 && len(manualPages) == 0 {
+		return fmt.Sprintf("<p>No open TOIL tickets as of %s.</p>", time.Now().Format("2006-01-02"))
+	}
+	var sb strings.Builder
+	sb.WriteString("<ul>")
+	for _, issue := range issues {
+		key := html.EscapeString(getString(issue, "key"))
+		f, _ := issue["fields"].(map[string]any)
+		summary := ""
+		if f != nil {
+			summary = html.EscapeString(getString(f, "summary"))
+		}
+		fmt.Fprintf(&sb,
+			`<li><ac:link><ri:page ri:content-title=%q/><ac:plain-text-link-body><![CDATA[%s - %s]]></ac:plain-text-link-body></ac:link></li>`,
+			key, key, summary)
+	}
+	for _, p := range manualPages {
+		title := html.EscapeString(p.Title)
+		fmt.Fprintf(&sb,
+			`<li><ac:link><ri:page ri:content-title=%q/><ac:plain-text-link-body><![CDATA[%s]]></ac:plain-text-link-body></ac:link></li>`,
+			title, title)
+	}
+	sb.WriteString("</ul>")
+	return sb.String()
 }
