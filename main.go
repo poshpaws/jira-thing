@@ -16,10 +16,14 @@ import (
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
 	"jira-thing/internal/template"
+	"jira-thing/internal/tui"
 )
 
 // getCredentialsFn resolves Jira credentials; replaced in tests.
 var getCredentialsFn = auth.GetCredentials
+
+// showTableFn launches the interactive TUI; replaced in tests.
+var showTableFn = tui.ShowTable
 
 // osExit calls os.Exit; replaced in tests to prevent process termination.
 var osExit = os.Exit
@@ -152,7 +156,7 @@ func runCreate(args []string) {
 		fatal("creating issue: %v", err)
 	}
 	key := getString(result, "key")
-	fmt.Printf("Created ticket: %s\n", key)
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(key))
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
@@ -213,8 +217,28 @@ func runMyTasks(args []string) {
 		fmt.Println("No tasks found.")
 		return
 	}
-	fmt.Printf("Found %d %s task(s):\n\n", len(result.Issues), taskLabel(*notUpdated))
+	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d %s task(s):", len(result.Issues), taskLabel(*notUpdated))))
+	fmt.Println()
 	printTasks(result.Issues)
+}
+
+// issuesToTickets converts Jira search results to TUI tickets.
+func issuesToTickets(issues []map[string]any) []tui.Ticket {
+	tickets := make([]tui.Ticket, 0, len(issues))
+	for _, issue := range issues {
+		f, _ := issue["fields"].(map[string]any)
+		if f == nil {
+			f = map[string]any{}
+		}
+		tickets = append(tickets, tui.Ticket{
+			Key:      getString(issue, "key"),
+			Status:   nestedString(f, "status", "name"),
+			Priority: nestedString(f, "priority", "name"),
+			Updated:  getString(f, "updated"),
+			Summary:  getString(f, "summary"),
+		})
+	}
+	return tickets
 }
 
 // buildMyTasksJQL constructs the JQL for the my-tasks query.
@@ -255,8 +279,12 @@ func printTaskRow(issue map[string]any) {
 	if len(updated) >= 10 {
 		updated = updated[:10]
 	}
-	fmt.Printf("  %-12s  %-14s  %-8s  updated: %s  %s\n",
-		key, nestedString(f, "status", "name"), nestedString(f, "priority", "name"), updated, summary)
+	fmt.Printf("  %s  %s  %s  %s  %s\n",
+		tui.KeyStyle.Render(fmt.Sprintf("%-12s", key)),
+		tui.StatusStyle.Render(fmt.Sprintf("%-14s", nestedString(f, "status", "name"))),
+		tui.PriorityStyle.Render(fmt.Sprintf("%-8s", nestedString(f, "priority", "name"))),
+		tui.DateStyle.Render("updated: "+updated),
+		tui.SummaryStyle.Render(summary))
 }
 
 // getString safely extracts a string value from a map by key.
@@ -317,7 +345,7 @@ func runUpdate(args []string) {
 	if err := api.AddComment(conn, key, buildDescription(text)); err != nil {
 		fatal("adding comment: %v", err)
 	}
-	fmt.Printf("Comment added to %s\n", key)
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Comment added to"), tui.KeyStyle.Render(key))
 	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
@@ -401,7 +429,8 @@ func runToilCheck() {
 		fmt.Println("No toil tickets found.")
 		return
 	}
-	fmt.Printf("Found %d toil ticket(s):\n\n", len(result.Issues))
+	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d toil ticket(s):", len(result.Issues))))
+	fmt.Println()
 	printTasks(result.Issues)
 }
 
@@ -430,6 +459,23 @@ func runToilSync() {
 	if err != nil {
 		fatal("fetching toil tickets: %v", err)
 	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No toil tickets found.")
+		return
+	}
+
+	tickets := issuesToTickets(result.Issues)
+	selected, err := showTableFn(tickets)
+	if err != nil {
+		fatal("TUI: %v", err)
+	}
+	if len(selected) == 0 {
+		fmt.Println("No tickets selected.")
+		return
+	}
+
+	selectedIssues := filterSelectedIssues(result.Issues, selected)
+
 	hanger, err := api.FetchConfluencePage(conn, cfg.ConfluenceSpace, cfg.TicketHanger)
 	if err != nil {
 		fatal("%v", err)
@@ -442,8 +488,8 @@ func runToilSync() {
 	for _, c := range children {
 		childMap[c.Title] = c
 	}
-	ticketKeys := make(map[string]bool, len(result.Issues))
-	for _, issue := range result.Issues {
+	ticketKeys := make(map[string]bool, len(selectedIssues))
+	for _, issue := range selectedIssues {
 		ticketKeys[getString(issue, "key")] = true
 		syncTicketPage(conn, cfg.ConfluenceSpace, hanger.ID, issue, childMap)
 	}
@@ -453,10 +499,25 @@ func runToilSync() {
 			manualPages = append(manualPages, c)
 		}
 	}
-	if err := api.UpdateConfluencePage(conn, hanger.ID, hanger.Version, hanger.Title, renderHangerPage(result.Issues, manualPages)); err != nil {
+	if err := api.UpdateConfluencePage(conn, hanger.ID, hanger.Version, hanger.Title, renderHangerPage(selectedIssues, manualPages)); err != nil {
 		fatal("updating hanger page: %v", err)
 	}
-	fmt.Printf("Synced %d ticket(s) to %q (%s)\n", len(result.Issues), hanger.Title, cfg.ConfluenceSpace)
+	fmt.Printf("%s %d ticket(s) to %q (%s)\n", tui.SuccessStyle.Render("Synced"), len(selectedIssues), hanger.Title, cfg.ConfluenceSpace)
+}
+
+// filterSelectedIssues returns only the issues whose keys match the TUI selection.
+func filterSelectedIssues(issues []map[string]any, selected []tui.Ticket) []map[string]any {
+	keys := make(map[string]bool, len(selected))
+	for _, t := range selected {
+		keys[t.Key] = true
+	}
+	filtered := make([]map[string]any, 0, len(selected))
+	for _, issue := range issues {
+		if keys[getString(issue, "key")] {
+			filtered = append(filtered, issue)
+		}
+	}
+	return filtered
 }
 
 // syncTicketPage creates or updates a child page for one Jira issue, preserving existing notes.
@@ -468,13 +529,13 @@ func syncTicketPage(conn api.JiraConnection, spaceKey, parentID string, issue ma
 		if err := api.UpdateConfluencePage(conn, child.ID, child.Version, key, body); err != nil {
 			fatal("updating page %s: %v", key, err)
 		}
-		fmt.Printf("  Updated: %s\n", key)
+		fmt.Printf("  %s %s\n", tui.SuccessStyle.Render("Updated:"), tui.KeyStyle.Render(key))
 		return
 	}
 	if _, err := api.CreateConfluencePage(conn, spaceKey, key, parentID, body); err != nil {
 		fatal("creating page %s: %v", key, err)
 	}
-	fmt.Printf("  Created: %s\n", key)
+	fmt.Printf("  %s %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(key))
 }
 
 // extractNotes returns the content between note markers in a Confluence page body.

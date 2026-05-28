@@ -16,6 +16,7 @@ import (
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
+	"jira-thing/internal/tui"
 )
 
 func date(y, m, d int) time.Time {
@@ -196,6 +197,13 @@ func mockCredsError(err error) func() {
 	old := getCredentialsFn
 	getCredentialsFn = func() (auth.Credentials, error) { return auth.Credentials{}, err }
 	return func() { getCredentialsFn = old }
+}
+
+// mockShowTableSelectAll replaces showTableFn to auto-select all tickets.
+func mockShowTableSelectAll() func() {
+	old := showTableFn
+	showTableFn = func(tickets []tui.Ticket) ([]tui.Ticket, error) { return tickets, nil }
+	return func() { showTableFn = old }
 }
 
 // exitSignal is a sentinel panic value used to simulate os.Exit in tests.
@@ -924,6 +932,7 @@ func TestRunToilSync_CreatesNewChildPage(t *testing.T) {
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
 	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+	defer mockShowTableSelectAll()()
 
 	out := captureStdout(func() { runToilSync() })
 	if !strings.Contains(out, "Created") || !strings.Contains(out, "CRSS-1") {
@@ -939,6 +948,7 @@ func TestRunToilSync_UpdatesExistingChildPage(t *testing.T) {
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
 	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+	defer mockShowTableSelectAll()()
 
 	out := captureStdout(func() { runToilSync() })
 	if !strings.Contains(out, "Updated") || !strings.Contains(out, "CRSS-1") {
@@ -963,8 +973,14 @@ func TestRunToilSync_PageNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "search"):
+			json.NewEncoder(w).Encode(map[string]any{
+				"issues": []any{map[string]any{"key": "CRSS-1", "fields": map[string]any{
+					"summary": "Toil task", "updated": "2026-05-20T10:00:00.000Z",
+					"status": map[string]any{"name": "Open"}, "priority": map[string]any{"name": "Medium"},
+				}}},
+				"total": 1, "maxResults": 100,
+			})
 		default:
 			json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "size": 0})
 		}
@@ -972,6 +988,7 @@ func TestRunToilSync_PageNotFound(t *testing.T) {
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
 	defer mockConfluenceConfig("ENG", "Toil Tracker")()
+	defer mockShowTableSelectAll()()
 
 	exited := captureExit(func() {
 		captureStderr(func() { runToilSync() })
