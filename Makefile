@@ -2,6 +2,8 @@ BINARY := jira-thing
 SOURCES := $(shell find . -name '*.go' -not -path './.git/*')
 GOBIN   := $(shell go env GOPATH)/bin
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 .PHONY: all build test lint security clean
 
 tools:
@@ -14,7 +16,7 @@ all: lint security test clean build
 build: $(BINARY)
 
 $(BINARY): $(SOURCES) go.mod go.sum
-	go build -o $(BINARY) .
+	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY) .
 
 test:
 	go test -v ./...
