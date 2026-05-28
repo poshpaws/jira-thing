@@ -19,6 +19,9 @@ import (
 	"jira-thing/internal/tui"
 )
 
+// version is set at build time via -ldflags.
+var version = "dev"
+
 // getCredentialsFn resolves Jira credentials; replaced in tests.
 var getCredentialsFn = auth.GetCredentials
 
@@ -34,6 +37,8 @@ func main() {
 		os.Exit(1)
 	}
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Println("jira-thing " + version)
 	case "template", "te":
 		runTemplate(os.Args[2:])
 	case "create", "cr":
