@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
@@ -39,6 +41,8 @@ func main() {
 	switch os.Args[1] {
 	case "version", "--version", "-v":
 		fmt.Println("jira-thing " + version)
+	case "help", "--help", "-h":
+		printUsage()
 	case "template", "te":
 		runTemplate(os.Args[2:])
 	case "create", "cr":
@@ -64,19 +68,36 @@ func main() {
 	}
 }
 
-// printUsage writes the command summary to stderr.
+// printUsage writes the styled command summary to stderr.
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: jira-thing <command> [options]")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  template|te <TICKET-KEY> [-o output.json]  Fetch a ticket and save as template")
-	fmt.Fprintln(os.Stderr, "  create|cr   [-t template.json]            Create a new ticket from a template")
-	fmt.Fprintln(os.Stderr, "  update|up   <TICKET-KEY> [-stdin]         Add a comment to a ticket via $EDITOR or stdin")
-	fmt.Fprintln(os.Stderr, "  my-tasks|mt [-notupdated]                 List open tasks assigned to you")
-	fmt.Fprintln(os.Stderr, "  last-comment|lc <TICKET-KEY>              Show last comment, rendered as markdown")
-	fmt.Fprintln(os.Stderr, "  toil-check|tc                             List toil tickets from the last week")
-	fmt.Fprintln(os.Stderr, "  toil-sync|ts                              Sync open TOIL tickets to Confluence page")
-	fmt.Fprintln(os.Stderr, "  clear-auth                                Clear stored credentials")
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Render("jira-thing") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(" "+version)
+	usage := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Render("Usage: ") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("jira-thing") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(" <command> [options]")
+
+	cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	commands := []struct{ cmd, desc string }{
+		{"template|te <TICKET-KEY> [-o file]", "Fetch a ticket and save as template"},
+		{"create|cr   [-t template.json]    ", "Create a new ticket from a template"},
+		{"update|up   <TICKET-KEY> [-stdin] ", "Add a comment via $EDITOR or stdin"},
+		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
+		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
+		{"toil-check|tc                     ", "List toil tickets from the last week"},
+		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
+		{"clear-auth                        ", "Clear stored credentials"},
+		{"version|--version|-v              ", "Show version"},
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s\n\n", title)
+	fmt.Fprintf(os.Stderr, "  %s\n\n", usage)
+	fmt.Fprintf(os.Stderr, "  %s\n\n", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("Commands:"))
+	for _, c := range commands {
+		fmt.Fprintf(os.Stderr, "    %s  %s\n", cmdStyle.Render(c.cmd), descStyle.Render(c.desc))
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 // buildConnection resolves credentials and returns a JiraConnection.
@@ -151,8 +172,10 @@ func runCreate(args []string) {
 	tmpl["summary"] = summary
 	tmpl["description"] = buildDescription(description)
 
-	for _, f := range []string{"rankBeforeIssue", "rankAfterIssue", "customfield_10019"} {
-		delete(tmpl, f)
+	for key := range tmpl {
+		if key == "rankBeforeIssue" || key == "rankAfterIssue" || strings.HasPrefix(key, "customfield_") {
+			delete(tmpl, key)
+		}
 	}
 
 	conn := mustConnect()
