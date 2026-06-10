@@ -102,12 +102,16 @@ jobs:
           # Re-encrypt .p12 with a shell-safe password to avoid special char issues
           SAFE_PASS="$(openssl rand -hex 16)"
           PASS_FILE="$RUNNER_TEMP/cert_pass"
+          PEM_FILE="$RUNNER_TEMP/cert.pem"
           printf '%s' "${APPLE_CERTIFICATE_PASSWORD}" > "${PASS_FILE}"
-          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes -legacy 2>/dev/null | \
-            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}" 2>/dev/null || \
-          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes | \
-            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}"
-          rm -f "${PASS_FILE}" "${CERT_PATH}"
+
+          # Decrypt to intermediate PEM (try -legacy first for older format .p12 files)
+          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes -legacy -out "${PEM_FILE}" 2>/dev/null || \
+            openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes -out "${PEM_FILE}"
+
+          # Re-encrypt as .p12 with shell-safe password
+          openssl pkcs12 -export -in "${PEM_FILE}" -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}"
+          rm -f "${PASS_FILE}" "${CERT_PATH}" "${PEM_FILE}"
 
           # Import using the shell-safe password
           security import "$RUNNER_TEMP/safe.p12" \
