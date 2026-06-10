@@ -473,18 +473,17 @@ func TestRunCreate_StripsBlockedFields(t *testing.T) {
 		"issuetype":        {"name":"Task"},
 		"rankBeforeIssue":  {"key":"OTHER-1"},
 		"rankAfterIssue":   {"key":"OTHER-2"},
-		"customfield_10019": "0|i0000v:"
+		"customfield_10019": "0|i0000v:",
+		"customfield_10038": "some value",
+		"customfield_10044": "another value"
 	}`), 0o644)
 
 	captureStdout(func() { runCreate([]string{"-t", tmplPath}) })
-	if _, ok := capturedFields["rankBeforeIssue"]; ok {
-		t.Error("rankBeforeIssue must be stripped before sending to Jira")
-	}
-	if _, ok := capturedFields["rankAfterIssue"]; ok {
-		t.Error("rankAfterIssue must be stripped before sending to Jira")
-	}
-	if _, ok := capturedFields["customfield_10019"]; ok {
-		t.Error("customfield_10019 (rank) must be stripped before sending to Jira")
+	blocked := []string{"rankBeforeIssue", "rankAfterIssue", "customfield_10019", "customfield_10038", "customfield_10044"}
+	for _, f := range blocked {
+		if _, ok := capturedFields[f]; ok {
+			t.Errorf("%s must be stripped before sending to Jira", f)
+		}
 	}
 }
 
