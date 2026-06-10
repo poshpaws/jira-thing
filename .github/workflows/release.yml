@@ -126,10 +126,10 @@ jobs:
           security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
 
           # Find signing identity
-          IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | head -1 | awk -F'"' '{print $2}')
           if [ -z "${IDENTITY}" ]; then
-            echo "::error::No 'Developer ID Application' identity found. Available identities:"
-            security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+            echo "::error::No codesigning identity found in keychain."
+            security find-identity -v "${KEYCHAIN_PATH}"
             exit 1
           fi
 
