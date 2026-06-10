@@ -93,6 +93,122 @@ func TestBuild_HandlesEmptyInput(t *testing.T) {
 	}
 }
 
+func TestStripExcludedFields_RemovesAllExcludedFields(t *testing.T) {
+	tmpl := map[string]any{
+		"project":   map[string]any{"key": "PROJ"},
+		"issuetype": map[string]any{"name": "Task"},
+	}
+	for _, f := range template.ExcludedFields {
+		tmpl[f] = "should-be-removed"
+	}
+
+	result := template.StripExcludedFields(tmpl)
+
+	for _, f := range template.ExcludedFields {
+		if _, ok := result[f]; ok {
+			t.Errorf("excluded field %q must not be in template after stripping", f)
+		}
+	}
+	if result["project"] == nil {
+		t.Error("project should be preserved")
+	}
+	if result["issuetype"] == nil {
+		t.Error("issuetype should be preserved")
+	}
+}
+
+func TestStripExcludedFields_RemovesAllCustomFieldPrefixes(t *testing.T) {
+	tmpl := map[string]any{
+		"project":             map[string]any{"key": "PROJ"},
+		"customfield_99999":   "unknown-field",
+		"customfield_00001":   "another",
+		"rankBeforeIssue":     "x",
+		"rankAfterIssue":      "y",
+	}
+
+	result := template.StripExcludedFields(tmpl)
+
+	for key := range result {
+		if strings.HasPrefix(key, "customfield_") {
+			t.Errorf("custom field %q should have been stripped", key)
+		}
+	}
+	if _, ok := result["rankBeforeIssue"]; ok {
+		t.Error("rankBeforeIssue should be stripped")
+	}
+	if _, ok := result["rankAfterIssue"]; ok {
+		t.Error("rankAfterIssue should be stripped")
+	}
+	if result["project"] == nil {
+		t.Error("project should be preserved")
+	}
+}
+
+func TestLoad_StripsExcludedFieldsFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tpl.json")
+
+	// Write a template that contains excluded fields (simulating manual edit)
+	tmpl := map[string]any{
+		"project":          map[string]any{"key": "PROJ"},
+		"issuetype":        map[string]any{"name": "Task"},
+		"customfield_10038": "should-not-load",
+		"customfield_10039": "should-not-load",
+		"customfield_10040": "should-not-load",
+		"customfield_10041": "should-not-load",
+		"customfield_10042": "should-not-load",
+		"customfield_10043": "should-not-load",
+		"customfield_10044": "should-not-load",
+		"customfield_10034": "should-not-load",
+		"customfield_10035": "should-not-load",
+		"customfield_10036": "should-not-load",
+		"customfield_10037": "should-not-load",
+	}
+	data, _ := json.Marshal(tmpl)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := template.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for _, f := range template.ExcludedFields {
+		if _, ok := loaded[f]; ok {
+			t.Errorf("excluded field %q must not be present after Load", f)
+		}
+	}
+	if loaded["project"] == nil {
+		t.Error("project should be preserved after Load")
+	}
+}
+
+func TestLoad_StripsAnyCustomFieldFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tpl.json")
+
+	tmpl := map[string]any{
+		"project":           map[string]any{"key": "PROJ"},
+		"customfield_99999": "unknown-future-field",
+	}
+	data, _ := json.Marshal(tmpl)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := template.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for key := range loaded {
+		if strings.HasPrefix(key, "customfield_") {
+			t.Errorf("custom field %q should have been stripped on Load", key)
+		}
+	}
+}
+
 func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tpl.json")
