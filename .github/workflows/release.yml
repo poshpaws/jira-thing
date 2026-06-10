@@ -157,9 +157,6 @@ jobs:
 
           rm "jira-thing-${{ matrix.suffix }}.zip"
 
-          # Embed the notarisation ticket in the binary
-          xcrun stapler staple "jira-thing-${{ matrix.suffix }}"
-
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: jira-thing-${{ matrix.suffix }}
