@@ -14,7 +14,8 @@ Download the latest release for your platform from the [Releases](../../releases
 | macOS (Intel) | `jira-thing-darwin-amd64` |
 | Linux (x86-64) | `jira-thing-linux-amd64` |
 | Linux (ARM64) | `jira-thing-linux-arm64` |
-| Windows | `jira-thing-windows-amd64.exe` |
+| Windows (x86-64) | `jira-thing-windows-amd64.exe` |
+| Windows (ARM64) | `jira-thing-windows-arm64.exe` |
 
 **macOS:**
 
