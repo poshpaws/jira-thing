@@ -61,10 +61,14 @@ func Build(issueData map[string]any) map[string]any {
 }
 
 // Save writes a template to a JSON file. Uses defaultTemplateFile if path is empty.
+// If path is an existing directory, writes defaultTemplateFile inside it.
 // Returns the path written to.
 func Save(tmpl map[string]any, path string) (string, error) {
 	if path == "" {
 		path = defaultTemplateFile
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		path = filepath.Join(path, defaultTemplateFile)
 	}
 	data, err := json.MarshalIndent(tmpl, "", "  ")
 	if err != nil {
