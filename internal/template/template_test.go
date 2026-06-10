@@ -64,7 +64,7 @@ func TestBuild_SkipsNilFields(t *testing.T) {
 	}
 }
 
-func TestBuild_IncludesCustomFields(t *testing.T) {
+func TestBuild_ExcludesCustomFields(t *testing.T) {
 	issue := map[string]any{
 		"fields": map[string]any{
 			"project":           map[string]any{"key": "PROJ"},
@@ -74,14 +74,13 @@ func TestBuild_IncludesCustomFields(t *testing.T) {
 		},
 	}
 	result := template.Build(issue)
-	if result["customfield_10001"] == nil {
-		t.Error("customfield_10001 (Team) should be included")
+	for key := range result {
+		if strings.HasPrefix(key, "customfield_") {
+			t.Errorf("custom field %q should not be in template", key)
+		}
 	}
-	if result["customfield_10050"] == nil {
-		t.Error("customfield_10050 should be included")
-	}
-	if _, ok := result["customfield_99999"]; ok {
-		t.Error("nil custom field should be excluded")
+	if result["project"] == nil {
+		t.Error("project should still be included")
 	}
 }
 

@@ -172,8 +172,10 @@ func runCreate(args []string) {
 	tmpl["summary"] = summary
 	tmpl["description"] = buildDescription(description)
 
-	for _, f := range []string{"rankBeforeIssue", "rankAfterIssue", "customfield_10019"} {
-		delete(tmpl, f)
+	for key := range tmpl {
+		if key == "rankBeforeIssue" || key == "rankAfterIssue" || strings.HasPrefix(key, "customfield_") {
+			delete(tmpl, key)
+		}
 	}
 
 	conn := mustConnect()
