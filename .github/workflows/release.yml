@@ -15,12 +15,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
           - goos: linux
             goarch: amd64
             suffix: linux-amd64
@@ -56,9 +50,98 @@ jobs:
           name: jira-thing-${{ matrix.suffix }}
           path: jira-thing-${{ matrix.suffix }}
 
+  build-macos:
+    name: Build macOS binaries
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: arm64
+            suffix: darwin-arm64
+          - goarch: amd64
+            suffix: darwin-amd64
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "jira-thing-${{ matrix.suffix }}" .
+
+      - name: Sign binary
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Import certificate into a temporary keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
+          # Decode and import the certificate
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
+          security import "${CERT_PATH}" \
+            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "${KEYCHAIN_PATH}"
+
+          security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
+
+          # Sign the binary with hardened runtime
+          IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          codesign --force --options runtime --sign "${IDENTITY}" "jira-thing-${{ matrix.suffix }}"
+
+          # Verify the signature
+          codesign --verify --verbose "jira-thing-${{ matrix.suffix }}"
+
+      - name: Notarise binary
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Notarisation requires a zip
+          zip "jira-thing-${{ matrix.suffix }}.zip" "jira-thing-${{ matrix.suffix }}"
+
+          xcrun notarytool submit "jira-thing-${{ matrix.suffix }}.zip" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait
+
+          rm "jira-thing-${{ matrix.suffix }}.zip"
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: jira-thing-${{ matrix.suffix }}
+          path: jira-thing-${{ matrix.suffix }}
+
   release:
     name: Create release
-    needs: build
+    needs: [build, build-macos]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
