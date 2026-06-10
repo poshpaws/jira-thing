@@ -171,12 +171,7 @@ func runCreate(args []string) {
 	}
 	tmpl["summary"] = summary
 	tmpl["description"] = buildDescription(description)
-
-	for key := range tmpl {
-		if key == "rankBeforeIssue" || key == "rankAfterIssue" || strings.HasPrefix(key, "customfield_") {
-			delete(tmpl, key)
-		}
-	}
+	template.StripExcludedFields(tmpl)
 
 	conn := mustConnect()
 	result, err := api.CreateIssue(conn, tmpl)
