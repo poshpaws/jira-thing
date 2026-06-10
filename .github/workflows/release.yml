@@ -78,18 +78,17 @@ jobs:
           VERSION="${GITHUB_REF_NAME:-dev}"
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "jira-thing-${{ matrix.suffix }}" .
 
-      - name: Sign binary
+      - name: Import certificate and sign binary
         if: env.APPLE_CERTIFICATE_BASE64 != ''
+        continue-on-error: true
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           # Import certificate into a temporary keychain
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "KEYCHAIN_PATH=${KEYCHAIN_PATH}" >> "$GITHUB_ENV"
 
           security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
@@ -98,6 +97,13 @@ jobs:
           # Decode and import the certificate
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
           echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
+
+          # Validate the .p12 contains a certificate (not just a private key)
+          if ! openssl pkcs12 -in "${CERT_PATH}" -passin pass:"${APPLE_CERTIFICATE_PASSWORD}" -nokeys 2>/dev/null | openssl x509 -noout -subject 2>/dev/null; then
+            echo "::error::Certificate validation failed. The .p12 may contain only a private key without the certificate. Re-export from Keychain Access: expand the 'Developer ID Application' cert, select BOTH the cert and key, then Export 2 items."
+            exit 1
+          fi
+
           security import "${CERT_PATH}" \
             -P "${APPLE_CERTIFICATE_PASSWORD}" \
             -A \
@@ -108,22 +114,27 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
 
-          # Sign the binary with hardened runtime
+          # Find signing identity
           IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
-          codesign --force --options runtime --sign "${IDENTITY}" "jira-thing-${{ matrix.suffix }}"
+          if [ -z "${IDENTITY}" ]; then
+            echo "::error::No 'Developer ID Application' identity found. The .p12 must contain a Developer ID Application certificate (not Apple Development or Distribution). Available identities:"
+            security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+            exit 1
+          fi
 
-          # Verify the signature
+          echo "Signing with: ${IDENTITY}"
+          codesign --force --options runtime --sign "${IDENTITY}" "jira-thing-${{ matrix.suffix }}"
           codesign --verify --verbose "jira-thing-${{ matrix.suffix }}"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
 
       - name: Notarise binary
-        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        if: env.SIGNED == 'true'
+        continue-on-error: true
         env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          # Notarisation requires a zip
           zip "jira-thing-${{ matrix.suffix }}.zip" "jira-thing-${{ matrix.suffix }}"
 
           xcrun notarytool submit "jira-thing-${{ matrix.suffix }}.zip" \
