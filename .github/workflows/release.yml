@@ -78,52 +78,69 @@ jobs:
           VERSION="${GITHUB_REF_NAME:-dev}"
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "jira-thing-${{ matrix.suffix }}" .
 
-      - name: Sign binary
+      - name: Import certificate and sign binary
         if: env.APPLE_CERTIFICATE_BASE64 != ''
+        continue-on-error: true
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           # Import certificate into a temporary keychain
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "KEYCHAIN_PATH=${KEYCHAIN_PATH}" >> "$GITHUB_ENV"
 
           security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
           security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
 
-          # Decode and import the certificate
+          # Decode the certificate
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
           echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
-          security import "${CERT_PATH}" \
-            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+
+          # Re-encrypt .p12 with a shell-safe password to avoid special char issues
+          SAFE_PASS="$(openssl rand -hex 16)"
+          PASS_FILE="$RUNNER_TEMP/cert_pass"
+          printf '%s' "${APPLE_CERTIFICATE_PASSWORD}" > "${PASS_FILE}"
+          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes -legacy 2>/dev/null | \
+            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}" 2>/dev/null || \
+          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes | \
+            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}"
+          rm -f "${PASS_FILE}" "${CERT_PATH}"
+
+          # Import using the shell-safe password
+          security import "$RUNNER_TEMP/safe.p12" \
+            -P "${SAFE_PASS}" \
             -A \
             -t cert \
             -f pkcs12 \
             -k "${KEYCHAIN_PATH}"
+          rm -f "$RUNNER_TEMP/safe.p12"
 
           security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
 
-          # Sign the binary with hardened runtime
+          # Find signing identity
           IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
-          codesign --force --options runtime --sign "${IDENTITY}" "jira-thing-${{ matrix.suffix }}"
+          if [ -z "${IDENTITY}" ]; then
+            echo "::error::No 'Developer ID Application' identity found. Available identities:"
+            security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+            exit 1
+          fi
 
-          # Verify the signature
+          echo "Signing with: ${IDENTITY}"
+          codesign --force --options runtime --sign "${IDENTITY}" "jira-thing-${{ matrix.suffix }}"
           codesign --verify --verbose "jira-thing-${{ matrix.suffix }}"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
 
       - name: Notarise binary
-        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        if: env.SIGNED == 'true'
+        continue-on-error: true
         env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          # Notarisation requires a zip
           zip "jira-thing-${{ matrix.suffix }}.zip" "jira-thing-${{ matrix.suffix }}"
 
           xcrun notarytool submit "jira-thing-${{ matrix.suffix }}.zip" \
