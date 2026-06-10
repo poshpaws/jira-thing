@@ -377,7 +377,11 @@ func runUpdate(args []string) {
 func openEditor() (string, error) {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = config.Load().Editor
+		cfg, err := config.Load()
+		if err != nil {
+			return "", err
+		}
+		editor = cfg.Editor
 	}
 	if editor == "" {
 		return "", fmt.Errorf("EDITOR is not set; use -stdin, set the EDITOR environment variable, or add \"editor\" to ~/.config/jira-thing/jira-thing.json")
@@ -430,7 +434,10 @@ func threeBusinessDaysAgo(now time.Time) time.Time {
 
 // runToilCheck queries Jira for toil tickets using labels from config.
 func runToilCheck() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("%v", err)
+	}
 	if cfg.Project == "" || cfg.ToilMarker == "" || cfg.ToilTeam == "" {
 		fatal("project, toil_marker and toil_team must be set in ~/.config/jira-thing/jira-thing.json")
 	}
@@ -465,7 +472,10 @@ const (
 // runToilSync queries open TOIL tickets and syncs each to a child Confluence page,
 // then updates the hanger page with links to all children.
 func runToilSync() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("%v", err)
+	}
 	if cfg.ConfluenceSpace == "" || cfg.TicketHanger == "" {
 		fatal("confluence_space and ticket_hanger must be set in ~/.config/jira-thing/jira-thing.json")
 	}
