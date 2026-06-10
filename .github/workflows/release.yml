@@ -87,35 +87,35 @@ jobs:
         run: |
           # Import certificate into a temporary keychain
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
           echo "KEYCHAIN_PATH=${KEYCHAIN_PATH}" >> "$GITHUB_ENV"
 
           security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
           security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
 
-          # Decode and import the certificate
+          # Decode the certificate
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
           echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
 
-          # Write password to file to avoid shell interpretation of special characters
+          # Re-encrypt .p12 with a shell-safe password to avoid special char issues
+          SAFE_PASS="$(openssl rand -hex 16)"
           PASS_FILE="$RUNNER_TEMP/cert_pass"
           printf '%s' "${APPLE_CERTIFICATE_PASSWORD}" > "${PASS_FILE}"
+          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes -legacy 2>/dev/null | \
+            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}" 2>/dev/null || \
+          openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nodes | \
+            openssl pkcs12 -export -out "$RUNNER_TEMP/safe.p12" -passout "pass:${SAFE_PASS}"
+          rm -f "${PASS_FILE}" "${CERT_PATH}"
 
-          # Validate the .p12 contains a certificate
-          if ! openssl pkcs12 -in "${CERT_PATH}" -passin "file:${PASS_FILE}" -nokeys 2>/dev/null | openssl x509 -noout -subject 2>/dev/null; then
-            echo "::error::Certificate validation failed. Check APPLE_CERTIFICATE_PASSWORD is correct and .p12 contains the certificate."
-            rm -f "${PASS_FILE}"
-            exit 1
-          fi
-
-          security import "${CERT_PATH}" \
-            -P "$(cat "${PASS_FILE}")" \
+          # Import using the shell-safe password
+          security import "$RUNNER_TEMP/safe.p12" \
+            -P "${SAFE_PASS}" \
             -A \
             -t cert \
             -f pkcs12 \
             -k "${KEYCHAIN_PATH}"
-          rm -f "${PASS_FILE}"
+          rm -f "$RUNNER_TEMP/safe.p12"
 
           security set-key-partition-list -S apple-tool:,apple: -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
           security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
