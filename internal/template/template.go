@@ -19,6 +19,32 @@ var templateFields = []string{
 	"assignee",
 }
 
+// ExcludedFields contains Jira custom fields that do not support update
+// and must never appear in templates or create payloads.
+var ExcludedFields = []string{
+	"customfield_10034",
+	"customfield_10035",
+	"customfield_10036",
+	"customfield_10037",
+	"customfield_10038",
+	"customfield_10039",
+	"customfield_10040",
+	"customfield_10041",
+	"customfield_10042",
+	"customfield_10043",
+	"customfield_10044",
+}
+
+// StripExcludedFields removes all custom fields and other non-updatable fields from a template map.
+func StripExcludedFields(tmpl map[string]any) map[string]any {
+	for key := range tmpl {
+		if strings.HasPrefix(key, "customfield_") || key == "rankBeforeIssue" || key == "rankAfterIssue" {
+			delete(tmpl, key)
+		}
+	}
+	return tmpl
+}
+
 // Build extracts the reusable fields from a raw Jira issue response.
 func Build(issueData map[string]any) map[string]any {
 	result := make(map[string]any)
@@ -51,15 +77,15 @@ func Save(tmpl map[string]any, path string) (string, error) {
 	return path, nil
 }
 
-// Load reads a template from a JSON file.
+// Load reads a template from a JSON file and strips any excluded fields.
 // When path is empty, tries cwd, binary directory, platform config dir, then ~/.config/jira-thing.
 func Load(path string) (map[string]any, error) {
 	if path != "" {
-		return loadFile(path)
+		return loadAndStrip(path)
 	}
 	candidates := candidatePaths()
 	for _, p := range candidates {
-		tmpl, err := loadFile(p)
+		tmpl, err := loadAndStrip(p)
 		if err == nil {
 			return tmpl, nil
 		}
@@ -68,6 +94,15 @@ func Load(path string) (map[string]any, error) {
 		}
 	}
 	return nil, fmt.Errorf("template not found; tried: %s", strings.Join(candidates, ", "))
+}
+
+// loadAndStrip reads a template file and strips excluded fields.
+func loadAndStrip(path string) (map[string]any, error) {
+	tmpl, err := loadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return StripExcludedFields(tmpl), nil
 }
 
 // CandidatePathsFunc allows tests to override fallback path resolution.
