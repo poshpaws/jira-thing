@@ -15,7 +15,10 @@ func TestLoad_ValidConfig(t *testing.T) {
 	ConfigPath = func() string { return path }
 	defer func() { ConfigPath = old }()
 
-	cfg := Load()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if cfg.ToilMarker != "ECP_TOIL" {
 		t.Errorf("ToilMarker = %q, want ECP_TOIL", cfg.ToilMarker)
 	}
@@ -29,7 +32,10 @@ func TestLoad_MissingFile(t *testing.T) {
 	ConfigPath = func() string { return "/nonexistent/path.json" }
 	defer func() { ConfigPath = old }()
 
-	cfg := Load()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error for missing file, got %v", err)
+	}
 	if cfg.ToilMarker != "" || cfg.ToilTeam != "" {
 		t.Errorf("expected empty config, got %+v", cfg)
 	}
@@ -44,9 +50,9 @@ func TestLoad_InvalidJSON(t *testing.T) {
 	ConfigPath = func() string { return path }
 	defer func() { ConfigPath = old }()
 
-	cfg := Load()
-	if cfg.ToilMarker != "" || cfg.ToilTeam != "" {
-		t.Errorf("expected empty config for invalid JSON, got %+v", cfg)
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
 	}
 }
 
@@ -55,7 +61,10 @@ func TestLoad_EmptyPath(t *testing.T) {
 	ConfigPath = func() string { return "" }
 	defer func() { ConfigPath = old }()
 
-	cfg := Load()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error for empty path, got %v", err)
+	}
 	if cfg.ToilMarker != "" || cfg.ToilTeam != "" {
 		t.Errorf("expected empty config, got %+v", cfg)
 	}
@@ -70,7 +79,10 @@ func TestLoad_ConfluenceFields(t *testing.T) {
 	ConfigPath = func() string { return path }
 	defer func() { ConfigPath = old }()
 
-	cfg := Load()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if cfg.ConfluenceSpace != "ENG" {
 		t.Errorf("ConfluenceSpace = %q, want ENG", cfg.ConfluenceSpace)
 	}
