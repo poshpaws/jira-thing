@@ -79,6 +79,7 @@ jobs:
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "jira-thing-${{ matrix.suffix }}" .
 
       - name: Import certificate and sign binary
+        id: sign
         if: env.APPLE_CERTIFICATE_BASE64 != ''
         continue-on-error: true
         env:
@@ -134,7 +135,7 @@ jobs:
           echo "SIGNED=true" >> "$GITHUB_ENV"
 
       - name: Notarise binary
-        if: env.SIGNED == 'true'
+        if: steps.sign.outcome == 'success'
         continue-on-error: true
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
