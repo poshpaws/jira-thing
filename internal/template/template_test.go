@@ -119,11 +119,11 @@ func TestStripExcludedFields_RemovesAllExcludedFields(t *testing.T) {
 
 func TestStripExcludedFields_RemovesAllCustomFieldPrefixes(t *testing.T) {
 	tmpl := map[string]any{
-		"project":             map[string]any{"key": "PROJ"},
-		"customfield_99999":   "unknown-field",
-		"customfield_00001":   "another",
-		"rankBeforeIssue":     "x",
-		"rankAfterIssue":      "y",
+		"project":           map[string]any{"key": "PROJ"},
+		"customfield_99999": "unknown-field",
+		"customfield_00001": "another",
+		"rankBeforeIssue":   "x",
+		"rankAfterIssue":    "y",
 	}
 
 	result := template.StripExcludedFields(tmpl)
@@ -150,8 +150,8 @@ func TestLoad_StripsExcludedFieldsFromFile(t *testing.T) {
 
 	// Write a template that contains excluded fields (simulating manual edit)
 	tmpl := map[string]any{
-		"project":          map[string]any{"key": "PROJ"},
-		"issuetype":        map[string]any{"name": "Task"},
+		"project":           map[string]any{"key": "PROJ"},
+		"issuetype":         map[string]any{"name": "Task"},
 		"customfield_10038": "should-not-load",
 		"customfield_10039": "should-not-load",
 		"customfield_10040": "should-not-load",
