@@ -326,3 +326,26 @@ func TestSave_WriteError(t *testing.T) {
 		t.Fatal("expected error writing to nonexistent directory, got nil")
 	}
 }
+
+func TestSave_DirectoryPathAppendsDefaultFilename(t *testing.T) {
+	dir := t.TempDir()
+	tmpl := map[string]any{"project": map[string]any{"key": "PROJ"}}
+
+	saved, err := template.Save(tmpl, dir)
+	if err != nil {
+		t.Fatalf("Save to directory: %v", err)
+	}
+	expected := filepath.Join(dir, "ticket_template.json")
+	if saved != expected {
+		t.Errorf("saved path = %q, want %q", saved, expected)
+	}
+
+	loaded, err := template.Load(saved)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	proj, _ := loaded["project"].(map[string]any)
+	if proj["key"] != "PROJ" {
+		t.Errorf("loaded project key = %v, want PROJ", proj["key"])
+	}
+}
