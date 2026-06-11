@@ -19,6 +19,7 @@ import (
 	"jira-thing/internal/config"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
+	vercheck "jira-thing/internal/version"
 )
 
 // version is set at build time via -ldflags.
@@ -41,6 +42,8 @@ func main() {
 	switch os.Args[1] {
 	case "version", "--version", "-v":
 		fmt.Println("jira-thing " + version)
+	case "check-update", "cu":
+		fmt.Println(vercheck.CheckMessage(version))
 	case "help", "--help", "-h":
 		printUsage()
 	case "template", "te":
@@ -88,6 +91,7 @@ func printUsage() {
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
 		{"clear-auth                        ", "Clear stored credentials"},
+		{"check-update|cu                    ", "Check for newer releases on GitHub"},
 		{"version|--version|-v              ", "Show version"},
 	}
 
