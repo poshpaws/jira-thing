@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: gosec
+        name: gosec security scan
+        entry: gosec -exclude-dir=.agents ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: govulncheck
+        name: govulncheck vulnerability scan
+        entry: govulncheck ./...
+        language: system
+        pass_filenames: false
+        types: [go]
