@@ -76,7 +76,7 @@ func Save(tmpl map[string]any, path string) (string, error) {
 	}
 	data = append(data, '\n')
 	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return "", err
 		}
 	}
