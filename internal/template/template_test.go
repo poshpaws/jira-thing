@@ -349,3 +349,26 @@ func TestSave_DirectoryPathAppendsDefaultFilename(t *testing.T) {
 		t.Errorf("loaded project key = %v, want PROJ", proj["key"])
 	}
 }
+
+func TestSave_CreatesParentDirectories(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "templates", "bug.json")
+	tmpl := map[string]any{"project": map[string]any{"key": "BUG"}}
+
+	saved, err := template.Save(tmpl, nested)
+	if err != nil {
+		t.Fatalf("Save with nested path: %v", err)
+	}
+	if saved != nested {
+		t.Errorf("saved path = %q, want %q", saved, nested)
+	}
+
+	loaded, err := template.Load(saved)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	proj, _ := loaded["project"].(map[string]any)
+	if proj["key"] != "BUG" {
+		t.Errorf("loaded project key = %v, want BUG", proj["key"])
+	}
+}

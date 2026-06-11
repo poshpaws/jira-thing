@@ -130,9 +130,23 @@ func fatal(format string, args ...any) {
 
 // runTemplate fetches a Jira ticket and saves it as a local JSON template.
 func runTemplate(args []string) {
-	fs := flag.NewFlagSet("template", flag.ExitOnError)
+	// Reorder args so flags precede positional arguments for flag.Parse.
+	var reordered, positional []string
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			reordered = append(reordered, args[i], args[i+1])
+			i++
+		} else if strings.HasPrefix(args[i], "-") {
+			reordered = append(reordered, args[i])
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	reordered = append(reordered, positional...)
+
+	fs := flag.NewFlagSet("template", flag.ContinueOnError)
 	output := fs.String("o", "", "Output file path")
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing template <TICKET-KEY> [-o output.json]")
 	}
 	conn := mustConnect()
