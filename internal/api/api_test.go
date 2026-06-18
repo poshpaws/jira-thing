@@ -214,3 +214,54 @@ func TestSearchIssues_NetworkError(t *testing.T) {
 		t.Fatal("expected network error, got nil")
 	}
 }
+
+func TestFetchMyself_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/myself") {
+			t.Errorf("expected /myself path, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"accountId":    "abc123",
+			"displayName":  "Test User",
+			"emailAddress": "test@example.com",
+		})
+	}))
+	defer srv.Close()
+
+	result, err := api.FetchMyself(conn(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["accountId"] != "abc123" {
+		t.Errorf("accountId = %v, want abc123", result["accountId"])
+	}
+	if result["displayName"] != "Test User" {
+		t.Errorf("displayName = %v, want Test User", result["displayName"])
+	}
+}
+
+func TestFetchMyself_401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"Unauthorized"}`, http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := api.FetchMyself(conn(srv.URL))
+	if err == nil {
+		t.Fatal("expected error for 401, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("expected 401 in error, got: %v", err)
+	}
+}
+
+func TestFetchMyself_InvalidURL(t *testing.T) {
+	_, err := api.FetchMyself(api.JiraConnection{BaseURL: "http://\x00invalid"})
+	if err == nil {
+		t.Fatal("expected error for invalid URL, got nil")
+	}
+}

@@ -372,3 +372,78 @@ func TestSave_CreatesParentDirectories(t *testing.T) {
 		t.Errorf("loaded project key = %v, want BUG", proj["key"])
 	}
 }
+
+func TestBuild_ReplacesAssigneeWithSelfMarker(t *testing.T) {
+	issue := map[string]any{
+		"fields": map[string]any{
+			"project": map[string]any{"key": "PROJ"},
+			"assignee": map[string]any{
+				"accountId":   "original-user-id",
+				"displayName": "Jane Smith",
+				"self":        "https://example.com/rest/api/3/user?accountId=original-user-id",
+				"avatarUrls":  map[string]any{"48x48": "https://example.com/avatar.png"},
+			},
+		},
+	}
+	result := template.Build(issue)
+	assignee, ok := result["assignee"].(map[string]any)
+	if !ok {
+		t.Fatalf("assignee should be a map, got %T", result["assignee"])
+	}
+	if assignee["accountId"] != "original-user-id" {
+		t.Errorf("accountId = %v, want original-user-id", assignee["accountId"])
+	}
+	if assignee["displayName"] != "Jane Smith" {
+		t.Errorf("displayName = %v, want Jane Smith", assignee["displayName"])
+	}
+	if _, ok := assignee["self"]; ok {
+		t.Error("self URL should be stripped from assignee")
+	}
+	if _, ok := assignee["avatarUrls"]; ok {
+		t.Error("avatarUrls should be stripped from assignee")
+	}
+}
+
+func TestBuild_NoAssigneeNoMarker(t *testing.T) {
+	issue := map[string]any{
+		"fields": map[string]any{
+			"project": map[string]any{"key": "PROJ"},
+		},
+	}
+	result := template.Build(issue)
+	if _, ok := result["assignee"]; ok {
+		t.Errorf("assignee should not be set when source has no assignee")
+	}
+}
+
+func TestResolveAssignee_ReplacesSelfMarker(t *testing.T) {
+	tmpl := map[string]any{
+		"project":  map[string]any{"key": "PROJ"},
+		"assignee": template.AssigneeSelf,
+	}
+	template.ResolveAssignee(tmpl, "resolved-account-id")
+	assignee, ok := tmpl["assignee"].(map[string]any)
+	if !ok {
+		t.Fatalf("assignee should be a map, got %T", tmpl["assignee"])
+	}
+	if assignee["accountId"] != "resolved-account-id" {
+		t.Errorf("accountId = %v, want resolved-account-id", assignee["accountId"])
+	}
+}
+
+func TestResolveAssignee_LeavesNonMarkerAlone(t *testing.T) {
+	original := map[string]any{"accountId": "someone-else"}
+	tmpl := map[string]any{
+		"project":  map[string]any{"key": "PROJ"},
+		"assignee": original,
+	}
+	template.ResolveAssignee(tmpl, "my-id")
+	// Should not have been changed
+	assignee, ok := tmpl["assignee"].(map[string]any)
+	if !ok {
+		t.Fatalf("assignee should remain a map, got %T", tmpl["assignee"])
+	}
+	if assignee["accountId"] != "someone-else" {
+		t.Errorf("accountId changed unexpectedly to %v", assignee["accountId"])
+	}
+}

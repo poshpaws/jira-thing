@@ -16,6 +16,7 @@ import (
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
+	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
 )
 
@@ -374,6 +375,40 @@ func TestRunTemplate_Success(t *testing.T) {
 	})
 	if !strings.Contains(stdout, "Template saved") {
 		t.Errorf("expected Template saved, got: %s", stdout)
+	}
+}
+
+func TestPromptAssigneeChoice_SelectsSelf(t *testing.T) {
+	defer pipeStdinLines(t, "1")()
+	tmpl := map[string]any{
+		"assignee": map[string]any{"accountId": "other-user", "displayName": "Jane Smith"},
+	}
+	captureStdout(func() { promptAssigneeChoice(tmpl) })
+	if tmpl["assignee"] != template.AssigneeSelf {
+		t.Errorf("assignee = %v, want %q", tmpl["assignee"], template.AssigneeSelf)
+	}
+}
+
+func TestPromptAssigneeChoice_KeepsOriginal(t *testing.T) {
+	defer pipeStdinLines(t, "2")()
+	tmpl := map[string]any{
+		"assignee": map[string]any{"accountId": "other-user", "displayName": "Jane Smith"},
+	}
+	captureStdout(func() { promptAssigneeChoice(tmpl) })
+	assignee, ok := tmpl["assignee"].(map[string]any)
+	if !ok {
+		t.Fatalf("assignee should remain a map, got %T", tmpl["assignee"])
+	}
+	if assignee["accountId"] != "other-user" {
+		t.Errorf("accountId = %v, want other-user", assignee["accountId"])
+	}
+}
+
+func TestPromptAssigneeChoice_NoAssigneeDefaultsSelf(t *testing.T) {
+	tmpl := map[string]any{"project": map[string]any{"key": "PROJ"}}
+	captureStdout(func() { promptAssigneeChoice(tmpl) })
+	if tmpl["assignee"] != template.AssigneeSelf {
+		t.Errorf("assignee = %v, want %q", tmpl["assignee"], template.AssigneeSelf)
 	}
 }
 

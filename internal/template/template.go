@@ -10,6 +10,9 @@ import (
 
 const defaultTemplateFile = "ticket_template.json"
 
+// AssigneeSelf is a placeholder value in templates meaning "assign to the current user".
+const AssigneeSelf = "__SELF__"
+
 var templateFields = []string{
 	"project",
 	"issuetype",
@@ -35,6 +38,14 @@ var ExcludedFields = []string{
 	"customfield_10044",
 }
 
+// ResolveAssignee replaces the AssigneeSelf marker in a template with the given accountID.
+// If the assignee is not the self marker, it is left unchanged.
+func ResolveAssignee(tmpl map[string]any, accountID string) {
+	if tmpl["assignee"] == AssigneeSelf {
+		tmpl["assignee"] = map[string]any{"accountId": accountID}
+	}
+}
+
 // StripExcludedFields removes all custom fields and other non-updatable fields from a template map.
 func StripExcludedFields(tmpl map[string]any) map[string]any {
 	for key := range tmpl {
@@ -46,6 +57,7 @@ func StripExcludedFields(tmpl map[string]any) map[string]any {
 }
 
 // Build extracts the reusable fields from a raw Jira issue response.
+// The assignee is stripped to just accountId and displayName.
 func Build(issueData map[string]any) map[string]any {
 	result := make(map[string]any)
 	fields, ok := issueData["fields"].(map[string]any)
@@ -55,6 +67,12 @@ func Build(issueData map[string]any) map[string]any {
 	for _, key := range templateFields {
 		if v, ok := fields[key]; ok && v != nil {
 			result[key] = v
+		}
+	}
+	if assignee, ok := result["assignee"].(map[string]any); ok {
+		result["assignee"] = map[string]any{
+			"accountId":   assignee["accountId"],
+			"displayName": assignee["displayName"],
 		}
 	}
 	return result

@@ -64,6 +64,8 @@ func main() {
 		runToilCheck()
 	case "toil-sync", "ts":
 		runToilSync()
+	case "diagnose", "diag":
+		runDiagnose(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -90,6 +92,7 @@ func printUsage() {
 		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
+		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"clear-auth                        ", "Clear stored credentials"},
 		{"check-update|cu                    ", "Check for newer releases on GitHub"},
 		{"version|--version|-v              ", "Show version"},
@@ -156,6 +159,7 @@ func runTemplate(args []string) {
 		fatal("fetching issue: %v", err)
 	}
 	tmpl := template.Build(issue)
+	promptAssigneeChoice(tmpl)
 	saved, err := template.Save(tmpl, *output)
 	if err != nil {
 		fatal("saving template: %v", err)
@@ -192,6 +196,15 @@ func runCreate(args []string) {
 	template.StripExcludedFields(tmpl)
 
 	conn := mustConnect()
+
+	if tmpl["assignee"] == template.AssigneeSelf {
+		me, err := api.FetchMyself(conn)
+		if err != nil {
+			fatal("fetching current user: %v", err)
+		}
+		template.ResolveAssignee(tmpl, me["accountId"].(string))
+	}
+
 	result, err := api.CreateIssue(conn, tmpl)
 	if err != nil {
 		fatal("creating issue: %v", err)
@@ -219,6 +232,29 @@ func promptTicketFields() (summary, description string, err error) {
 		return "", "", fmt.Errorf("reading description: %w", err)
 	}
 	return summary, strings.TrimSpace(line), nil
+}
+
+// promptAssigneeChoice asks the user whether to use self or the original assignee in the template.
+// If no assignee is present, it defaults to self without prompting.
+func promptAssigneeChoice(tmpl map[string]any) {
+	assignee, ok := tmpl["assignee"].(map[string]any)
+	if !ok {
+		tmpl["assignee"] = template.AssigneeSelf
+		return
+	}
+	displayName, _ := assignee["displayName"].(string)
+	if displayName == "" {
+		displayName = "original user"
+	}
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Assignee: (1) current user (self) or (2) %s? [1/2]: ", displayName)
+	line, _ := reader.ReadString('\n')
+	if strings.TrimSpace(line) == "2" {
+		fmt.Printf("Keeping assignee: %s\n", displayName)
+		return
+	}
+	tmpl["assignee"] = template.AssigneeSelf
+	fmt.Println("Assignee set to current user (resolved at ticket creation time)")
 }
 
 // buildDescription wraps plain text in the Jira Atlassian Document Format structure.

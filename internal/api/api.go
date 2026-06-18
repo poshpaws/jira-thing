@@ -12,6 +12,7 @@ import (
 const (
 	IssueEndpoint  = "/rest/api/3/issue"
 	SearchEndpoint = "/rest/api/3/search/jql"
+	MyselfEndpoint = "/rest/api/3/myself"
 	requestTimeout = 30 * time.Second
 )
 
@@ -195,5 +196,18 @@ func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	var result SearchResult
+	return result, executeRequest(req, &result)
+}
+
+// FetchMyself returns the currently authenticated Jira user's account details.
+func FetchMyself(conn JiraConnection) (map[string]any, error) {
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodGet,
+		Endpoint: conn.BaseURL + MyselfEndpoint,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
 	return result, executeRequest(req, &result)
 }
