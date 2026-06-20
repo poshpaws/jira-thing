@@ -397,9 +397,19 @@ func runLastComment(args []string) {
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.
 func runUpdate(args []string) {
+	var reordered, positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			reordered = append(reordered, a)
+		} else {
+			positional = append(positional, a)
+		}
+	}
+	reordered = append(reordered, positional...)
+
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	fromStdin := fs.Bool("stdin", false, "Read comment from stdin instead of opening $EDITOR")
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing update <TICKET-KEY> [-stdin]")
 	}
 
