@@ -1,6 +1,18 @@
 repos:
   - repo: local
     hooks:
+      - id: reject-co-authored-claude
+        name: reject co-authored-by Claude
+        entry: scripts/check-commit-msg.sh
+        language: script
+        stages: [commit-msg]
+
+      - id: reject-ba-email
+        name: reject ba.com email
+        entry: scripts/check-author-email.sh
+        language: script
+        stages: [commit-msg]
+
       - id: gosec
         name: gosec security scan
         entry: gosec -exclude-dir=.agents ./...
