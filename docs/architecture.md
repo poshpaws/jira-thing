@@ -75,6 +75,9 @@ classDiagram
 
 ## Data Flow
 
+High-level summary — see **[`docs/dfd.md`](dfd.md)** for full Yourdon–DeMarco DFDs
+(Level 0 context, Level 1 decomposition, Level 2 per-command flows).
+
 ```mermaid
 flowchart TD
     CLI["main.go\n(subcommand dispatch)"]
