@@ -121,14 +121,14 @@ func readCredentials() (Credentials, error) {
 	if url == "" || email == "" || token == "" {
 		return Credentials{}, fmt.Errorf("all credential fields are required")
 	}
-	if err := validateToken(token); err != nil {
+	if err := ValidateToken(token); err != nil {
 		return Credentials{}, err
 	}
 	return Credentials{URL: url, Email: email, Token: token}, nil
 }
 
-// validateToken checks for whitespace, plausible format, and double-paste.
-func validateToken(t string) error {
+// ValidateToken checks for whitespace, plausible format, and double-paste.
+func ValidateToken(t string) error {
 	if strings.ContainsAny(t, " \t\n\r") {
 		return fmt.Errorf("token contains whitespace — paste carefully")
 	}

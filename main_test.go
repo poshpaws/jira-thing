@@ -184,12 +184,15 @@ func TestPrintUsage(t *testing.T) {
 	}
 }
 
+// testAPIToken is a valid-format Atlassian API token for use in tests (192 chars).
+const testAPIToken = "ATATT3xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
 // --- helpers for command-level tests ---
 
 func mockCreds(baseURL string) func() {
 	old := getCredentialsFn
 	getCredentialsFn = func() (auth.Credentials, error) {
-		return auth.Credentials{URL: baseURL, Email: "a@b.com", Token: "tok"}, nil
+		return auth.Credentials{URL: baseURL, Email: "a@b.com", Token: testAPIToken}, nil
 	}
 	return func() { getCredentialsFn = old }
 }

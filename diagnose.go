@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/auth"
 	"jira-thing/internal/tui"
 )
 
@@ -37,6 +38,12 @@ func runDiagnose(args []string) {
 	fmt.Printf("    URL:   %s\n", conn.BaseURL)
 	fmt.Printf("    Email: %s\n", conn.Email)
 	fmt.Printf("    Token: %s\n", maskToken(conn.APIToken))
+
+	if err := auth.ValidateToken(conn.APIToken); err != nil {
+		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ Token format:"), err.Error())
+		return
+	}
+	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Token format valid"))
 	fmt.Println()
 
 	me, err := api.FetchMyself(conn)

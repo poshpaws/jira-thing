@@ -383,7 +383,7 @@ func TestValidateToken(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateToken(tc.token)
+			err := ValidateToken(tc.token)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("validateToken(%q) error = %v, wantErr %v", tc.token, err, tc.wantErr)
 			}
