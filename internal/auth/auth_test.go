@@ -77,6 +77,9 @@ func (s *setErrKeyring) Set(key, value string) error {
 }
 func (s *setErrKeyring) Delete(key string) error { delete(s.store, key); return nil }
 
+// testToken is a valid-format Atlassian API token for use in tests (192 chars, matching real token length).
+const testToken = "ATATT3xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
 // --- getCredentials ---
 
 func TestGetCredentials_ReturnsStored(t *testing.T) {
@@ -275,7 +278,7 @@ func mockReadPassword(t *testing.T, token string, err error) func() {
 
 func TestReadCredentials_Success(t *testing.T) {
 	defer pipeStdin(t, "https://example.atlassian.net", "user@example.com")()
-	defer mockReadPassword(t, "mytoken", nil)()
+	defer mockReadPassword(t, testToken, nil)()
 
 	creds, err := readCredentials()
 	if err != nil {
@@ -287,7 +290,7 @@ func TestReadCredentials_Success(t *testing.T) {
 	if creds.Email != "user@example.com" {
 		t.Errorf("email = %q", creds.Email)
 	}
-	if creds.Token != "mytoken" {
+	if creds.Token != testToken {
 		t.Errorf("token = %q", creds.Token)
 	}
 }
@@ -340,7 +343,7 @@ func TestReadCredentials_EmptyFields(t *testing.T) {
 
 func TestPromptAndStore_Success(t *testing.T) {
 	defer pipeStdin(t, "https://example.atlassian.net", "user@example.com")()
-	defer mockReadPassword(t, "tok", nil)()
+	defer mockReadPassword(t, testToken, nil)()
 
 	kr := &mockKeyring{store: map[string]string{}}
 	creds, err := promptAndStore(kr)
@@ -354,11 +357,36 @@ func TestPromptAndStore_Success(t *testing.T) {
 
 func TestPromptAndStore_StoreError(t *testing.T) {
 	defer pipeStdin(t, "https://example.atlassian.net", "user@example.com")()
-	defer mockReadPassword(t, "tok", nil)()
+	defer mockReadPassword(t, testToken, nil)()
 
 	kr := &setErrKeyring{store: map[string]string{}, setErr: errors.New("store failed")}
 	_, err := promptAndStore(kr)
 	if err == nil {
 		t.Fatal("expected error from storeCredentials failure")
+	}
+}
+
+// --- validateToken ---
+
+func TestValidateToken(t *testing.T) {
+	cases := []struct {
+		name    string
+		token   string
+		wantErr bool
+	}{
+		{"new format valid", testToken, false},
+		{"old format valid", "dGVzdHRva2VudGVzdHRva2Vu", false},
+		{"internal space", "ATATT3x AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", true},
+		{"double pasted", testToken + testToken, true},
+		{"too short", "ATATT3xAAA", true},
+		{"garbage", "not-a-token!", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateToken(tc.token)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateToken(%q) error = %v, wantErr %v", tc.token, err, tc.wantErr)
+			}
+		})
 	}
 }
