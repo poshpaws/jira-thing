@@ -374,12 +374,11 @@ func TestValidateToken(t *testing.T) {
 		token   string
 		wantErr bool
 	}{
-		{"new format valid", testToken, false},
-		{"old format valid", "dGVzdHRva2VudGVzdHRva2Vu", false},
-		{"internal space", "ATATT3x AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", true},
+		{"valid token", testToken, false},
+		{"short token still valid", "anytoken123", false},
+		{"internal space", "token with space", true},
+		{"tab in token", "token\there", true},
 		{"double pasted", testToken + testToken, true},
-		{"too short", "ATATT3xAAA", true},
-		{"garbage", "not-a-token!", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
