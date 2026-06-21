@@ -4,7 +4,9 @@ GOBIN   := $(shell go env GOPATH)/bin
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-.PHONY: all build test lint security clean
+INSTALL_DIR := $(HOME)/bin
+
+.PHONY: all build test lint security clean install
 
 tools:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -29,6 +31,10 @@ lint:
 security:
 	$(GOBIN)/gosec -exclude-dir=.agents ./...
 	$(GOBIN)/govulncheck ./...
+
+install: $(BINARY)
+	install -d $(INSTALL_DIR)
+	install -m 755 $(BINARY) $(INSTALL_DIR)/$(BINARY)
 
 clean:
 	rm -f $(BINARY)
