@@ -168,6 +168,35 @@ jira-thing my-tasks -notupdated
 
 ---
 
+### `point-check` — check sprint tickets have story points
+
+Finds all tickets assigned to you that have been updated in the current sprint (calendar month) and reports which ones are missing story points.
+
+```bash
+jira-thing point-check
+```
+
+**Example — all tickets have points:**
+
+```bash
+jira-thing point-check
+# Sprint: June 2026 — 5 ticket(s) checked, 0 missing points
+#
+# ✓ All tickets have story points.
+```
+
+**Example — some tickets missing points:**
+
+```bash
+jira-thing pc
+# Sprint: June 2026 — 5 ticket(s) checked, 2 missing points
+#
+#   PROJ-87       In Review       High      updated: 2026-06-21  Refactor auth middleware
+#   PROJ-72       To Do           Low       updated: 2026-06-18  Clean up legacy scripts
+```
+
+---
+
 ### `update` — add a comment to a ticket
 
 Posts a new comment on an existing Jira ticket. The existing description is **not** modified. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
