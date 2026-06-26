@@ -22,6 +22,9 @@ import (
 	vercheck "jira-thing/internal/version"
 )
 
+// storyPointFields lists Jira field names that may hold story points (read-only, for point-check).
+var storyPointFields = []string{"story_points", "customfield_10016", "customfield_10308"}
+
 // version is set at build time via -ldflags.
 var version = "dev"
 
@@ -60,6 +63,8 @@ func main() {
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
 		}
+	case "point-check", "pc":
+		runPointCheck()
 	case "toil-check", "toil", "tc":
 		runToilCheck()
 	case "toil-sync", "ts":
@@ -91,6 +96,7 @@ func printUsage() {
 		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
 		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
+		{"point-check|pc                     ", "Check sprint tickets have story points"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
 		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"clear-auth                        ", "Clear stored credentials"},
@@ -379,6 +385,95 @@ func nestedString(m map[string]any, key1, key2 string) string {
 		return getString(inner, key2)
 	}
 	return ""
+}
+
+// runPointCheck finds all tickets worked on in the current sprint (calendar month)
+// and reports which ones are missing story points.
+func runPointCheck() {
+	conn := mustConnect()
+	jql := `assignee = currentUser() AND sprint in openSprints() ORDER BY updated DESC`
+	q := api.SearchQuery{
+		JQL:        jql,
+		Fields:     []string{"summary", "status", "priority", "updated", "story_points", "customfield_10016", "customfield_10308"},
+		MaxResults: 100,
+	}
+	result, err := api.SearchIssues(conn, q)
+	if err != nil {
+		fatal("fetching tasks: %v", err)
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No tickets found in the current sprint.")
+		return
+	}
+	missing := findMissingPoints(result.Issues)
+	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf(
+		"%d ticket(s) checked, %d missing points",
+		len(result.Issues), len(missing))))
+	fmt.Println()
+	for _, issue := range result.Issues {
+		printPointCheckRow(issue)
+	}
+	fmt.Println()
+	if len(missing) == 0 {
+		fmt.Println(tui.SuccessStyle.Render("✓ All tickets have story points."))
+	}
+}
+
+// printPointCheckRow prints a task row with the story points value shown.
+func printPointCheckRow(issue map[string]any) {
+	key := getString(issue, "key")
+	f, ok := issue["fields"].(map[string]any)
+	if !ok {
+		f = map[string]any{}
+	}
+	summary := getString(f, "summary")
+	updated := getString(f, "updated")
+	if len(updated) >= 10 {
+		updated = updated[:10]
+	}
+	points := getPointsDisplay(f)
+	fmt.Printf("  %s  %s  %s  %s  %s  %s\n",
+		tui.KeyStyle.Render(fmt.Sprintf("%-12s", key)),
+		tui.StatusStyle.Render(fmt.Sprintf("%-14s", nestedString(f, "status", "name"))),
+		tui.PriorityStyle.Render(fmt.Sprintf("%-8s", nestedString(f, "priority", "name"))),
+		tui.DateStyle.Render(fmt.Sprintf("%-6s", points)),
+		tui.DateStyle.Render("updated: "+updated),
+		tui.SummaryStyle.Render(summary))
+}
+
+// getPointsDisplay returns the story points as a string, or "—" if unset.
+func getPointsDisplay(fields map[string]any) string {
+	for _, field := range storyPointFields {
+		if v, ok := fields[field]; ok && v != nil {
+			return fmt.Sprintf("%v", v)
+		}
+	}
+	return "—"
+}
+
+// findMissingPoints returns issues that have no story points set.
+func findMissingPoints(issues []map[string]any) []map[string]any {
+	var missing []map[string]any
+	for _, issue := range issues {
+		if !hasStoryPoints(issue) {
+			missing = append(missing, issue)
+		}
+	}
+	return missing
+}
+
+// hasStoryPoints checks whether an issue has story points set.
+func hasStoryPoints(issue map[string]any) bool {
+	f, _ := issue["fields"].(map[string]any)
+	if f == nil {
+		return false
+	}
+	for _, field := range storyPointFields {
+		if v, ok := f[field]; ok && v != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // runLastComment fetches and renders the last comment on a Jira ticket.

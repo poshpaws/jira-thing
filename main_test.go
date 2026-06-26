@@ -1034,3 +1034,174 @@ func TestRunToilSync_PageNotFound(t *testing.T) {
 		t.Error("expected osExit when page not found")
 	}
 }
+
+// --- point-check ---
+
+func TestHasStoryPoints_StoryPointsField(t *testing.T) {
+	issue := map[string]any{"fields": map[string]any{"story_points": 5.0}}
+	if !hasStoryPoints(issue) {
+		t.Error("expected true for story_points field set")
+	}
+}
+
+func TestHasStoryPoints_CustomField(t *testing.T) {
+	issue := map[string]any{"fields": map[string]any{"customfield_10016": 3.0}}
+	if !hasStoryPoints(issue) {
+		t.Error("expected true for customfield_10016 set")
+	}
+}
+
+func TestHasStoryPoints_NilFields(t *testing.T) {
+	issue := map[string]any{"key": "X-1"}
+	if hasStoryPoints(issue) {
+		t.Error("expected false for nil fields")
+	}
+}
+
+func TestHasStoryPoints_NilValue(t *testing.T) {
+	issue := map[string]any{"fields": map[string]any{"story_points": nil, "customfield_10016": nil}}
+	if hasStoryPoints(issue) {
+		t.Error("expected false when both fields are nil")
+	}
+}
+
+func TestFindMissingPoints(t *testing.T) {
+	issues := []map[string]any{
+		{"key": "A-1", "fields": map[string]any{"story_points": 3.0, "summary": "Has points"}},
+		{"key": "A-2", "fields": map[string]any{"summary": "No points"}},
+		{"key": "A-3", "fields": map[string]any{"customfield_10016": 5.0, "summary": "Custom field"}},
+	}
+	missing := findMissingPoints(issues)
+	if len(missing) != 1 {
+		t.Fatalf("expected 1 missing, got %d", len(missing))
+	}
+	if getString(missing[0], "key") != "A-2" {
+		t.Errorf("expected A-2, got %s", getString(missing[0], "key"))
+	}
+}
+
+func TestRunPointCheck_NoTickets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runPointCheck() })
+	if !strings.Contains(out, "No tickets found in the current sprint") {
+		t.Errorf("expected 'No tickets found in the current sprint', got: %s", out)
+	}
+}
+
+func TestRunPointCheck_AllHavePoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"issues": []any{
+				map[string]any{"key": "PROJ-1", "fields": map[string]any{
+					"summary": "Task one", "story_points": 3.0,
+					"status": map[string]any{"name": "Done"}, "priority": map[string]any{"name": "Medium"},
+				}},
+			},
+			"total": 1, "maxResults": 100,
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runPointCheck() })
+	if !strings.Contains(out, "All tickets have story points") {
+		t.Errorf("expected all-good message, got: %s", out)
+	}
+}
+
+func TestRunPointCheck_SomeMissingPoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"issues": []any{
+				map[string]any{"key": "PROJ-1", "fields": map[string]any{
+					"summary": "With points", "story_points": 3.0,
+					"status": map[string]any{"name": "Done"}, "priority": map[string]any{"name": "Medium"},
+				}},
+				map[string]any{"key": "PROJ-2", "fields": map[string]any{
+					"summary": "Missing points",
+					"status":  map[string]any{"name": "Open"}, "priority": map[string]any{"name": "High"},
+				}},
+			},
+			"total": 2, "maxResults": 100,
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runPointCheck() })
+	if !strings.Contains(out, "PROJ-2") {
+		t.Errorf("expected PROJ-2 in output, got: %s", out)
+	}
+	if !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected PROJ-1 in output (all tickets shown), got: %s", out)
+	}
+	if !strings.Contains(out, "1 missing points") {
+		t.Errorf("expected '1 missing points' in heading, got: %s", out)
+	}
+}
+
+func TestRunPointCheck_JQLUsesOpenSprints(t *testing.T) {
+	var receivedJQL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		receivedJQL, _ = body["jql"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	captureStdout(func() { runPointCheck() })
+	if !strings.Contains(receivedJQL, "sprint in openSprints()") {
+		t.Errorf("JQL missing openSprints(): %s", receivedJQL)
+	}
+	if !strings.Contains(receivedJQL, "assignee = currentUser()") {
+		t.Errorf("JQL missing assignee clause: %s", receivedJQL)
+	}
+}
+
+func TestRunPointCheck_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("server error"))
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runPointCheck() })
+	})
+	if !exited {
+		t.Error("expected osExit on API error")
+	}
+}
+
+func TestGetPointsDisplay(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]any
+		want   string
+	}{
+		{"story_points set", map[string]any{"story_points": 3.0}, "3"},
+		{"customfield set", map[string]any{"customfield_10016": 5.0}, "5"},
+		{"both nil", map[string]any{"story_points": nil, "customfield_10016": nil}, "—"},
+		{"neither present", map[string]any{}, "—"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getPointsDisplay(tc.fields)
+			if got != tc.want {
+				t.Errorf("getPointsDisplay() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
