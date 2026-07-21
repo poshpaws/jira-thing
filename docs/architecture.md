@@ -16,6 +16,7 @@ CLI (main) ──► internal/api      ──► Jira REST API (HTTPS)
 |---|---|
 | `main` | Subcommand routing, user I/O, flag parsing |
 | `main` (`render.go`) | ADF→markdown conversion; glamour terminal rendering |
+| `main` (`markdown.go`) | Markdown→ADF conversion (goldmark) for comments and descriptions |
 | `internal/api` | HTTP requests to the Jira REST API |
 | `internal/auth` | Credential load/store via the OS keyring |
 | `internal/template` | Build, save, and load JSON ticket templates |
@@ -114,4 +115,5 @@ flowchart TD
 - **`executeRequest` helper** — eliminates duplicated HTTP status-check + JSON-decode logic across all three API functions.
 - **`SearchQuery` struct** — groups the four search parameters to keep `SearchIssues` within the single-responsibility / argument-count guidelines.
 - **ADF→markdown conversion** (`render.go`) — Jira Cloud API v3 returns comment bodies as Atlassian Document Format (ADF), not raw markdown. `adfToMarkdown` recursively walks the ADF node tree to produce standard markdown, which is then rendered to styled terminal output via [glamour](https://github.com/charmbracelet/glamour).
+- **Markdown→ADF conversion** (`markdown.go`) — comment and description text is parsed as markdown with [goldmark](https://github.com/yuin/goldmark) (Table and Strikethrough extensions enabled) and converted to structured ADF nodes (`heading`, `bulletList`, `orderedList`, `codeBlock`, `blockquote`, `table`, `rule`, marks for strong/em/code/strike/link) before posting. Previously the whole text was sent as a single plain-text node, so markdown appeared raw in the Jira web UI. `markdownToADF` is the inverse of `adfToMarkdown`.
 - **Two-call last-comment fetch** — `FetchLastComment` first requests one comment to read `total`, then requests `startAt=total-1` to fetch the last without downloading all comments.

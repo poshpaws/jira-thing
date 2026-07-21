@@ -46,9 +46,13 @@ func adfToMarkdown(node map[string]any) string {
 	case "codeBlock":
 		return adfCodeBlock(node)
 	case "blockquote":
-		return prefixLines(joinChildren(node), "> ")
+		return prefixLines(joinChildren(node), "> ") + "\n"
 	case "mention":
 		return adfMention(node)
+	case "rule":
+		return "---\n\n"
+	case "table":
+		return renderTable(node)
 	default:
 		return joinChildren(node)
 	}
@@ -98,6 +102,8 @@ func applyMarks(text string, rawMarks any) string {
 			text = "`" + text + "`"
 		case "strike":
 			text = "~~" + text + "~~"
+		case "link":
+			text = "[" + text + "](" + nestedString(mark, "attrs", "href") + ")"
 		}
 	}
 	return text
@@ -146,6 +152,29 @@ func adfCodeBlock(node map[string]any) string {
 	attrs, _ := node["attrs"].(map[string]any)
 	lang, _ := attrs["language"].(string)
 	return "```" + lang + "\n" + joinChildren(node) + "```\n\n"
+}
+
+// renderTable converts an ADF table node to a markdown table, inserting the
+// separator line after the first row.
+func renderTable(node map[string]any) string {
+	var sb strings.Builder
+	for i, row := range adfChildren(node) {
+		cells := renderTableCells(row)
+		sb.WriteString("| " + strings.Join(cells, " | ") + " |\n")
+		if i == 0 {
+			sb.WriteString("|" + strings.Repeat(" --- |", len(cells)) + "\n")
+		}
+	}
+	return sb.String() + "\n"
+}
+
+// renderTableCells renders each cell of an ADF tableRow as trimmed inline text.
+func renderTableCells(row map[string]any) []string {
+	cells := []string{}
+	for _, cell := range adfChildren(row) {
+		cells = append(cells, strings.TrimSpace(joinChildren(cell)))
+	}
+	return cells
 }
 
 // adfMention extracts the display name from an ADF mention node.

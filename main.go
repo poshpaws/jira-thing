@@ -263,18 +263,9 @@ func promptAssigneeChoice(tmpl map[string]any) {
 	fmt.Println("Assignee set to current user (resolved at ticket creation time)")
 }
 
-// buildDescription wraps plain text in the Jira Atlassian Document Format structure.
+// buildDescription converts markdown text to the Jira Atlassian Document Format structure.
 func buildDescription(text string) map[string]any {
-	return map[string]any{
-		"type":    "doc",
-		"version": 1,
-		"content": []any{
-			map[string]any{
-				"type":    "paragraph",
-				"content": []any{map[string]any{"type": "text", "text": text}},
-			},
-		},
-	}
+	return markdownToADF(text)
 }
 
 // runMyTasks lists open Jira tasks assigned to the current user.
