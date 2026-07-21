@@ -113,7 +113,7 @@ func applyMarks(text string, rawMarks any) string {
 func renderBulletItems(node map[string]any) string {
 	var sb strings.Builder
 	for _, item := range adfChildren(node) {
-		sb.WriteString("- " + strings.TrimRight(joinChildren(item), "\n") + "\n")
+		sb.WriteString(renderListItem("- ", item))
 	}
 	return sb.String()
 }
@@ -122,9 +122,22 @@ func renderBulletItems(node map[string]any) string {
 func renderOrderedItems(node map[string]any) string {
 	var sb strings.Builder
 	for i, item := range adfChildren(node) {
-		fmt.Fprintf(&sb, "%d. %s\n", i+1, strings.TrimRight(joinChildren(item), "\n"))
+		sb.WriteString(renderListItem(fmt.Sprintf("%d. ", i+1), item))
 	}
 	return sb.String()
+}
+
+// renderListItem renders one ADF listItem, indenting nested content (such as
+// sub-lists) to the marker width so it nests correctly in markdown.
+func renderListItem(marker string, item map[string]any) string {
+	content := strings.TrimRight(joinChildren(item), "\n")
+	content = strings.ReplaceAll(content, "\n\n", "\n")
+	indent := strings.Repeat(" ", len(marker))
+	lines := strings.Split(content, "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = indent + lines[i]
+	}
+	return marker + strings.Join(lines, "\n") + "\n"
 }
 
 // prefixLines prepends prefix to every line of text.

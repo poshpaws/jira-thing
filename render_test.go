@@ -91,3 +91,63 @@ func TestAdfToMarkdown_BlockquoteSeparatedFromNextBlock(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestAdfToMarkdown_NestedBulletListIndented(t *testing.T) {
+	para := func(txt string) map[string]any {
+		return map[string]any{
+			"type":    "paragraph",
+			"content": []any{map[string]any{"type": "text", "text": txt}},
+		}
+	}
+	item := func(children ...any) map[string]any {
+		return map[string]any{"type": "listItem", "content": children}
+	}
+	doc := map[string]any{
+		"type": "doc",
+		"content": []any{map[string]any{
+			"type": "bulletList",
+			"content": []any{
+				item(para("one")),
+				item(para("two"), map[string]any{
+					"type":    "bulletList",
+					"content": []any{item(para("inner"))},
+				}),
+			},
+		}},
+	}
+	got := adfToMarkdown(doc)
+	want := "- one\n- two\n  - inner\n\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestAdfToMarkdown_NestedOrderedListIndented(t *testing.T) {
+	para := func(txt string) map[string]any {
+		return map[string]any{
+			"type":    "paragraph",
+			"content": []any{map[string]any{"type": "text", "text": txt}},
+		}
+	}
+	item := func(children ...any) map[string]any {
+		return map[string]any{"type": "listItem", "content": children}
+	}
+	doc := map[string]any{
+		"type": "doc",
+		"content": []any{map[string]any{
+			"type": "orderedList",
+			"content": []any{
+				item(para("first"), map[string]any{
+					"type":    "orderedList",
+					"content": []any{item(para("sub"))},
+				}),
+				item(para("second")),
+			},
+		}},
+	}
+	got := adfToMarkdown(doc)
+	want := "1. first\n   1. sub\n2. second\n\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
