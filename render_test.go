@@ -122,6 +122,60 @@ func TestAdfToMarkdown_NestedBulletListIndented(t *testing.T) {
 	}
 }
 
+func TestBuildDescribeMarkdown_FullIssue(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"summary":  "Fix the thing",
+			"status":   map[string]any{"name": "In Progress"},
+			"priority": map[string]any{"name": "High"},
+			"assignee": map[string]any{"displayName": "Alice"},
+			"reporter": map[string]any{"displayName": "Bob"},
+			"created":  "2026-01-01T10:00:00.000+0000",
+			"updated":  "2026-01-02T10:00:00.000+0000",
+			"description": map[string]any{
+				"type": "doc",
+				"content": []any{
+					map[string]any{
+						"type":    "paragraph",
+						"content": []any{map[string]any{"type": "text", "text": "does the thing"}},
+					},
+				},
+			},
+		},
+	}
+	got := buildDescribeMarkdown(issue)
+	want := "# PROJ-1: Fix the thing\n\n" +
+		"- **Status:** In Progress\n" +
+		"- **Priority:** High\n" +
+		"- **Assignee:** Alice\n" +
+		"- **Reporter:** Bob\n" +
+		"- **Created:** 2026-01-01\n" +
+		"- **Updated:** 2026-01-02\n\n" +
+		"## Description\n\n" +
+		"does the thing\n\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildDescribeMarkdown_MissingFields(t *testing.T) {
+	issue := map[string]any{"key": "PROJ-2"}
+	got := buildDescribeMarkdown(issue)
+	want := "# PROJ-2: \n\n" +
+		"- **Status:** \n" +
+		"- **Priority:** \n" +
+		"- **Assignee:** Unassigned\n" +
+		"- **Reporter:** Unknown\n" +
+		"- **Created:** \n" +
+		"- **Updated:** \n\n" +
+		"## Description\n\n" +
+		"_No description._\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestAdfToMarkdown_NestedOrderedListIndented(t *testing.T) {
 	para := func(txt string) map[string]any {
 		return map[string]any{

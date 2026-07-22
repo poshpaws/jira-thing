@@ -646,6 +646,57 @@ func TestRunUpdate_APIError(t *testing.T) {
 	}
 }
 
+// --- runDescribe ---
+
+func TestRunDescribe_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"key": "PROJ-1",
+			"fields": map[string]any{
+				"summary": "Fix the thing",
+				"status":  map[string]any{"name": "Open"},
+			},
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runDescribe([]string{"PROJ-1"}) })
+	// Glamour wraps long headings across style spans, splitting multi-word
+	// substrings with ANSI codes — check single words only.
+	if !strings.Contains(out, "PROJ-1") || !strings.Contains(out, "Open") {
+		t.Errorf("expected ticket key and status in output, got: %s", out)
+	}
+}
+
+func TestRunDescribe_NoArgs(t *testing.T) {
+	exited := captureExit(func() {
+		captureStderr(func() { runDescribe([]string{}) })
+	})
+	if !exited {
+		t.Error("expected osExit for missing ticket key")
+	}
+}
+
+func TestRunDescribe_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	exited := captureExit(func() {
+		captureStderr(func() { runDescribe([]string{"BAD-1"}) })
+	})
+	if !exited {
+		t.Error("expected osExit for API error")
+	}
+}
+
 // --- runAttach ---
 
 func TestRunAttach_Success(t *testing.T) {

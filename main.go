@@ -61,6 +61,8 @@ func main() {
 		runLastComment(os.Args[2:])
 	case "attach", "at":
 		runAttach(os.Args[2:])
+	case "describe", "de":
+		runDescribe(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
@@ -98,6 +100,7 @@ func printUsage() {
 		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
 		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
 		{"attach|at   <TICKET-KEY> <file>   ", "Attach a file to a ticket"},
+		{"describe|de <TICKET-KEY>          ", "Dump full ticket as rendered markdown"},
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
 		{"point-check|pc                     ", "Check sprint tickets have story points"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
@@ -482,6 +485,20 @@ func runLastComment(args []string) {
 		fatal("fetching comment: %v", err)
 	}
 	renderLastComment(comment)
+}
+
+// runDescribe fetches a Jira ticket and prints its full contents as rendered markdown.
+func runDescribe(args []string) {
+	fs := flag.NewFlagSet("describe", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing describe <TICKET-KEY>")
+	}
+	conn := mustConnect()
+	issue, err := api.FetchIssue(conn, fs.Arg(0))
+	if err != nil {
+		fatal("fetching issue: %v", err)
+	}
+	renderDescribe(issue)
 }
 
 // runAttach uploads a local file as an attachment on an existing Jira ticket.

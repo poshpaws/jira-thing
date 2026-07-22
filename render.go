@@ -26,6 +26,58 @@ func renderLastComment(comment api.Comment) {
 	fmt.Print(rendered)
 }
 
+// renderDescribe prints a full markdown dump of a Jira issue: key, summary,
+// core fields, and the rendered description.
+func renderDescribe(issue map[string]any) {
+	md := buildDescribeMarkdown(issue)
+	rendered, err := glamour.Render(md, "dark")
+	if err != nil {
+		fmt.Print(md)
+		return
+	}
+	fmt.Print(rendered)
+}
+
+// buildDescribeMarkdown renders a Jira issue's key fields and description as markdown.
+func buildDescribeMarkdown(issue map[string]any) string {
+	f, _ := issue["fields"].(map[string]any)
+	if f == nil {
+		f = map[string]any{}
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# %s: %s\n\n", getString(issue, "key"), getString(f, "summary"))
+	fmt.Fprintf(&sb, "- **Status:** %s\n", nestedString(f, "status", "name"))
+	fmt.Fprintf(&sb, "- **Priority:** %s\n", nestedString(f, "priority", "name"))
+	fmt.Fprintf(&sb, "- **Assignee:** %s\n", describePersonOr(f, "assignee", "Unassigned"))
+	fmt.Fprintf(&sb, "- **Reporter:** %s\n", describePersonOr(f, "reporter", "Unknown"))
+	fmt.Fprintf(&sb, "- **Created:** %s\n", shortDate(getString(f, "created")))
+	fmt.Fprintf(&sb, "- **Updated:** %s\n\n", shortDate(getString(f, "updated")))
+	sb.WriteString("## Description\n\n")
+	if desc, ok := f["description"].(map[string]any); ok {
+		sb.WriteString(adfToMarkdown(desc))
+	} else {
+		sb.WriteString("_No description._\n")
+	}
+	return sb.String()
+}
+
+// describePersonOr returns the displayName of a nested person field, or fallback if absent.
+func describePersonOr(f map[string]any, key, fallback string) string {
+	name := nestedString(f, key, "displayName")
+	if name == "" {
+		return fallback
+	}
+	return name
+}
+
+// shortDate truncates an ISO timestamp to its date portion.
+func shortDate(ts string) string {
+	if len(ts) >= 10 {
+		return ts[:10]
+	}
+	return ts
+}
+
 // adfToMarkdown converts an Atlassian Document Format node tree to markdown.
 func adfToMarkdown(node map[string]any) string {
 	switch getString(node, "type") {
