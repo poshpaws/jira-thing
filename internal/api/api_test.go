@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -212,6 +213,83 @@ func TestSearchIssues_NetworkError(t *testing.T) {
 	_, err := api.SearchIssues(conn(url), q)
 	if err == nil {
 		t.Fatal("expected network error, got nil")
+	}
+}
+
+func TestAddAttachment_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/attachments") {
+			t.Errorf("expected /attachments path, got %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Atlassian-Token") != "no-check" {
+			t.Errorf("expected X-Atlassian-Token: no-check header")
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("reading form file: %v", err)
+		}
+		defer file.Close()
+		if header.Filename != "note.txt" {
+			t.Errorf("filename = %q, want note.txt", header.Filename)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]any{map[string]any{"id": "999", "filename": "note.txt"}})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := dir + "/note.txt"
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writing temp file: %v", err)
+	}
+
+	result, err := api.AddAttachment(conn(srv.URL), "PROJ-1", path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0]["filename"] != "note.txt" {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+func TestAddAttachment_MissingFile(t *testing.T) {
+	_, err := api.AddAttachment(conn("http://unused"), "PROJ-1", "/no/such/file.txt")
+	if err == nil {
+		t.Fatal("expected error for missing file, got nil")
+	}
+}
+
+func TestAddAttachment_404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := dir + "/note.txt"
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writing temp file: %v", err)
+	}
+
+	_, err := api.AddAttachment(conn(srv.URL), "BAD-1", path)
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+}
+
+func TestAddAttachment_InvalidURL(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/note.txt"
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writing temp file: %v", err)
+	}
+	_, err := api.AddAttachment(api.JiraConnection{BaseURL: "http://\x00invalid"}, "PROJ-1", path)
+	if err == nil {
+		t.Fatal("expected error for invalid URL, got nil")
 	}
 }
 

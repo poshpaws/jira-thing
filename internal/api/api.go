@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -140,6 +143,49 @@ func AddComment(conn JiraConnection, issueKey string, body map[string]any) error
 	req.Header.Set("Content-Type", "application/json")
 	var result map[string]any
 	return executeRequest(req, &result)
+}
+
+// AddAttachment uploads a local file as an attachment on an existing Jira issue.
+func AddAttachment(conn JiraConnection, issueKey, filePath string) ([]map[string]any, error) {
+	body, contentType, err := buildAttachmentBody(filePath)
+	if err != nil {
+		return nil, err
+	}
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPost,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/attachments",
+		Body:     body,
+	})
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Atlassian-Token", "no-check")
+	var result []map[string]any
+	return result, executeRequest(req, &result)
+}
+
+// buildAttachmentBody reads filePath and returns a multipart/form-data body plus its Content-Type.
+func buildAttachmentBody(filePath string) (io.Reader, string, error) {
+	file, err := os.Open(filePath) // #nosec G304 -- filePath is user-supplied CLI input
+	if err != nil {
+		return nil, "", fmt.Errorf("opening file: %w", err)
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return nil, "", fmt.Errorf("building attachment form: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, "", fmt.Errorf("reading file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("closing multipart writer: %w", err)
+	}
+	return &buf, writer.FormDataContentType(), nil
 }
 
 // FetchLastComment retrieves the most recent comment on a Jira issue.

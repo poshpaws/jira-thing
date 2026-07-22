@@ -646,6 +646,59 @@ func TestRunUpdate_APIError(t *testing.T) {
 	}
 }
 
+// --- runAttach ---
+
+func TestRunAttach_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/attachments") {
+			t.Errorf("expected /attachments path, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{map[string]any{"id": "1", "filename": "note.txt"}})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writing temp file: %v", err)
+	}
+
+	out := captureStdout(func() { runAttach([]string{"PROJ-1", path}) })
+	if !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected ticket key in output, got: %s", out)
+	}
+}
+
+func TestRunAttach_MissingArgs(t *testing.T) {
+	exited := captureExit(func() {
+		captureStderr(func() { runAttach([]string{"PROJ-1"}) })
+	})
+	if !exited {
+		t.Error("expected osExit for missing file path")
+	}
+}
+
+func TestRunAttach_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writing temp file: %v", err)
+	}
+
+	exited := captureExit(func() {
+		captureStderr(func() { runAttach([]string{"BAD-1", path}) })
+	})
+	if !exited {
+		t.Error("expected osExit for API error")
+	}
+}
+
 func TestThreeBusinessDaysAgo(t *testing.T) {
 	tests := []struct {
 		name string

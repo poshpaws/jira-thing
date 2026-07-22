@@ -59,6 +59,8 @@ func main() {
 		runUpdate(os.Args[2:])
 	case "last-comment", "lc":
 		runLastComment(os.Args[2:])
+	case "attach", "at":
+		runAttach(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
@@ -95,6 +97,7 @@ func printUsage() {
 		{"update|up   <TICKET-KEY> [-stdin] ", "Add a comment via $EDITOR or stdin"},
 		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
 		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
+		{"attach|at   <TICKET-KEY> <file>   ", "Attach a file to a ticket"},
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
 		{"point-check|pc                     ", "Check sprint tickets have story points"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
@@ -479,6 +482,24 @@ func runLastComment(args []string) {
 		fatal("fetching comment: %v", err)
 	}
 	renderLastComment(comment)
+}
+
+// runAttach uploads a local file as an attachment on an existing Jira ticket.
+func runAttach(args []string) {
+	fs := flag.NewFlagSet("attach", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil || fs.NArg() < 2 {
+		fatal("usage: jira-thing attach <TICKET-KEY> <file-path>")
+	}
+	key := fs.Arg(0)
+	path := fs.Arg(1)
+
+	conn := mustConnect()
+	if _, err := api.AddAttachment(conn, key, path); err != nil {
+		fatal("attaching file: %v", err)
+	}
+	fmt.Printf("%s %s %s %s\n",
+		tui.SuccessStyle.Render("Attached"), path, tui.SuccessStyle.Render("to"), tui.KeyStyle.Render(key))
+	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
 }
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.
