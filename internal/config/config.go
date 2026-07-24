@@ -11,7 +11,9 @@ import (
 type Config struct {
 	Project         string `json:"project"`
 	ToilMarker      string `json:"toil_marker"`
-	ToilTeam        string `json:"toil_team"` // Jira Team field value, e.g. "ECP - Foundation" (not a label)
+	ToilTeam        string `json:"toil_team"`      // legacy: a second label to match, e.g. "ECP_SEC_TEAM"
+	Team            string `json:"team"`           // Jira team UUID, e.g. "c4cb9231-6ac0-44e7-bd76-64331a96af81"; used when use_team_field is true
+	UseTeamField    bool   `json:"use_team_field"` // false (default): filter by toil_team label. true: filter by the Team field instead
 	Editor          string `json:"editor"`
 	ConfluenceSpace string `json:"confluence_space"`
 	TicketHanger    string `json:"ticket_hanger"`

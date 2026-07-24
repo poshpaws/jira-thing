@@ -624,18 +624,35 @@ func threeBusinessDaysAgo(now time.Time) time.Time {
 }
 
 // buildToilJQL constructs the JQL for querying toil tickets: project, the toil
-// label, and the ticket's Team field (sourced from config, not a second label —
-// not every team applies the same labelling convention). extra is appended as-is,
+// label, and a team filter. The team filter is either the ticket's Team field
+// (cfg.Team, when cfg.UseTeamField is true — not every Jira instance indexes
+// Team the same way) or the legacy second label (cfg.ToilTeam), matching how
+// teams applied labels before the Team field was rolled out. The Team field is
+// matched via its team UUID (cfg.Team), not a display name — Jira's "Team[Team]"
+// field reference takes an unquoted team ID literal. extra is appended as-is,
 // e.g. an additional AND clause or an ORDER BY.
 func buildToilJQL(cfg config.Config, extra string) string {
-	jql := fmt.Sprintf(
-		`project = "%s" AND labels = "%s" AND Team = "%s"`,
-		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
-	)
+	teamClause := fmt.Sprintf(`labels = "%s"`, cfg.ToilTeam)
+	if cfg.UseTeamField {
+		teamClause = fmt.Sprintf(`"Team[Team]" = %s`, cfg.Team)
+	}
+	jql := fmt.Sprintf(`project = "%s" AND labels = "%s" AND %s`, cfg.Project, cfg.ToilMarker, teamClause)
 	if extra != "" {
 		jql += " AND " + extra
 	}
 	return jql
+}
+
+// validateToilTeamConfig checks that whichever team filter is active (Team field
+// or legacy label) has its required config value set.
+func validateToilTeamConfig(cfg config.Config) error {
+	if cfg.UseTeamField && cfg.Team == "" {
+		return fmt.Errorf("team must be set in ~/.config/jira-thing/jira-thing.json when use_team_field is true")
+	}
+	if !cfg.UseTeamField && cfg.ToilTeam == "" {
+		return fmt.Errorf("toil_team must be set in ~/.config/jira-thing/jira-thing.json (or set use_team_field=true and team)")
+	}
+	return nil
 }
 
 // runToilCheck queries Jira for toil tickets using labels and Team from config.
@@ -644,8 +661,11 @@ func runToilCheck() {
 	if err != nil {
 		fatal("%v", err)
 	}
-	if cfg.Project == "" || cfg.ToilMarker == "" || cfg.ToilTeam == "" {
-		fatal("project, toil_marker and toil_team must be set in ~/.config/jira-thing/jira-thing.json")
+	if cfg.Project == "" || cfg.ToilMarker == "" {
+		fatal("project and toil_marker must be set in ~/.config/jira-thing/jira-thing.json")
+	}
+	if err := validateToilTeamConfig(cfg); err != nil {
+		fatal("%v", err)
 	}
 	conn := mustConnect()
 	jql := buildToilJQL(cfg, "updated >= -1w")

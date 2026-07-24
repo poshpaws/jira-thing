@@ -809,6 +809,16 @@ func mockConfig(marker, team string) func() {
 	return func() { config.ConfigPath = old; os.RemoveAll(dir) }
 }
 
+func mockConfigTeamField(marker, team string) func() {
+	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
+	path := filepath.Join(dir, "jira-thing.json")
+	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":%q,"team":%q,"use_team_field":true}`, marker, team)
+	os.WriteFile(path, []byte(data), 0o644)
+	old := config.ConfigPath
+	config.ConfigPath = func() string { return path }
+	return func() { config.ConfigPath = old; os.RemoveAll(dir) }
+}
+
 func TestRunToilCheck_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -882,14 +892,36 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	if !strings.Contains(receivedJQL, `labels = "ECP_TOIL"`) {
 		t.Errorf("JQL missing toil_marker label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, `Team = "ECP_SEC_TEAM"`) {
-		t.Errorf("JQL missing Team field filter: %s", receivedJQL)
+	if !strings.Contains(receivedJQL, `labels = "ECP_SEC_TEAM"`) {
+		t.Errorf("JQL missing legacy toil_team label: %s", receivedJQL)
 	}
 	if !strings.Contains(receivedJQL, `project = "CRSS"`) {
 		t.Errorf("JQL missing project: %s", receivedJQL)
 	}
 	if !strings.Contains(receivedJQL, "updated >= -1w") {
 		t.Errorf("JQL missing time filter: %s", receivedJQL)
+	}
+}
+
+func TestRunToilCheck_JQLUsesTeamFieldWhenEnabled(t *testing.T) {
+	var receivedJQL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		receivedJQL, _ = body["jql"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockConfigTeamField("ECP_TOIL", "c4cb9231-6ac0-44e7-bd76-64331a96af81")()
+
+	captureStdout(func() { runToilCheck() })
+	if !strings.Contains(receivedJQL, `"Team[Team]" = c4cb9231-6ac0-44e7-bd76-64331a96af81`) {
+		t.Errorf("JQL missing Team field filter: %s", receivedJQL)
+	}
+	if strings.Contains(receivedJQL, `labels = "c4cb9231-6ac0-44e7-bd76-64331a96af81"`) {
+		t.Errorf("JQL should not fall back to legacy label match: %s", receivedJQL)
 	}
 }
 
