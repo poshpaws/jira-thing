@@ -16,6 +16,7 @@ const (
 	IssueEndpoint  = "/rest/api/3/issue"
 	SearchEndpoint = "/rest/api/3/search/jql"
 	MyselfEndpoint = "/rest/api/3/myself"
+	FieldEndpoint  = "/rest/api/3/field"
 	requestTimeout = 30 * time.Second
 )
 
@@ -242,6 +243,26 @@ func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	var result SearchResult
+	return result, executeRequest(req, &result)
+}
+
+// Field describes a Jira field as returned by GET /rest/api/3/field.
+type Field struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Custom bool   `json:"custom"`
+}
+
+// FetchFields retrieves every field known to the Jira instance (system and custom).
+func FetchFields(conn JiraConnection) ([]Field, error) {
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodGet,
+		Endpoint: conn.BaseURL + FieldEndpoint,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result []Field
 	return result, executeRequest(req, &result)
 }
 
