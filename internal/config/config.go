@@ -11,7 +11,7 @@ import (
 type Config struct {
 	Project         string `json:"project"`
 	ToilMarker      string `json:"toil_marker"`
-	ToilTeam        string `json:"toil_team"`
+	ToilTeam        string `json:"toil_team"` // Jira Team field value, e.g. "ECP - Foundation" (not a label)
 	Editor          string `json:"editor"`
 	ConfluenceSpace string `json:"confluence_space"`
 	TicketHanger    string `json:"ticket_hanger"`
