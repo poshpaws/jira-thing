@@ -623,7 +623,22 @@ func threeBusinessDaysAgo(now time.Time) time.Time {
 	return t
 }
 
-// runToilCheck queries Jira for toil tickets using labels from config.
+// buildToilJQL constructs the JQL for querying toil tickets: project, the toil
+// label, and the ticket's Team field (sourced from config, not a second label —
+// not every team applies the same labelling convention). extra is appended as-is,
+// e.g. an additional AND clause or an ORDER BY.
+func buildToilJQL(cfg config.Config, extra string) string {
+	jql := fmt.Sprintf(
+		`project = "%s" AND labels = "%s" AND Team = "%s"`,
+		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
+	)
+	if extra != "" {
+		jql += " AND " + extra
+	}
+	return jql
+}
+
+// runToilCheck queries Jira for toil tickets using labels and Team from config.
 func runToilCheck() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -633,10 +648,7 @@ func runToilCheck() {
 		fatal("project, toil_marker and toil_team must be set in ~/.config/jira-thing/jira-thing.json")
 	}
 	conn := mustConnect()
-	jql := fmt.Sprintf(
-		`project = "%s" AND labels = "%s" AND labels = "%s" AND updated >= -1w`,
-		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
-	)
+	jql := buildToilJQL(cfg, "updated >= -1w")
 	q := api.SearchQuery{
 		JQL:        jql,
 		Fields:     []string{"summary", "status", "priority", "updated"},
@@ -671,10 +683,7 @@ func runToilSync() {
 		fatal("confluence_space and ticket_hanger must be set in ~/.config/jira-thing/jira-thing.json")
 	}
 	conn := mustConnect()
-	jql := fmt.Sprintf(
-		`project = "%s" AND labels = "%s" AND labels = "%s" AND resolution = Unresolved ORDER BY updated DESC`,
-		cfg.Project, cfg.ToilMarker, cfg.ToilTeam,
-	)
+	jql := buildToilJQL(cfg, "resolution = Unresolved ORDER BY updated DESC")
 	result, err := api.SearchIssues(conn, api.SearchQuery{
 		JQL:        jql,
 		Fields:     []string{"summary", "status", "priority", "updated"},

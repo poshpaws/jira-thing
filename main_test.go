@@ -882,8 +882,8 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	if !strings.Contains(receivedJQL, `labels = "ECP_TOIL"`) {
 		t.Errorf("JQL missing toil_marker label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, `labels = "ECP_SEC_TEAM"`) {
-		t.Errorf("JQL missing toil_team label: %s", receivedJQL)
+	if !strings.Contains(receivedJQL, `Team = "ECP_SEC_TEAM"`) {
+		t.Errorf("JQL missing Team field filter: %s", receivedJQL)
 	}
 	if !strings.Contains(receivedJQL, `project = "CRSS"`) {
 		t.Errorf("JQL missing project: %s", receivedJQL)
