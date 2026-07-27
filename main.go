@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -47,6 +48,8 @@ func main() {
 		fmt.Println("jira-thing " + version)
 	case "check-update", "cu":
 		fmt.Println(vercheck.CheckMessage(version))
+	case "self-update", "su":
+		runSelfUpdate()
 	case "help", "--help", "-h":
 		printUsage()
 	case "template", "te":
@@ -82,6 +85,15 @@ func main() {
 	}
 }
 
+// runSelfUpdate downloads and installs the latest GitHub release in place of the running binary.
+func runSelfUpdate() {
+	msg, err := vercheck.SelfUpdate(context.Background(), version)
+	if err != nil {
+		fatal("%v", err)
+	}
+	fmt.Println(msg)
+}
+
 // printUsage writes the styled command summary to stderr.
 func printUsage() {
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Render("jira-thing") +
@@ -110,6 +122,7 @@ func printUsage() {
 		{"diagnose -team <KEY>              ", "Print a ticket's Team custom field + ID"},
 		{"clear-auth                        ", "Clear stored credentials"},
 		{"check-update|cu                    ", "Check for newer releases on GitHub"},
+		{"self-update|su                     ", "Download and install the latest release"},
 		{"version|--version|-v              ", "Show version"},
 	}
 
