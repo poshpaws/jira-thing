@@ -10,6 +10,7 @@ require (
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/yuin/goldmark v1.7.17
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/mod v0.37.0
 	golang.org/x/term v0.44.0
 )
 
