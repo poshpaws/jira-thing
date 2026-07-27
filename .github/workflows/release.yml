@@ -178,6 +178,18 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Sign release checksums
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+          KEY_FILE="$RUNNER_TEMP/release-signing-key.pem"
+          echo "${RELEASE_SIGNING_KEY}" > "${KEY_FILE}"
+          openssl dgst -sha256 -sign "${KEY_FILE}" -out checksums.txt.sig checksums.txt
+          rm -f "${KEY_FILE}"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
