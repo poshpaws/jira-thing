@@ -211,6 +211,28 @@ jira-thing update <TICKET-KEY> [-stdin]
 
 Set your preferred editor via the `EDITOR` environment variable. Editors with arguments (e.g. `code --wait`, `nano -w`) are fully supported.
 
+> **GitHub-flavoured markdown is supported.** Comment text is parsed as markdown and converted to Atlassian Document Format (ADF) before posting — headings, bold/italic, bullet and numbered lists, code blocks, blockquotes, tables, strikethrough, and links all render properly in the Jira web UI. Write comments as you would a GitHub PR comment or README.
+>
+> **Do not use old Jira wiki markup** (`h1.`, `*bold*`, `{code}`, `[link|url]`, etc.) — the parser is GFM-only and does not understand it. Wiki markup will be posted **as literal text**, not rendered. Use standard markdown instead: `#` for headings, `**bold**`, fenced ` ``` ` code blocks, `[text](url)` links.
+
+**Example — markdown formatting:**
+
+```bash
+jira-thing update PROJ-42 -stdin << 'EOF'
+## Root cause
+
+Race condition in cache invalidation (`internal/cache/store.go:88`).
+
+- Fix deployed to staging
+- Monitoring for 24h before prod rollout
+
+| Env | Status |
+|---|---|
+| Staging | ✅ Deployed |
+| Prod | ⏳ Pending |
+EOF
+```
+
 **Example — editor:**
 
 ```bash

@@ -62,7 +62,9 @@ jira-thing update PROJ-123
 echo "Deployed to staging." | jira-thing update PROJ-123 -stdin
 ```
 
-Requires `$EDITOR` to be set unless `-stdin` is used. Comment text is parsed as markdown and stored as structured ADF, so headings, lists, code blocks, tables, and links render properly in the Jira web UI.
+Requires `$EDITOR` to be set unless `-stdin` is used. **GitHub-flavoured markdown is supported** — comment text is parsed as GFM and converted to structured ADF, so headings, lists, code blocks, tables, strikethrough, and links render properly in the Jira web UI.
+
+**Do not use old Jira wiki markup** (`h1.`, `*bold*`, `{code}`, `[link|url]`) — parser is GFM-only, won't convert it. Posted as literal text. Use `#`, `**bold**`, fenced code blocks, `[text](url)` instead.
 
 ---
 
