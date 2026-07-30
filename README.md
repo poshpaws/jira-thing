@@ -2,6 +2,8 @@
 
 A CLI tool for cloning Jira tickets via reusable JSON templates. Capture an existing ticket's structure once, then stamp out new tickets from it interactively.
 
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/6jnngb4chbz)
+
 ## Installation
 
 ### Pre-built binaries
