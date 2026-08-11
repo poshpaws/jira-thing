@@ -35,6 +35,7 @@ var allowedDownloadHosts = map[string]bool{
 	"github.com":                            true,
 	"objects.githubusercontent.com":         true,
 	"github-releases.githubusercontent.com": true,
+	"release-assets.githubusercontent.com":  true,
 }
 
 // downloadFn allows tests to stub out the asset download.
