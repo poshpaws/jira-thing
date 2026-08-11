@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,8 +9,17 @@ import (
 	"testing"
 )
 
+func init() {
+	// Allow test TLS servers with self-signed certs.
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- test only
+		},
+	}
+}
+
 func TestFetchConfluencePage_Found(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/wiki/rest/api/content" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -55,7 +65,7 @@ func TestFetchConfluencePage_Found(t *testing.T) {
 }
 
 func TestFetchConfluencePage_NotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "size": 0})
 	}))
@@ -72,7 +82,7 @@ func TestFetchConfluencePage_NotFound(t *testing.T) {
 }
 
 func TestFetchConfluencePage_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
@@ -86,7 +96,7 @@ func TestFetchConfluencePage_APIError(t *testing.T) {
 
 func TestUpdateConfluencePage_Success(t *testing.T) {
 	var capturedBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
 			t.Errorf("expected PUT, got %s", r.Method)
 		}
@@ -119,7 +129,7 @@ func TestUpdateConfluencePage_Success(t *testing.T) {
 }
 
 func TestUpdateConfluencePage_Error(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
@@ -131,7 +141,7 @@ func TestUpdateConfluencePage_Error(t *testing.T) {
 }
 
 func TestListChildPages_ReturnsPagesWithBody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/wiki/rest/api/content/99/child/page" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -169,7 +179,7 @@ func TestListChildPages_ReturnsPagesWithBody(t *testing.T) {
 }
 
 func TestListChildPages_Empty(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"results": []any{}, "size": 0})
 	}))
@@ -187,7 +197,7 @@ func TestListChildPages_Empty(t *testing.T) {
 
 func TestCreateConfluencePage_Success(t *testing.T) {
 	var capturedBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -227,7 +237,7 @@ func TestCreateConfluencePage_Success(t *testing.T) {
 }
 
 func TestCreateConfluencePage_Error(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer srv.Close()

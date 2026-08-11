@@ -7,17 +7,21 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 const (
-	IssueEndpoint  = "/rest/api/3/issue"
-	SearchEndpoint = "/rest/api/3/search/jql"
-	MyselfEndpoint = "/rest/api/3/myself"
-	FieldEndpoint  = "/rest/api/3/field"
-	requestTimeout = 30 * time.Second
+	IssueEndpoint       = "/rest/api/3/issue"
+	SearchEndpoint      = "/rest/api/3/search/jql"
+	MyselfEndpoint      = "/rest/api/3/myself"
+	FieldEndpoint       = "/rest/api/3/field"
+	requestTimeout      = 30 * time.Second
+	maxErrBody          = 4096
+	maxResponseBody     = 50 * 1024 * 1024 // 50MB limit on Jira response bodies
+	maxAttachmentUpload = 50 * 1024 * 1024 // 50MB limit on attachment uploads
 )
 
 // JiraConnection holds the connection details for the Jira API.
@@ -61,10 +65,50 @@ type CommentResult struct {
 	Total    int       `json:"total"`
 }
 
-var httpClient = &http.Client{Timeout: requestTimeout}
+var httpClient = &http.Client{
+	Timeout: requestTimeout,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return validateRedirect(req)
+	},
+}
+
+// SetHTTPClient replaces the package-level HTTP client. Used in tests to inject
+// a client that accepts self-signed TLS certificates from httptest.NewTLSServer.
+func SetHTTPClient(c *http.Client) {
+	httpClient = c
+}
+
+// validateRedirect rejects redirects to non-HTTPS URLs or URLs with embedded credentials.
+func validateRedirect(req *http.Request) error {
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing redirect to non-HTTPS URL: %s", req.URL.Redacted())
+	}
+	if req.URL.User != nil {
+		return fmt.Errorf("refusing redirect to URL with embedded credentials")
+	}
+	return nil
+}
+
+// ValidateConnection validates that a Jira connection uses HTTPS and has no embedded credentials.
+func ValidateConnection(conn JiraConnection) error {
+	parsed, err := url.Parse(conn.BaseURL)
+	if err != nil {
+		return fmt.Errorf("invalid Jira base URL: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("jira base URL must use HTTPS, got %q", parsed.Scheme)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("jira base URL must not contain embedded credentials")
+	}
+	return nil
+}
 
 // newAuthRequest creates an HTTP request with Basic Auth and Accept: application/json.
 func newAuthRequest(conn JiraConnection, r APIRequest) (*http.Request, error) {
+	if err := ValidateConnection(conn); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequest(r.Method, r.Endpoint, r.Body)
 	if err != nil {
 		return nil, err
@@ -83,7 +127,7 @@ func executeRequest(req *http.Request, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
 		if len(bytes.TrimSpace(body)) > 0 {
 			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(body))
 		}
@@ -92,7 +136,7 @@ func executeRequest(req *http.Request, out any) error {
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(out)
 }
 
 // FetchIssue retrieves a single Jira issue by key.
@@ -174,13 +218,21 @@ func buildAttachmentBody(filePath string) (io.Reader, string, error) {
 	}
 	defer file.Close()
 
+	info, err := file.Stat()
+	if err != nil {
+		return nil, "", fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() > maxAttachmentUpload {
+		return nil, "", fmt.Errorf("attachment %s exceeds %d MB upload limit", filepath.Base(filePath), maxAttachmentUpload/(1024*1024))
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
 		return nil, "", fmt.Errorf("building attachment form: %w", err)
 	}
-	if _, err := io.Copy(part, file); err != nil {
+	if _, err := io.Copy(part, io.LimitReader(file, maxAttachmentUpload)); err != nil {
 		return nil, "", fmt.Errorf("reading file: %w", err)
 	}
 	if err := writer.Close(); err != nil {

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,12 +12,21 @@ import (
 	"jira-thing/internal/api"
 )
 
+func init() {
+	// Allow test TLS servers with self-signed certs.
+	api.SetHTTPClient(&http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- test only
+		},
+	})
+}
+
 func conn(baseURL string) api.JiraConnection {
 	return api.JiraConnection{BaseURL: baseURL, Email: "a@b.com", APIToken: "tok"}
 }
 
 func TestFetchIssue_ReturnsJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -35,7 +45,7 @@ func TestFetchIssue_ReturnsJSON(t *testing.T) {
 }
 
 func TestFetchIssue_404(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -47,7 +57,7 @@ func TestFetchIssue_404(t *testing.T) {
 }
 
 func TestCreateIssue_ReturnsKey(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -67,7 +77,7 @@ func TestCreateIssue_ReturnsKey(t *testing.T) {
 }
 
 func TestCreateIssue_400(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errors":{"summary":"required"}}`, http.StatusBadRequest)
 	}))
 	defer srv.Close()
@@ -82,7 +92,7 @@ func TestCreateIssue_400(t *testing.T) {
 }
 
 func TestSearchIssues_ReturnsIssues(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -122,7 +132,7 @@ func TestSearchIssues_ReturnsIssues(t *testing.T) {
 }
 
 func TestSearchIssues_400(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["bad jql"]}`, http.StatusBadRequest)
 	}))
 	defer srv.Close()
@@ -135,7 +145,7 @@ func TestSearchIssues_400(t *testing.T) {
 }
 
 func TestAddComment_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -163,7 +173,7 @@ func TestAddComment_Success(t *testing.T) {
 }
 
 func TestAddComment_404(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -182,7 +192,7 @@ func TestAddComment_InvalidURL(t *testing.T) {
 }
 
 func TestFetchIssue_NetworkError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
 	srv.Close()
 	_, err := api.FetchIssue(conn(url), "PROJ-1")
@@ -206,7 +216,7 @@ func TestCreateIssue_InvalidURL(t *testing.T) {
 }
 
 func TestSearchIssues_NetworkError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
 	srv.Close()
 	q := api.SearchQuery{JQL: "assignee=currentUser()", MaxResults: 10}
@@ -217,7 +227,7 @@ func TestSearchIssues_NetworkError(t *testing.T) {
 }
 
 func TestAddAttachment_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -264,7 +274,7 @@ func TestAddAttachment_MissingFile(t *testing.T) {
 }
 
 func TestAddAttachment_404(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -294,7 +304,7 @@ func TestAddAttachment_InvalidURL(t *testing.T) {
 }
 
 func TestFetchMyself_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -323,7 +333,7 @@ func TestFetchMyself_Success(t *testing.T) {
 }
 
 func TestFetchMyself_401(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"Unauthorized"}`, http.StatusUnauthorized)
 	}))
 	defer srv.Close()

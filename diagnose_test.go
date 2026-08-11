@@ -1,16 +1,28 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"jira-thing/internal/api"
 )
 
+func init() {
+	// Allow test TLS servers with self-signed certs.
+	api.SetHTTPClient(&http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- test only
+		},
+	})
+}
+
 func TestRunDiagnose_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"accountId":   "123abc",
@@ -45,7 +57,7 @@ func TestRunDiagnose_CredentialError(t *testing.T) {
 }
 
 func TestRunDiagnose_APIError401(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"Unauthorized"}`, http.StatusUnauthorized)
 	}))
 	defer srv.Close()
@@ -64,7 +76,7 @@ func TestRunDiagnose_APIError401(t *testing.T) {
 }
 
 func TestRunDiagnose_UserID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"accountId":   "712020:abc123def",

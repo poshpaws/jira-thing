@@ -265,7 +265,7 @@ func TestFatal(t *testing.T) {
 // --- buildConnection ---
 
 func TestBuildConnection_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
 
@@ -292,7 +292,7 @@ func TestBuildConnection_Error(t *testing.T) {
 // --- mustConnect ---
 
 func TestMustConnect_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
 
@@ -361,7 +361,7 @@ func TestPromptTicketFields_DescriptionReadError(t *testing.T) {
 // --- runTemplate ---
 
 func TestRunTemplate_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"key":    "PROJ-1",
@@ -418,7 +418,7 @@ func TestPromptAssigneeChoice_NoAssigneeDefaultsSelf(t *testing.T) {
 // --- runMyTasks ---
 
 func TestRunMyTasks_NoTasks(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
 	}))
@@ -432,7 +432,7 @@ func TestRunMyTasks_NoTasks(t *testing.T) {
 }
 
 func TestRunMyTasks_WithResults(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"issues": []any{
@@ -456,7 +456,7 @@ func TestRunMyTasks_WithResults(t *testing.T) {
 }
 
 func TestRunMyTasks_NotUpdated(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
 	}))
@@ -472,7 +472,7 @@ func TestRunMyTasks_NotUpdated(t *testing.T) {
 // --- runCreate ---
 
 func TestRunCreate_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{"key": "PROJ-99"})
@@ -493,7 +493,7 @@ func TestRunCreate_Success(t *testing.T) {
 
 func TestRunCreate_StripsBlockedFields(t *testing.T) {
 	var capturedFields map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		capturedFields, _ = body["fields"].(map[string]any)
@@ -588,7 +588,7 @@ func TestOpenEditor_EditorWithArgs(t *testing.T) {
 // --- runUpdate ---
 
 func TestRunUpdate_Stdin(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -631,7 +631,7 @@ func TestRunUpdate_NoArgs(t *testing.T) {
 }
 
 func TestRunUpdate_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -649,7 +649,7 @@ func TestRunUpdate_APIError(t *testing.T) {
 // --- runDescribe ---
 
 func TestRunDescribe_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
 		}
@@ -683,7 +683,7 @@ func TestRunDescribe_NoArgs(t *testing.T) {
 }
 
 func TestRunDescribe_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -700,7 +700,7 @@ func TestRunDescribe_APIError(t *testing.T) {
 // --- runAttach ---
 
 func TestRunAttach_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/attachments") {
 			t.Errorf("expected /attachments path, got %s", r.URL.Path)
 		}
@@ -731,7 +731,7 @@ func TestRunAttach_MissingArgs(t *testing.T) {
 }
 
 func TestRunAttach_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -820,7 +820,7 @@ func mockConfigTeamField(marker, team string) func() {
 }
 
 func TestRunToilCheck_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"issues": []any{
@@ -848,7 +848,7 @@ func TestRunToilCheck_Success(t *testing.T) {
 }
 
 func TestRunToilCheck_NoResults(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
 	}))
@@ -877,7 +877,7 @@ func TestRunToilCheck_MissingConfig(t *testing.T) {
 
 func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	var receivedJQL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		receivedJQL, _ = body["jql"].(string)
@@ -905,7 +905,7 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 
 func TestRunToilCheck_JQLUsesTeamFieldWhenEnabled(t *testing.T) {
 	var receivedJQL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		receivedJQL, _ = body["jql"].(string)
@@ -1058,7 +1058,7 @@ func mockConfluenceConfig(space, hanger string) func() {
 // existingChildren is a map of page title → body for pre-existing child pages.
 func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[string]string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		p := r.URL.Path
 		switch {
@@ -1143,7 +1143,7 @@ func TestRunToilSync_MissingConfig(t *testing.T) {
 }
 
 func TestRunToilSync_PageNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "search"):
@@ -1217,7 +1217,7 @@ func TestFindMissingPoints(t *testing.T) {
 }
 
 func TestRunPointCheck_NoTickets(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0, "maxResults": 100})
 	}))
@@ -1231,7 +1231,7 @@ func TestRunPointCheck_NoTickets(t *testing.T) {
 }
 
 func TestRunPointCheck_AllHavePoints(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"issues": []any{
@@ -1253,7 +1253,7 @@ func TestRunPointCheck_AllHavePoints(t *testing.T) {
 }
 
 func TestRunPointCheck_SomeMissingPoints(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"issues": []any{
@@ -1286,7 +1286,7 @@ func TestRunPointCheck_SomeMissingPoints(t *testing.T) {
 
 func TestRunPointCheck_JQLUsesOpenSprints(t *testing.T) {
 	var receivedJQL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		receivedJQL, _ = body["jql"].(string)
@@ -1306,7 +1306,7 @@ func TestRunPointCheck_JQLUsesOpenSprints(t *testing.T) {
 }
 
 func TestRunPointCheck_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("server error"))
 	}))
