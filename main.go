@@ -1031,12 +1031,14 @@ func browseForParent(conn api.JiraConnection, cfg config.Config) tui.PageEntry {
 
 // uploadConfluenceAttachments uploads each local file as an attachment on the given page.
 // Paths that are empty (rejected by path validation) are silently skipped.
+// Duplicate filenames are skipped — Confluence rejects a second attachment with the same name.
 func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths []string) {
 	if len(paths) == 0 {
 		return
 	}
-	fmt.Printf("Uploading %d attachment(s)...\n", len(paths))
-	for _, filePath := range paths {
+	unique := deduplicateByFilename(paths)
+	fmt.Printf("Uploading %d attachment(s)...\n", len(unique))
+	for _, filePath := range unique {
 		if filePath == "" {
 			continue
 		}
@@ -1052,4 +1054,21 @@ func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths [
 		}
 		fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Attached:"), filepath.Base(clean), att.ID)
 	}
+}
+
+// deduplicateByFilename returns paths with only the first occurrence of each
+// base filename kept. Confluence attachment names are unique per page, so
+// uploading the same filename twice would fail.
+func deduplicateByFilename(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	unique := make([]string, 0, len(paths))
+	for _, p := range paths {
+		name := filepath.Base(p)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		unique = append(unique, p)
+	}
+	return unique
 }
