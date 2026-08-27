@@ -79,6 +79,8 @@ func main() {
 		runToilSync()
 	case "conf":
 		runConf(os.Args[2:])
+	case "subtask", "st":
+		runSubtask(os.Args[2:])
 	case "diagnose", "diag":
 		runDiagnose(os.Args[2:])
 	default:
@@ -121,6 +123,7 @@ func printUsage() {
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
 		{"conf browse|br                    ", "Browse Confluence space tree"},
 		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
+		{"subtask|st <KEY> -f tasks.md       ", "Create subtasks from a markdown task list"},
 		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"diagnose -find-field <search>     ", "Look up a field's real customfield ID by name"},
 		{"diagnose -list-fields             ", "Print every field on the Jira instance"},
@@ -1167,4 +1170,108 @@ func deduplicateByFilename(paths []string) []string {
 		unique = append(unique, p)
 	}
 	return unique
+}
+
+
+// subtaskInheritFields are the parent ticket fields copied to each subtask.
+var subtaskInheritFields = []string{"project", "priority", "labels", "components"}
+
+// runSubtask creates Jira subtasks under a parent ticket from a markdown task list.
+func runSubtask(args []string) {
+	var reordered, positional []string
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			reordered = append(reordered, args[i], args[i+1])
+			i++
+		} else if strings.HasPrefix(args[i], "-") {
+			reordered = append(reordered, args[i])
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	reordered = append(reordered, positional...)
+
+	fs := flag.NewFlagSet("subtask", flag.ContinueOnError)
+	filePath := fs.String("f", "", "Markdown file containing task list")
+	dryRun := fs.Bool("dry-run", false, "Show what would be created without making API calls")
+	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]")
+	}
+	parentKey := fs.Arg(0)
+
+	if *filePath == "" {
+		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]\n  -f is required")
+	}
+
+	mdBytes, err := os.ReadFile(*filePath) // #nosec G304 -- user-supplied CLI input
+	if err != nil {
+		fatal("reading task file: %v", err)
+	}
+	tasks := parseTasksFromMarkdown(string(mdBytes))
+	if len(tasks) == 0 {
+		fatal("no task list items found in %s", *filePath)
+	}
+
+	conn := mustConnect()
+	parentFields := fetchParentFields(conn, parentKey)
+
+	fmt.Printf("\n%s %s (%d subtask(s) from %s)\n\n",
+		tui.HeadingStyle.Render("Parent:"), tui.KeyStyle.Render(parentKey), len(tasks), *filePath)
+	for i, t := range tasks {
+		fmt.Printf("  %s %s\n", tui.DateStyle.Render(fmt.Sprintf("%2d.", i+1)), t.Summary)
+	}
+	fmt.Println()
+
+	if *dryRun {
+		fmt.Println(tui.SuccessStyle.Render("Dry run — no subtasks created."))
+		return
+	}
+
+	fmt.Printf("Creating %d subtask(s)...\n", len(tasks))
+	created := 0
+	for _, t := range tasks {
+		fields := buildSubtaskFields(parentKey, parentFields, t.Summary)
+		result, createErr := api.CreateIssue(conn, fields)
+		if createErr != nil {
+			fmt.Fprintf(os.Stderr, "  %s creating %q: %v\n", tui.ErrorStyle.Render("Error:"), t.Summary, createErr)
+			continue
+		}
+		key := getString(result, "key")
+		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(key), t.Summary)
+		created++
+	}
+	fmt.Printf("\n%s %d of %d subtask(s) created under %s\n",
+		tui.SuccessStyle.Render("Done:"), created, len(tasks), tui.KeyStyle.Render(parentKey))
+}
+
+// fetchParentFields retrieves the parent ticket and extracts the fields to inherit.
+func fetchParentFields(conn api.JiraConnection, parentKey string) map[string]any {
+	fmt.Printf("Fetching parent ticket %s...\n", parentKey)
+	issue, err := api.FetchIssue(conn, parentKey)
+	if err != nil {
+		fatal("fetching parent ticket: %v", err)
+	}
+	fields, ok := issue["fields"].(map[string]any)
+	if !ok {
+		fatal("parent ticket %s has no fields", parentKey)
+	}
+	inherited := make(map[string]any)
+	for _, key := range subtaskInheritFields {
+		if v, ok := fields[key]; ok && v != nil {
+			inherited[key] = v
+		}
+	}
+	return inherited
+}
+
+// buildSubtaskFields assembles the fields map for creating a single subtask.
+func buildSubtaskFields(parentKey string, inherited map[string]any, summary string) map[string]any {
+	fields := make(map[string]any, len(inherited)+3)
+	for k, v := range inherited {
+		fields[k] = v
+	}
+	fields["issuetype"] = map[string]any{"name": "Sub-task"}
+	fields["parent"] = map[string]any{"key": parentKey}
+	fields["summary"] = summary
+	return fields
 }

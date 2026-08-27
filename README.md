@@ -427,6 +427,62 @@ jira-thing diagnose -team <TICKET-KEY>   # Print a ticket's Team field value and
 
 ---
 
+### `subtask` — create subtasks from a markdown task list
+
+Reads a markdown file, extracts all list items (bullet, numbered, or checkbox), and creates a Jira subtask for each one under the specified parent ticket. Each subtask inherits the parent's project, priority, labels, and components.
+
+```bash
+jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]
+```
+
+| Flag | Description |
+|---|---|
+| `-f` | Path to markdown file containing the task list (required) |
+| `--dry-run` | Show the parsed tasks without creating anything |
+
+**Supported markdown formats:**
+
+```markdown
+- Bullet list item
+1. Numbered list item
+- [ ] Unchecked checkbox
+- [x] Checked checkbox (still created — useful for re-importing)
+```
+
+Nested items are flattened into the top-level list. Only list items are extracted — headings, paragraphs, and other content are ignored. This makes it safe to point at a full ShapeUp brief or design doc and have it pull just the task list.
+
+**Example — dry run first:**
+
+```bash
+jira-thing st PROJ-42 -f docs/shapeup.md --dry-run
+# Parent: PROJ-42 (8 subtask(s) from docs/shapeup.md)
+#
+#    1. Set up Terraform module for new Lambda
+#    2. Implement DynamoDB schema
+#    3. Build EventBridge rule for scheduling
+#    ...
+# Dry run — no subtasks created.
+```
+
+**Example — create for real:**
+
+```bash
+jira-thing st PROJ-42 -f docs/shapeup.md
+# Fetching parent ticket PROJ-42...
+# Parent: PROJ-42 (8 subtask(s) from docs/shapeup.md)
+#
+#    1. Set up Terraform module for new Lambda
+#    2. Implement DynamoDB schema
+#    ...
+# Creating 8 subtask(s)...
+#   Created: PROJ-43  Set up Terraform module for new Lambda
+#   Created: PROJ-44  Implement DynamoDB schema
+#   ...
+# Done: 8 of 8 subtask(s) created under PROJ-42
+```
+
+---
+
 ### `check-update` — check for newer releases
 
 Checks GitHub for a newer release of `jira-thing`.
@@ -465,6 +521,7 @@ Most commands have short aliases for quick typing:
 | `point-check` | `pc` |
 | `conf browse` | `conf br` |
 | `conf upload` | `conf up` |
+| `subtask` | `st` |
 | `diagnose` | `diag` |
 | `check-update` | `cu` |
 
@@ -491,6 +548,9 @@ jira-thing conf up docs/design.md -title "Q3 Design Doc"
 
 # 7. Browse the Confluence space to find a page ID
 jira-thing conf br
+
+# 8. Create subtasks from a ShapeUp brief's task list
+jira-thing st PROJ-42 -f docs/shapeup.md
 ```
 
 ## Agent Skill
