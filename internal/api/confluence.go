@@ -271,3 +271,57 @@ func buildConfluenceAttachmentBody(filePath string) (io.Reader, string, error) {
 	}
 	return &buf, writer.FormDataContentType(), nil
 }
+
+
+// ListConfluenceAttachments returns the existing attachments on a Confluence page.
+func ListConfluenceAttachments(conn JiraConnection, pageID string) ([]ConfluenceAttachment, error) {
+	endpoint := fmt.Sprintf("%s%s/%s/child/attachment?limit=100",
+		conn.BaseURL, confluenceContentEndpoint, pageID)
+	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Results []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"results"`
+	}
+	if err := executeRequest(req, &result); err != nil {
+		return nil, err
+	}
+	attachments := make([]ConfluenceAttachment, len(result.Results))
+	for i, r := range result.Results {
+		attachments[i] = ConfluenceAttachment{ID: r.ID, Title: r.Title}
+	}
+	return attachments, nil
+}
+
+// UpdateConfluenceAttachment replaces the data of an existing Confluence attachment.
+// Uses POST /content/{pageID}/child/attachment/{attachmentID}/data.
+func UpdateConfluenceAttachment(conn JiraConnection, pageID, attachmentID, filePath string) (ConfluenceAttachment, error) {
+	body, contentType, err := buildConfluenceAttachmentBody(filePath)
+	if err != nil {
+		return ConfluenceAttachment{}, err
+	}
+	endpoint := fmt.Sprintf("%s%s/%s/child/attachment/%s/data",
+		conn.BaseURL, confluenceContentEndpoint, pageID, attachmentID)
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPost,
+		Endpoint: endpoint,
+		Body:     body,
+	})
+	if err != nil {
+		return ConfluenceAttachment{}, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Atlassian-Token", "nocheck")
+	var result struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := executeRequest(req, &result); err != nil {
+		return ConfluenceAttachment{}, err
+	}
+	return ConfluenceAttachment{ID: result.ID, Title: result.Title}, nil
+}

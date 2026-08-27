@@ -981,18 +981,42 @@ func runConfUpload(args []string) {
 	conn := mustConnect()
 	parentPage := browseForParent(conn, cfg)
 
-	fmt.Printf("Creating page %q under %q...\n", pageTitle, parentPage.Title)
-	page, err := api.CreateConfluencePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage.ID, storage)
-	if err != nil {
-		fatal("creating Confluence page: %v", err)
-	}
-	fmt.Printf("%s %s (ID: %s)\n", tui.SuccessStyle.Render("Created page:"), tui.KeyStyle.Render(pageTitle), page.ID)
-
+	page := createOrUpdatePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage, storage)
 	uploadConfluenceAttachments(conn, page.ID, attachments)
 
 	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
 	fmt.Printf("\n%s %s/spaces/%s/pages/%s\n",
 		tui.SuccessStyle.Render("Done:"), confluenceURL, cfg.ConfluenceSpace, page.ID)
+}
+
+// createOrUpdatePage checks whether a page with the given title already exists
+// under the parent. If it does, updates it in place. Otherwise creates a new page.
+// Confluence does not allow deletes (only archives), so update-in-place is the
+// correct approach for re-publishing changed documents.
+func createOrUpdatePage(conn api.JiraConnection, spaceKey, title string, parent tui.PageEntry, body string) api.ConfluencePage {
+	children, err := api.ListChildPagesSummary(conn, parent.ID)
+	if err != nil {
+		fatal("listing child pages of %q: %v", parent.Title, err)
+	}
+	for _, child := range children {
+		if child.Title == title {
+			fmt.Printf("Page %q already exists under %q — updating (version %d → %d)...\n",
+				title, parent.Title, child.Version, child.Version+1)
+			if err := api.UpdateConfluencePage(conn, child.ID, child.Version, title, body); err != nil {
+				fatal("updating Confluence page: %v", err)
+			}
+			fmt.Printf("%s %s (ID: %s)\n", tui.SuccessStyle.Render("Updated page:"), tui.KeyStyle.Render(title), child.ID)
+			return child
+		}
+	}
+
+	fmt.Printf("Creating page %q under %q...\n", title, parent.Title)
+	page, err := api.CreateConfluencePage(conn, spaceKey, title, parent.ID, body)
+	if err != nil {
+		fatal("creating Confluence page: %v", err)
+	}
+	fmt.Printf("%s %s (ID: %s)\n", tui.SuccessStyle.Render("Created page:"), tui.KeyStyle.Render(title), page.ID)
+	return page
 }
 
 // browseForParent launches the space browser TUI and returns the selected parent page.
@@ -1030,13 +1054,18 @@ func browseForParent(conn api.JiraConnection, cfg config.Config) tui.PageEntry {
 }
 
 // uploadConfluenceAttachments uploads each local file as an attachment on the given page.
+// If an attachment with the same filename already exists, it is updated in place.
 // Paths that are empty (rejected by path validation) are silently skipped.
-// Duplicate filenames are skipped — Confluence rejects a second attachment with the same name.
+// Duplicate filenames are deduplicated — only the first occurrence is uploaded.
 func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths []string) {
 	if len(paths) == 0 {
 		return
 	}
 	unique := deduplicateByFilename(paths)
+
+	// Build a map of existing attachments so we can update rather than fail on duplicates.
+	existingMap := buildExistingAttachmentMap(conn, pageID)
+
 	fmt.Printf("Uploading %d attachment(s)...\n", len(unique))
 	for _, filePath := range unique {
 		if filePath == "" {
@@ -1047,13 +1076,38 @@ func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths [
 			fmt.Fprintf(os.Stderr, "  %s skipping %q — path traversal detected\n", tui.ErrorStyle.Render("Warning:"), filePath)
 			continue
 		}
-		att, err := api.AddConfluenceAttachment(conn, pageID, clean)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s uploading %s: %v\n", tui.ErrorStyle.Render("Warning:"), clean, err)
+		filename := filepath.Base(clean)
+		if existing, ok := existingMap[filename]; ok {
+			att, err := api.UpdateConfluenceAttachment(conn, pageID, existing.ID, clean)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  %s updating %s: %v\n", tui.ErrorStyle.Render("Warning:"), filename, err)
+				continue
+			}
+			fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Updated:"), filename, att.ID)
 			continue
 		}
-		fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Attached:"), filepath.Base(clean), att.ID)
+		att, err := api.AddConfluenceAttachment(conn, pageID, clean)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s uploading %s: %v\n", tui.ErrorStyle.Render("Warning:"), filename, err)
+			continue
+		}
+		fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Attached:"), filename, att.ID)
 	}
+}
+
+// buildExistingAttachmentMap fetches the current attachments on a page and returns
+// them keyed by filename. Returns an empty map on error (non-fatal — we'll fall
+// back to create-only behaviour).
+func buildExistingAttachmentMap(conn api.JiraConnection, pageID string) map[string]api.ConfluenceAttachment {
+	existing, err := api.ListConfluenceAttachments(conn, pageID)
+	if err != nil {
+		return map[string]api.ConfluenceAttachment{}
+	}
+	m := make(map[string]api.ConfluenceAttachment, len(existing))
+	for _, att := range existing {
+		m[att.Title] = att
+	}
+	return m
 }
 
 // deduplicateByFilename returns paths with only the first occurrence of each
