@@ -1233,7 +1233,7 @@ func runSubtask(args []string) {
 	fmt.Printf("Creating %d subtask(s)...\n", len(tasks))
 	created := 0
 	for _, t := range tasks {
-		fields := buildSubtaskFields(parentKey, parentFields, t.Summary)
+		fields := buildSubtaskFields(parentKey, parentFields, t)
 		result, createErr := api.CreateIssue(conn, fields)
 		if createErr != nil {
 			fmt.Fprintf(os.Stderr, "  %s creating %q: %v\n", tui.ErrorStyle.Render("Error:"), t.Summary, createErr)
@@ -1268,14 +1268,18 @@ func fetchParentFields(conn api.JiraConnection, parentKey string) map[string]any
 }
 
 // buildSubtaskFields assembles the fields map for creating a single subtask.
-func buildSubtaskFields(parentKey string, inherited map[string]any, summary string) map[string]any {
-	fields := make(map[string]any, len(inherited)+3)
+// When description is non-empty, it is converted to ADF and set as the ticket body.
+func buildSubtaskFields(parentKey string, inherited map[string]any, task parsedTask) map[string]any {
+	fields := make(map[string]any, len(inherited)+4)
 	for k, v := range inherited {
 		fields[k] = v
 	}
 	fields["issuetype"] = map[string]any{"name": "Sub-task"}
 	fields["parent"] = map[string]any{"key": parentKey}
-	fields["summary"] = summary
+	fields["summary"] = task.Summary
+	if task.Description != "" {
+		fields["description"] = markdownToADF(task.Description)
+	}
 	return fields
 }
 
