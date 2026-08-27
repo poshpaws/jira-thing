@@ -263,7 +263,9 @@ func renderConfLink(sb *strings.Builder, link *ast.Link, src []byte, baseDir str
 
 // renderConfImage renders a markdown image as a Confluence attachment reference.
 // External URLs become <ac:image> with <ri:url>.
-// Local file references become <ac:image> with <ri:attachment>,
+// .drawio files (or images with a .drawio sibling) use the draw.io macro for
+// native rendering in Confluence Cloud.
+// Other local file references become <ac:image> with <ri:attachment>,
 // and the resolved path is appended to attachments for later upload.
 func renderConfImage(sb *strings.Builder, img *ast.Image, src []byte, baseDir string, attachments *[]string) {
 	dest := string(img.Destination)
@@ -275,13 +277,32 @@ func renderConfImage(sb *strings.Builder, img *ast.Image, src []byte, baseDir st
 		return
 	}
 
-	filename := filepath.Base(dest)
 	fullPath := resolveLocalPath(dest, baseDir)
 	if fullPath == "" {
 		return
 	}
-	*attachments = append(*attachments, fullPath)
 
+	// If a .drawio source file exists alongside the image, prefer it — draw.io
+	// renders natively in Confluence with full text and styling fidelity.
+	if drawioPath := findDrawioSibling(fullPath); drawioPath != "" {
+		drawioName := filepath.Base(drawioPath)
+		diagramName := strings.TrimSuffix(drawioName, filepath.Ext(drawioName))
+		*attachments = append(*attachments, drawioPath)
+		emitDrawioMacro(sb, diagramName)
+		return
+	}
+
+	// .drawio file referenced directly as an image
+	if isDrawioFile(fullPath) {
+		drawioName := filepath.Base(fullPath)
+		diagramName := strings.TrimSuffix(drawioName, filepath.Ext(drawioName))
+		*attachments = append(*attachments, fullPath)
+		emitDrawioMacro(sb, diagramName)
+		return
+	}
+
+	filename := filepath.Base(dest)
+	*attachments = append(*attachments, fullPath)
 	fmt.Fprintf(sb, `<ac:image ac:alt="%s"><ri:attachment ri:filename="%s"/></ac:image>`,
 		html.EscapeString(alt), html.EscapeString(filename))
 }
@@ -346,4 +367,37 @@ func isExternalURL(s string) bool {
 func isAttachmentFile(dest string) bool {
 	ext := strings.ToLower(filepath.Ext(dest))
 	return attachmentExtensions[ext]
+}
+
+
+// isDrawioFile returns true if the path has a .drawio extension.
+func isDrawioFile(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".drawio")
+}
+
+// findDrawioSibling checks whether a .drawio file exists alongside an image file.
+// For example, given "/docs/diagrams/flow.svg", it checks for "/docs/diagrams/flow.drawio".
+// Returns the .drawio path if it exists, or empty string if not.
+// Only checks for SVG and PNG files — those are the common exports from draw.io.
+func findDrawioSibling(imagePath string) string {
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	if ext != ".svg" && ext != ".png" {
+		return ""
+	}
+	base := strings.TrimSuffix(imagePath, filepath.Ext(imagePath))
+	drawioPath := base + ".drawio"
+	if _, err := os.Stat(drawioPath); err == nil { // #nosec G703 -- imagePath is pre-validated by resolveLocalPath
+		return drawioPath
+	}
+	return ""
+}
+
+// emitDrawioMacro writes the Confluence draw.io macro XHTML for an attached diagram.
+// The diagramName is the attachment filename without the .drawio extension.
+func emitDrawioMacro(sb *strings.Builder, diagramName string) {
+	fmt.Fprintf(sb,
+		`<ac:structured-macro ac:name="drawio" ac:schema-version="1">`+
+			`<ac:parameter ac:name="diagramName">%s</ac:parameter>`+
+			`</ac:structured-macro>`,
+		html.EscapeString(diagramName))
 }
