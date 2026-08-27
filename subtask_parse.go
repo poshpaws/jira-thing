@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -9,24 +10,106 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// parsedTask holds a single task extracted from a markdown list.
+// parsedTask holds a single task extracted from a markdown list or heading.
 type parsedTask struct {
 	Summary string
 }
 
-// parseTasksFromMarkdown extracts task summaries from bullet lists, numbered
-// lists, and checkbox lists in a markdown file. Nested items are flattened
-// into the top-level list (Jira subtasks cannot have sub-subtasks).
-// Only non-empty summaries are returned.
-func parseTasksFromMarkdown(md string) []parsedTask {
+// parseOpts controls how tasks are extracted from markdown.
+type parseOpts struct {
+	// HeadingPattern extracts tasks from headings matching this regex.
+	// When set, list items are ignored. Example: `^Task \d+:` matches "### Task 1: Do something".
+	HeadingPattern string
+	// Section limits list extraction to the named section heading.
+	// When set, only list items under this heading (until the next heading of
+	// equal or higher level) are extracted. Example: "Initial Task List".
+	Section string
+}
+
+// parseTasksFromMarkdown extracts task summaries from a markdown file.
+// Default mode: extracts all list items (bullet, numbered, checkbox).
+// With opts.HeadingPattern: extracts headings matching the pattern.
+// With opts.Section: extracts list items only within the named section.
+func parseTasksFromMarkdown(md string, opts parseOpts) []parsedTask {
 	src := []byte(md)
 	parser := goldmark.New(
 		goldmark.WithExtensions(extension.TaskList),
 	).Parser()
 	root := parser.Parse(text.NewReader(src))
 
+	if opts.HeadingPattern != "" {
+		return extractHeadingTasks(root, src, opts.HeadingPattern)
+	}
+	if opts.Section != "" {
+		return extractSectionListItems(root, src, opts.Section)
+	}
+
 	var tasks []parsedTask
 	collectListItems(root, src, &tasks)
+	return tasks
+}
+
+// extractHeadingTasks finds headings whose text matches the given regex pattern
+// and returns each as a task. The matched prefix is stripped from the summary
+// (e.g. "Task 1: " is removed, leaving just the title).
+func extractHeadingTasks(root ast.Node, src []byte, pattern string) []parsedTask {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+
+	var tasks []parsedTask
+	for c := root.FirstChild(); c != nil; c = c.NextSibling() {
+		h, ok := c.(*ast.Heading)
+		if !ok {
+			continue
+		}
+		text := extractHeadingText(h, src)
+		if !re.MatchString(text) {
+			continue
+		}
+		// Strip the matched prefix to produce a cleaner summary.
+		summary := strings.TrimSpace(re.ReplaceAllString(text, ""))
+		if summary == "" {
+			summary = text
+		}
+		tasks = append(tasks, parsedTask{Summary: summary})
+	}
+	return tasks
+}
+
+// extractHeadingText returns the plain text of a heading node.
+func extractHeadingText(h *ast.Heading, src []byte) string {
+	var sb strings.Builder
+	collectInlineText(h, src, &sb)
+	return strings.TrimSpace(sb.String())
+}
+
+// extractSectionListItems finds a heading matching the section name and
+// extracts list items from under it, stopping at the next heading of
+// equal or higher level.
+func extractSectionListItems(root ast.Node, src []byte, section string) []parsedTask {
+	sectionLower := strings.ToLower(section)
+	inSection := false
+	sectionLevel := 0
+	var tasks []parsedTask
+
+	for c := root.FirstChild(); c != nil; c = c.NextSibling() {
+		if h, ok := c.(*ast.Heading); ok {
+			headingText := strings.ToLower(extractHeadingText(h, src))
+			if !inSection && strings.Contains(headingText, sectionLower) {
+				inSection = true
+				sectionLevel = h.Level
+				continue
+			}
+			if inSection && h.Level <= sectionLevel {
+				break // Next section at same or higher level — stop.
+			}
+		}
+		if inSection {
+			collectListItems(c, src, &tasks)
+		}
+	}
 	return tasks
 }
 
@@ -40,10 +123,8 @@ func collectListItems(n ast.Node, src []byte, tasks *[]parsedTask) {
 			if summary != "" {
 				*tasks = append(*tasks, parsedTask{Summary: summary})
 			}
-			// Recurse into nested lists inside this item.
 			collectNestedLists(c, src, tasks)
 		} else {
-			// Keep walking into non-list-item nodes (document, lists, etc.)
 			collectListItems(c, src, tasks)
 		}
 	}
@@ -65,7 +146,6 @@ func collectNestedLists(item ast.Node, src []byte, tasks *[]parsedTask) {
 func extractListItemText(item ast.Node, src []byte) string {
 	var sb strings.Builder
 	for c := item.FirstChild(); c != nil; c = c.NextSibling() {
-		// Skip nested lists — they become separate tasks.
 		if _, ok := c.(*ast.List); ok {
 			continue
 		}
@@ -87,7 +167,6 @@ func collectInlineText(n ast.Node, src []byte, sb *strings.Builder) {
 		sb.Write(s.Value)
 		return
 	}
-	// Recurse into container inlines (emphasis, links, code spans, etc.)
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		collectInlineText(c, src, sb)
 	}
@@ -96,7 +175,6 @@ func collectInlineText(n ast.Node, src []byte, sb *strings.Builder) {
 // cleanTaskSummary trims whitespace and strips leading checkbox markers.
 func cleanTaskSummary(s string) string {
 	s = strings.TrimSpace(s)
-	// Strip checkbox markers: "[ ] ", "[x] ", "[X] "
 	for _, prefix := range []string{"[ ] ", "[x] ", "[X] "} {
 		if strings.HasPrefix(s, prefix) {
 			s = strings.TrimSpace(s[len(prefix):])

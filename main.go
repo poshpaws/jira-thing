@@ -1194,22 +1194,25 @@ func runSubtask(args []string) {
 	fs := flag.NewFlagSet("subtask", flag.ContinueOnError)
 	filePath := fs.String("f", "", "Markdown file containing task list")
 	dryRun := fs.Bool("dry-run", false, "Show what would be created without making API calls")
+	headingPattern := fs.String("heading", "", "Extract tasks from headings matching this regex (e.g. \"^Task \\d+:\")")
+	section := fs.String("section", "", "Extract list items only from this section heading (e.g. \"Initial Task List\")")
 	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]")
+		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--heading regex | --section name] [--dry-run]")
 	}
 	parentKey := fs.Arg(0)
 
 	if *filePath == "" {
-		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]\n  -f is required")
+		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--heading regex | --section name] [--dry-run]\n  -f is required")
 	}
 
 	mdBytes, err := os.ReadFile(*filePath) // #nosec G304 -- user-supplied CLI input
 	if err != nil {
 		fatal("reading task file: %v", err)
 	}
-	tasks := parseTasksFromMarkdown(string(mdBytes))
+	opts := parseOpts{HeadingPattern: *headingPattern, Section: *section}
+	tasks := parseTasksFromMarkdown(string(mdBytes), opts)
 	if len(tasks) == 0 {
-		fatal("no task list items found in %s", *filePath)
+		fatal("no tasks found in %s (mode: %s)", *filePath, describeParseMode(opts))
 	}
 
 	conn := mustConnect()
@@ -1274,4 +1277,16 @@ func buildSubtaskFields(parentKey string, inherited map[string]any, summary stri
 	fields["parent"] = map[string]any{"key": parentKey}
 	fields["summary"] = summary
 	return fields
+}
+
+
+// describeParseMode returns a human-readable description of the parse mode for error messages.
+func describeParseMode(opts parseOpts) string {
+	if opts.HeadingPattern != "" {
+		return fmt.Sprintf("heading pattern %q", opts.HeadingPattern)
+	}
+	if opts.Section != "" {
+		return fmt.Sprintf("section %q", opts.Section)
+	}
+	return "all list items"
 }
