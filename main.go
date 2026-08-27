@@ -982,6 +982,13 @@ func runConfUpload(args []string) {
 	parentPage := browseForParent(conn, cfg)
 
 	page := createOrUpdatePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage, storage)
+
+	// Brief pause after page create/update — Confluence Cloud needs a moment to
+	// finish indexing before attachment uploads succeed reliably.
+	if len(attachments) > 0 {
+		time.Sleep(2 * time.Second)
+	}
+
 	uploadConfluenceAttachments(conn, page.ID, attachments)
 
 	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
@@ -1053,8 +1060,15 @@ func browseForParent(conn api.JiraConnection, cfg config.Config) tui.PageEntry {
 	return browseResult.SelectedPage
 }
 
+const (
+	attachRetries  = 3
+	attachRetryGap = 3 * time.Second
+)
+
 // uploadConfluenceAttachments uploads each local file as an attachment on the given page.
 // If an attachment with the same filename already exists, it is updated in place.
+// Retries on server errors (HTTP 5xx) which Confluence Cloud occasionally returns
+// due to transaction rollback races after page create/update.
 // Paths that are empty (rejected by path validation) are silently skipped.
 // Duplicate filenames are deduplicated — only the first occurrence is uploaded.
 func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths []string) {
@@ -1078,21 +1092,49 @@ func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths [
 		}
 		filename := filepath.Base(clean)
 		if existing, ok := existingMap[filename]; ok {
-			att, err := api.UpdateConfluenceAttachment(conn, pageID, existing.ID, clean)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "  %s updating %s: %v\n", tui.ErrorStyle.Render("Warning:"), filename, err)
-				continue
-			}
-			fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Updated:"), filename, att.ID)
+			uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
+				return api.UpdateConfluenceAttachment(conn, pageID, existing.ID, clean)
+			}, "Updated")
 			continue
 		}
-		att, err := api.AddConfluenceAttachment(conn, pageID, clean)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s uploading %s: %v\n", tui.ErrorStyle.Render("Warning:"), filename, err)
-			continue
-		}
-		fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Attached:"), filename, att.ID)
+		uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
+			return api.AddConfluenceAttachment(conn, pageID, clean)
+		}, "Attached")
 	}
+}
+
+// uploadWithRetry attempts an attachment upload/update, retrying on server errors.
+func uploadWithRetry(filename string, fn func() (api.ConfluenceAttachment, error), verb string) {
+	var lastErr error
+	for attempt := range attachRetries {
+		att, err := fn()
+		if err == nil {
+			fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render(verb+":"), filename, att.ID)
+			return
+		}
+		lastErr = err
+		if !isServerError(err) {
+			break
+		}
+		if attempt < attachRetries-1 {
+			fmt.Fprintf(os.Stderr, "  %s %s — server error, retrying in %s...\n",
+				tui.ErrorStyle.Render("Retry:"), filename, attachRetryGap)
+			time.Sleep(attachRetryGap)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  %s %s: %v\n", tui.ErrorStyle.Render("Warning:"), filename, lastErr)
+}
+
+// isServerError returns true if the error message indicates an HTTP 5xx response.
+func isServerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "HTTP 500") ||
+		strings.Contains(msg, "HTTP 502") ||
+		strings.Contains(msg, "HTTP 503") ||
+		strings.Contains(msg, "HTTP 504")
 }
 
 // buildExistingAttachmentMap fetches the current attachments on a page and returns
