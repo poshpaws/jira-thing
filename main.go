@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -76,6 +77,8 @@ func main() {
 		runToilCheck()
 	case "toil-sync", "ts":
 		runToilSync()
+	case "conf":
+		runConf(os.Args[2:])
 	case "diagnose", "diag":
 		runDiagnose(os.Args[2:])
 	default:
@@ -116,6 +119,8 @@ func printUsage() {
 		{"toil-check|tc                     ", "List toil tickets from the last week"},
 		{"point-check|pc                     ", "Check sprint tickets have story points"},
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
+		{"conf browse|br                    ", "Browse Confluence space tree"},
+		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
 		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"diagnose -find-field <search>     ", "Look up a field's real customfield ID by name"},
 		{"diagnose -list-fields             ", "Print every field on the Jira instance"},
@@ -865,4 +870,186 @@ func renderHangerPage(issues []map[string]any, manualPages []api.ConfluencePageW
 	}
 	sb.WriteString("</ul>")
 	return sb.String()
+}
+
+// browseSpaceFn launches the space browser TUI; replaced in tests.
+var browseSpaceFn = tui.BrowseSpace
+
+// runConf dispatches Confluence sub-commands.
+func runConf(args []string) {
+	if len(args) < 1 {
+		fatal("usage: jira-thing conf <browse|upload> [options]")
+	}
+	switch args[0] {
+	case "browse", "br":
+		runConfBrowse()
+	case "upload", "up":
+		runConfUpload(args[1:])
+	default:
+		fatal("unknown conf sub-command: %s\nusage: jira-thing conf <browse|upload> [options]", args[0])
+	}
+}
+
+// runConfBrowse launches the space browser TUI for exploring the Confluence space.
+// Prints the selected page's ID and title on exit — handy for finding page IDs.
+func runConfBrowse() {
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("loading config: %v", err)
+	}
+	if cfg.ConfluenceBasePageID == "" {
+		fatal("confluence_base_page_id must be set in ~/.config/jira-thing/jira-thing.json")
+	}
+
+	conn := mustConnect()
+	selected := browseForParent(conn, cfg)
+
+	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
+	fmt.Printf("\n%s %s (ID: %s)\n", tui.SuccessStyle.Render("Selected:"), tui.KeyStyle.Render(selected.Title), selected.ID)
+	if confluenceURL != "" {
+		fmt.Printf("URL: %s/spaces/%s/pages/%s\n", confluenceURL, cfg.ConfluenceSpace, selected.ID)
+	}
+}
+
+// runConfUpload reads a markdown file, converts it to Confluence storage format,
+// launches the space browser to pick a parent page, creates the page, and uploads
+// any referenced images as attachments.
+func runConfUpload(args []string) {
+	var reordered, positional []string
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			reordered = append(reordered, args[i], args[i+1])
+			i++
+		} else if strings.HasPrefix(args[i], "-") {
+			reordered = append(reordered, args[i])
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	reordered = append(reordered, positional...)
+
+	fs := flag.NewFlagSet("conf-upload", flag.ContinueOnError)
+	title := fs.String("title", "", "Page title (defaults to markdown filename without extension)")
+	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing conf upload <file.md> [-title \"Page Title\"]")
+	}
+	mdPath := fs.Arg(0)
+
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("loading config: %v", err)
+	}
+	if cfg.ConfluenceSpace == "" {
+		fatal("confluence_space must be set in ~/.config/jira-thing/jira-thing.json")
+	}
+	if cfg.ConfluenceURL == "" {
+		fatal("confluence_url must be set in ~/.config/jira-thing/jira-thing.json (e.g. https://yourorg.atlassian.net/wiki)")
+	}
+	if cfg.ConfluenceBasePageID == "" {
+		fatal("confluence_base_page_id must be set in ~/.config/jira-thing/jira-thing.json")
+	}
+
+	mdBytes, err := os.ReadFile(mdPath) // #nosec G304 -- user-supplied CLI input
+	if err != nil {
+		fatal("reading markdown file: %v", err)
+	}
+	baseDir := filepath.Dir(mdPath)
+	if !filepath.IsAbs(baseDir) {
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			fatal("resolving working directory: %v", wdErr)
+		}
+		baseDir = filepath.Join(wd, baseDir)
+	}
+
+	pageTitle := *title
+	if pageTitle == "" {
+		base := filepath.Base(mdPath)
+		pageTitle = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+
+	result := markdownToConfluence(string(mdBytes), baseDir)
+
+	// Convert SVG files to PNG for reliable Confluence rendering.
+	attachments, tempFiles := convertSVGAttachments(result.AttachmentPaths)
+	defer cleanupTempFiles(tempFiles)
+	storage := rewriteSVGReferences(result.Storage, result.AttachmentPaths, attachments)
+
+	fmt.Printf("Converted %s → %d bytes of storage XHTML, %d attachment(s) found\n",
+		mdPath, len(storage), len(attachments))
+
+	conn := mustConnect()
+	parentPage := browseForParent(conn, cfg)
+
+	fmt.Printf("Creating page %q under %q...\n", pageTitle, parentPage.Title)
+	page, err := api.CreateConfluencePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage.ID, storage)
+	if err != nil {
+		fatal("creating Confluence page: %v", err)
+	}
+	fmt.Printf("%s %s (ID: %s)\n", tui.SuccessStyle.Render("Created page:"), tui.KeyStyle.Render(pageTitle), page.ID)
+
+	uploadConfluenceAttachments(conn, page.ID, attachments)
+
+	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
+	fmt.Printf("\n%s %s/spaces/%s/pages/%s\n",
+		tui.SuccessStyle.Render("Done:"), confluenceURL, cfg.ConfluenceSpace, page.ID)
+}
+
+// browseForParent launches the space browser TUI and returns the selected parent page.
+func browseForParent(conn api.JiraConnection, cfg config.Config) tui.PageEntry {
+	rootPage, err := api.FetchConfluencePageByID(conn, cfg.ConfluenceBasePageID)
+	if err != nil {
+		fatal("fetching base page: %v", err)
+	}
+
+	fetcher := func(parentID string) ([]tui.PageEntry, error) {
+		children, fetchErr := api.ListChildPagesSummary(conn, parentID)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		entries := make([]tui.PageEntry, len(children))
+		for i, c := range children {
+			entries[i] = tui.PageEntry{ID: c.ID, Title: c.Title}
+		}
+		return entries, nil
+	}
+
+	fmt.Println(tui.HeadingStyle.Render("Select a parent page for the upload:"))
+	browseResult, err := browseSpaceFn(
+		tui.PageEntry{ID: rootPage.ID, Title: rootPage.Title},
+		fetcher,
+	)
+	if err != nil {
+		fatal("browsing space: %v", err)
+	}
+	if browseResult.Cancelled {
+		fmt.Println("Upload cancelled.")
+		osExit(0)
+	}
+	return browseResult.SelectedPage
+}
+
+// uploadConfluenceAttachments uploads each local file as an attachment on the given page.
+// Paths that are empty (rejected by path validation) are silently skipped.
+func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	fmt.Printf("Uploading %d attachment(s)...\n", len(paths))
+	for _, filePath := range paths {
+		if filePath == "" {
+			continue
+		}
+		clean := filepath.Clean(filePath)
+		if strings.Contains(clean, "..") {
+			fmt.Fprintf(os.Stderr, "  %s skipping %q — path traversal detected\n", tui.ErrorStyle.Render("Warning:"), filePath)
+			continue
+		}
+		att, err := api.AddConfluenceAttachment(conn, pageID, clean)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s uploading %s: %v\n", tui.ErrorStyle.Render("Warning:"), clean, err)
+			continue
+		}
+		fmt.Printf("  %s %s (ID: %s)\n", tui.SuccessStyle.Render("Attached:"), filepath.Base(clean), att.ID)
+	}
 }

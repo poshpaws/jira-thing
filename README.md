@@ -2,7 +2,7 @@
 
 [jirathing.com](https://jirathing.com)
 
-A CLI tool for cloning Jira tickets via reusable JSON templates. Capture an existing ticket's structure once, then stamp out new tickets from it interactively.
+A CLI tool for Jira and Confluence. Clone tickets from reusable templates, manage comments and attachments, track toil, sync pages to Confluence, and upload markdown documents — all from the terminal.
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/6jnngb4chbz)
 
@@ -35,13 +35,6 @@ chmod +x jira-thing-linux-amd64
 sudo mv jira-thing-linux-amd64 /usr/local/bin/jira-thing
 ```
 
-**Linux (ARM64 — Raspberry Pi, AWS Graviton, etc.):**
-
-```bash
-chmod +x jira-thing-linux-arm64
-sudo mv jira-thing-linux-arm64 /usr/local/bin/jira-thing
-```
-
 **Windows:** rename to `jira-thing.exe` and place on your `PATH`.
 
 ### Build from source
@@ -54,9 +47,39 @@ cd jira-thing
 make build
 ```
 
+### Optional dependencies
+
+| Tool | Purpose | Install |
+|---|---|---|
+| `rsvg-convert` | Convert SVG images to PNG for reliable Confluence rendering | See below |
+
+`rsvg-convert` is part of the **librsvg** library. Install it with your package manager:
+
+```bash
+# macOS (Homebrew)
+brew install librsvg
+
+# Debian / Ubuntu
+sudo apt install librsvg2-bin
+
+# Fedora / RHEL
+sudo dnf install librsvg2-tools
+
+# Arch
+sudo pacman -S librsvg
+```
+
+Verify it's available:
+
+```bash
+rsvg-convert --version
+```
+
+If `rsvg-convert` is not installed, SVG files are uploaded to Confluence as-is. Confluence Cloud has unreliable SVG rendering (garbled images, zero-pixel dimensions), so installing librsvg is recommended if your markdown contains SVG diagrams.
+
 ## Authentication
 
-On first use, `jira-thing` will prompt for your Jira credentials and store them securely in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service via D-Bus).
+On first use, `jira-thing` prompts for your Jira credentials and stores them securely in the OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service via D-Bus).
 
 > **Linux note:** requires a running Secret Service daemon — GNOME Keyring or KWallet. On headless servers install and unlock `gnome-keyring` or use `secret-tool` to verify D-Bus is available.
 
@@ -69,11 +92,45 @@ Credentials stored securely in keyring.
 
 **Generating an API token:** Go to [https://id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens) and create a token. Use your Atlassian account email as the username.
 
+The same credentials are used for both Jira and Confluence API calls (Atlassian Cloud shares authentication across products).
+
 Credentials are only prompted once. To update or remove them:
 
 ```bash
 jira-thing clear-auth
 ```
+
+## Configuration
+
+`jira-thing` reads its configuration from `~/.config/jira-thing/jira-thing.json`. All fields are optional — only the features you use need their corresponding config values.
+
+```json
+{
+  "project": "PROJ",
+  "toil_marker": "TOIL_LABEL",
+  "toil_team": "Team-Name",
+  "team": "c4cb9231-6ac0-44e7-bd76-64331a96af81",
+  "use_team_field": true,
+  "editor": "zed -w",
+  "confluence_space": "MYSPACE",
+  "confluence_url": "https://yourorg.atlassian.net/wiki",
+  "confluence_base_page_id": "12345678",
+  "ticket_hanger": "Toil Ticket Hangar"
+}
+```
+
+| Field | Used by | Description |
+|---|---|---|
+| `project` | `toil-check`, `toil-sync` | Jira project key (e.g. `CRSS`) |
+| `toil_marker` | `toil-check`, `toil-sync` | Label that identifies toil tickets |
+| `toil_team` | `toil-check`, `toil-sync` | Legacy team label filter (used when `use_team_field` is false) |
+| `team` | `toil-check`, `toil-sync` | Jira Team field UUID (used when `use_team_field` is true) |
+| `use_team_field` | `toil-check`, `toil-sync` | `true`: filter by Team field. `false` (default): filter by `toil_team` label |
+| `editor` | `update` | Preferred editor binary (fallback when `$EDITOR` is unset). Supports arguments, e.g. `"code --wait"` |
+| `confluence_space` | `toil-sync`, `conf upload` | Confluence space key (e.g. `ICSCET`) |
+| `confluence_url` | `conf upload`, `conf browse` | Confluence base URL (e.g. `https://yourorg.atlassian.net/wiki`) |
+| `confluence_base_page_id` | `conf upload`, `conf browse` | Numeric ID of the root page for the space browser TUI |
+| `ticket_hanger` | `toil-sync` | Title of the parent Confluence page for toil ticket child pages |
 
 ## Commands
 
@@ -84,7 +141,6 @@ Fetches an existing Jira issue and saves its reusable fields (project, issue typ
 ```bash
 jira-thing template <TICKET-KEY> [-o output.json]
 ```
-Note replace <TICKET-KEY> with the actual key of the ticket you want to capture, e.g. `PROJ-42`.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -96,18 +152,6 @@ Note replace <TICKET-KEY> with the actual key of the ticket you want to capture,
 jira-thing template PROJ-42
 # Fetching PROJ-42...
 # Template saved to ticket_template.json
-# {
-#   "assignee": { ... },
-#   "issuetype": { "name": "Task" },
-#   "project": { "key": "PROJ" },
-#   ...
-# }
-```
-
-Save to a specific file:
-
-```bash
-jira-thing template PROJ-42 -o templates/bug.json
 ```
 
 ---
@@ -123,6 +167,8 @@ jira-thing create [-t template.json]
 | Flag | Default | Description |
 |---|---|---|
 | `-t` | `ticket_template.json` | Path to the template file |
+
+**Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
 **Example:**
 
@@ -148,62 +194,20 @@ jira-thing my-tasks [-notupdated]
 |---|---|
 | `-notupdated` | Show only tasks with no activity in the last 3 business days (ordered oldest-first) |
 
-**Example — all open tasks:**
+**Example:**
 
 ```bash
-jira-thing my-tasks
+jira-thing mt
 # Found 4 open task(s):
-#
-#   PROJ-101      In Progress     High      updated: 2026-04-25  Fix login redirect on mobile
+#   PROJ-101      In Progress     High      updated: 2026-04-25  Fix login redirect
 #   PROJ-98       To Do           Medium    updated: 2026-04-23  Update API docs
-#   PROJ-87       In Review       High      updated: 2026-04-21  Refactor auth middleware
-#   PROJ-72       To Do           Low       updated: 2026-04-18  Clean up legacy scripts
-```
-
-**Example — stale tasks only:**
-
-```bash
-jira-thing my-tasks -notupdated
-# Found 2 stale (no updates in 3+ business days) task(s):
-#
-#   PROJ-87       In Review       High      updated: 2026-04-21  Refactor auth middleware
-#   PROJ-72       To Do           Low       updated: 2026-04-18  Clean up legacy scripts
-```
-
----
-
-### `point-check` — check sprint tickets have story points
-
-Finds all tickets assigned to you that have been updated in the current sprint (calendar month) and reports which ones are missing story points.
-
-```bash
-jira-thing point-check
-```
-
-**Example — all tickets have points:**
-
-```bash
-jira-thing point-check
-# Sprint: June 2026 — 5 ticket(s) checked, 0 missing points
-#
-# ✓ All tickets have story points.
-```
-
-**Example — some tickets missing points:**
-
-```bash
-jira-thing pc
-# Sprint: June 2026 — 5 ticket(s) checked, 2 missing points
-#
-#   PROJ-87       In Review       High      updated: 2026-06-21  Refactor auth middleware
-#   PROJ-72       To Do           Low       updated: 2026-06-18  Clean up legacy scripts
 ```
 
 ---
 
 ### `update` — add a comment to a ticket
 
-Posts a new comment on an existing Jira ticket. The existing description is **not** modified. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
+Posts a new comment on an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
 
 ```bash
 jira-thing update <TICKET-KEY> [-stdin]
@@ -240,26 +244,15 @@ EOF
 **Example — editor:**
 
 ```bash
-export EDITOR="nano -w"
 jira-thing update PROJ-42
-# (nano opens — write your comment, save, exit)
-# Updated PROJ-42
-# URL: https://yourorg.atlassian.net/browse/PROJ-42
+# (editor opens — write your comment, save, exit)
+# Comment added to PROJ-42
 ```
 
-**Example — stdin:**
+**Example — stdin / pipe:**
 
 ```bash
-echo "Deployed to staging. Monitoring for 30 min." | jira-thing update PROJ-42 -stdin
-```
-
-**Example — heredoc (multi-line):**
-
-```bash
-jira-thing update PROJ-42 -stdin << 'EOF'
-Root cause: race condition in cache invalidation.
-Fix deployed to staging. Monitoring for 24h before prod rollout.
-EOF
+echo "Deployed to staging." | jira-thing update PROJ-42 -stdin
 ```
 
 ---
@@ -272,20 +265,175 @@ Fetches the most recent comment on a Jira ticket and renders it as formatted mar
 jira-thing last-comment <TICKET-KEY>
 ```
 
+---
+
+### `describe` — dump full ticket as rendered markdown
+
+Fetches a Jira ticket and renders its key, summary, status, priority, assignee, and description as formatted markdown in the terminal.
+
+```bash
+jira-thing describe <TICKET-KEY>
+```
+
 **Example:**
 
 ```bash
-jira-thing last-comment PROJ-42
-# Last comment by Jane Smith on 2026-05-05:
-#
-#  ┌─────────────────────────────────────────────────────┐
-#  │ Deployed to staging. Monitoring logs for 24 h.      │
-#  │                                                     │
-#  │ **Root cause:** race condition in cache layer.       │
-#  └─────────────────────────────────────────────────────┘
+jira-thing de PROJ-42
 ```
 
-Jira comment bodies are stored internally as Atlassian Document Format (ADF). `jira-thing` converts ADF to markdown and renders it with colour and formatting using [glamour](https://github.com/charmbracelet/glamour).
+---
+
+### `attach` — attach a file to a ticket
+
+Uploads a local file as an attachment on an existing Jira ticket.
+
+```bash
+jira-thing attach <TICKET-KEY> <file-path>
+```
+
+**Example:**
+
+```bash
+jira-thing at PROJ-42 screenshot.png
+# Attached screenshot.png to PROJ-42
+# URL: https://yourorg.atlassian.net/browse/PROJ-42
+```
+
+---
+
+### `point-check` — check sprint tickets have story points
+
+Finds all tickets assigned to you in the current sprint and reports which ones are missing story points.
+
+```bash
+jira-thing point-check
+```
+
+---
+
+### `toil-check` — list toil tickets from the last week
+
+Queries Jira for toil tickets updated in the last week, filtered by the project, toil marker, and team from your config.
+
+```bash
+jira-thing toil-check
+```
+
+**Requires config:** `project`, `toil_marker`, and either `toil_team` or `team` + `use_team_field`.
+
+---
+
+### `toil-sync` — sync toil tickets to Confluence
+
+Queries open toil tickets, presents an interactive TUI for selection, then creates or updates a child Confluence page for each selected ticket under the configured hanger page.
+
+```bash
+jira-thing toil-sync
+```
+
+**Requires config:** `project`, `toil_marker`, team config, `confluence_space`, `ticket_hanger`.
+
+The TUI lets you select tickets with enter/space, then press `s` to sync. Each ticket gets a child page with an embedded Jira macro and a notes section. Notes are preserved across syncs.
+
+---
+
+### `conf browse` — browse Confluence space tree
+
+Launches an interactive TUI that traverses the Confluence page hierarchy starting from the configured base page. Useful for finding page IDs or exploring the space structure.
+
+```bash
+jira-thing conf browse
+```
+
+**Requires config:** `confluence_base_page_id`, and optionally `confluence_url` and `confluence_space` for the URL output.
+
+**TUI controls:**
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Navigate the page list |
+| `enter` / `→` | Drill into a child page |
+| `backspace` / `←` | Go back to the parent page |
+| `s` | Select the current page and exit |
+| `q` / `esc` | Cancel and exit |
+
+A breadcrumb trail at the top shows your current position in the hierarchy. On exit, the selected page's title, ID, and URL are printed.
+
+---
+
+### `conf upload` — upload markdown to Confluence
+
+Converts a local markdown file to Confluence storage format, launches the space browser TUI to choose a parent page, creates the page, and uploads any referenced local files as attachments.
+
+```bash
+jira-thing conf upload <file.md> [-title "Page Title"]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-title` | Filename without extension | Title for the Confluence page |
+
+**Requires config:** `confluence_space`, `confluence_url`, `confluence_base_page_id`.
+
+**What gets converted:**
+
+| Markdown | Confluence storage format |
+|---|---|
+| Headings (`#`, `##`, etc.) | `<h1>`, `<h2>`, etc. |
+| Bold, italic, strikethrough | `<strong>`, `<em>`, `<s>` |
+| Links | `<a href>` for external URLs; `<ac:link>` attachment macro for local files |
+| Images | `<ac:image>` with `<ri:attachment>` for local files; `<ri:url>` for external URLs |
+| Code blocks | `<ac:structured-macro ac:name="code">` with language parameter |
+| Tables | `<table>` with `<th>` / `<td>` |
+| Lists, blockquotes, horizontal rules | Standard XHTML equivalents |
+
+**What gets uploaded as attachments:**
+
+Local files referenced via image syntax (`![alt](path)`) or link syntax (`[text](path)`) with recognised extensions are automatically uploaded:
+
+- **Images:** `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.ico`
+- **Documents:** `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`, `.csv`
+- **Other:** `.zip`, `.gz`, `.tar`, `.json`, `.yaml`, `.yml`, `.xml`, `.txt`, `.log`, `.drawio`
+
+**SVG handling:** If `rsvg-convert` is installed (part of librsvg — `brew install librsvg`), SVG files are automatically converted to PNG before upload for reliable rendering in Confluence. The page XHTML is rewritten to reference the PNG filename. If `rsvg-convert` is not available, SVGs are uploaded as-is with a warning. See [Optional dependencies](#optional-dependencies) for install instructions on other platforms.
+
+**Example:**
+
+```bash
+jira-thing conf upload docs/architecture.md -title "Architecture Overview"
+# Converted docs/architecture.md → 2847 bytes of storage XHTML, 3 attachment(s) found
+# Select a parent page for the upload:
+# (space browser TUI opens — navigate and press s to select)
+# Creating page "Architecture Overview" under "Engineering Docs"...
+# Created page: Architecture Overview (ID: 12345678)
+#   Attached: system-overview.png (ID: att456)
+#   Attached: data-flow.png (ID: att457)
+#   Attached: report.pdf (ID: att458)
+# Done: https://yourorg.atlassian.net/wiki/spaces/MYSPACE/pages/12345678
+```
+
+---
+
+### `diagnose` — test API connectivity
+
+Tests your Jira API connection and credentials. Also provides sub-commands for field discovery.
+
+```bash
+jira-thing diagnose                      # Test connectivity
+jira-thing diagnose -find-field <search> # Find a field's customfield ID by name
+jira-thing diagnose -list-fields         # List all fields on the instance
+jira-thing diagnose -team <TICKET-KEY>   # Print a ticket's Team field value and ID
+```
+
+---
+
+### `check-update` — check for newer releases
+
+Checks GitHub for a newer release of `jira-thing`.
+
+```bash
+jira-thing check-update
+```
 
 ---
 
@@ -295,36 +443,59 @@ Deletes all stored Jira credentials from the OS keychain.
 
 ```bash
 jira-thing clear-auth
-# Credentials cleared.
 ```
 
-Run this if you change your API token, switch Jira accounts, or want to reset authentication.
-
 ---
+
+## Command aliases
+
+Most commands have short aliases for quick typing:
+
+| Command | Alias |
+|---|---|
+| `template` | `te` |
+| `create` | `cr` |
+| `my-tasks` | `mt` |
+| `update` | `up` |
+| `last-comment` | `lc` |
+| `attach` | `at` |
+| `describe` | `de` |
+| `toil-check` | `tc`, `toil` |
+| `toil-sync` | `ts` |
+| `point-check` | `pc` |
+| `conf browse` | `conf br` |
+| `conf upload` | `conf up` |
+| `diagnose` | `diag` |
+| `check-update` | `cu` |
 
 ## Typical workflow
 
 ```bash
 # 1. Capture a well-configured ticket as a template
-jira-thing template PROJ-42 -o templates/task.json
+jira-thing te PROJ-42 -o templates/task.json
 
 # 2. Create new tickets from that template
-jira-thing create -t templates/task.json
+jira-thing cr -t templates/task.json
 
 # 3. Check what's on your plate
-jira-thing my-tasks
+jira-thing mt
 
 # 4. Add a progress update to a ticket
-jira-thing update PROJ-42
+jira-thing up PROJ-42
 
-# 5. Check the last comment before replying
-jira-thing last-comment PROJ-42
+# 5. Find tickets you haven't touched in a while
+jira-thing mt -notupdated
 
-# 6. Find tickets you haven't touched in a while
-jira-thing my-tasks -notupdated
+# 6. Upload a design doc to Confluence
+jira-thing conf up docs/design.md -title "Q3 Design Doc"
+
+# 7. Browse the Confluence space to find a page ID
+jira-thing conf br
 ```
+
 ## Agent Skill
-SKILL.md provided but not had a lot of testing , please feedback via issues 
+
+SKILL.md provided but not had a lot of testing — please feedback via issues.
 
 ## Template file format
 

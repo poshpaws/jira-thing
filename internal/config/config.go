@@ -9,14 +9,16 @@ import (
 
 // Config holds user-configurable settings loaded from ~/.config/jira-thing/jira-thing.json.
 type Config struct {
-	Project         string `json:"project"`
-	ToilMarker      string `json:"toil_marker"`
-	ToilTeam        string `json:"toil_team"`      // legacy: a second label to match, e.g. "ECP_SEC_TEAM"
-	Team            string `json:"team"`           // Jira team UUID, e.g. "c4cb9231-6ac0-44e7-bd76-64331a96af81"; used when use_team_field is true
-	UseTeamField    bool   `json:"use_team_field"` // false (default): filter by toil_team label. true: filter by the Team field instead
-	Editor          string `json:"editor"`
-	ConfluenceSpace string `json:"confluence_space"`
-	TicketHanger    string `json:"ticket_hanger"`
+	Project              string `json:"project"`
+	ToilMarker           string `json:"toil_marker"`
+	ToilTeam             string `json:"toil_team"`      // legacy: a second label to match, e.g. "ECP_SEC_TEAM"
+	Team                 string `json:"team"`           // Jira team UUID; used when use_team_field is true
+	UseTeamField         bool   `json:"use_team_field"` // false: filter by toil_team label. true: filter by Team field
+	Editor               string `json:"editor"`
+	ConfluenceSpace      string `json:"confluence_space"`
+	ConfluenceURL        string `json:"confluence_url"` // e.g. "https://britishairways.atlassian.net/wiki"
+	TicketHanger         string `json:"ticket_hanger"`
+	ConfluenceBasePageID string `json:"confluence_base_page_id"` // root page ID for the space browser TUI
 }
 
 // ConfigPath returns the path to the config file.
