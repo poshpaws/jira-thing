@@ -1,76 +1,70 @@
 ---
 name: jira-thing
-description: CLI tool for cloning, creating, updating, and listing Jira tickets via JSON templates.
+description: CLI tool for Jira and Confluence — tickets, comments, attachments, subtasks, Confluence publishing, and space browsing. Also available as an MCP server.
 ---
 
 # jira-thing
 
-Go CLI tool that manages Jira tickets through local JSON templates. Credentials stored in OS keyring.
+Go CLI tool for Jira and Confluence. Credentials stored in OS keyring (same creds for both Jira and Confluence).
+
+> **Why this file exists:** Some corporate environments disable local MCP servers by policy. When that happens, this SKILL.md gives AI agents (Kiro, Codex, etc.) full knowledge of jira-thing's capabilities so they can shell out to the CLI directly instead of calling MCP tools. The effect is the same — the agent can read tickets, add comments, create subtasks, and publish to Confluence — it just uses `jira-thing <command>` instead of an MCP tool call.
 
 ## When to use
 
-- Clone an existing Jira ticket as a reusable template
-- Create a new Jira ticket from a saved template
-- Add a comment to an existing ticket (markdown supported — converted to ADF)
-- Show the last comment on a ticket, rendered as markdown
-- List open tasks assigned to you, including stale ones
-- Find current-sprint tickets missing story points
-- List or sync TOIL tickets (Confluence)
+- Fetch, search, create, or describe Jira tickets
+- Add markdown comments to tickets (converted to ADF automatically)
+- Show the last comment on a ticket
+- List open tasks or find stale ones
+- Attach files to tickets
+- Create subtasks from a markdown task list or implementation plan
+- Upload markdown documents to Confluence (with images, diagrams, and attachments)
+- Browse the Confluence page hierarchy
+- Sync TOIL tickets to Confluence
+- Check sprint tickets for missing story points
 - Diagnose API connectivity and credential problems
-- Clear stored Jira credentials
 
 ## Commands
 
 ### `template <TICKET-KEY> [-o output.json]` (alias: `te`)
 
-Fetch an existing ticket from Jira and save its fields as a local JSON template.
+Fetch an existing ticket and save its reusable fields as a local JSON template.
 
 ```bash
 jira-thing template PROJ-123
 jira-thing template PROJ-123 -o my-template.json
 ```
 
-Saves `ticket_template.json` in the current directory by default. Output includes project, issue type, priority, labels, components, and assignee — fields reused when creating new tickets.
-
 ---
 
 ### `create [-t template.json]` (alias: `cr`)
 
-Create a new Jira ticket from a template. Prompts for summary and description interactively.
+Create a new Jira ticket from a template. Prompts for summary and description.
 
 ```bash
 jira-thing create
 jira-thing create -t /path/to/template.json
 ```
 
-Without `-t`, searches for `ticket_template.json` in:
-1. Current directory
-2. Same directory as the `jira-thing` binary
-3. `$XDG_CONFIG_HOME/jira-thing/`
-4. `~/.config/jira-thing/`
-
-Must run `template` first to generate a template file.
+Template search path: current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
 ---
 
 ### `update <TICKET-KEY> [-stdin]` (alias: `up`)
 
-Add a comment to an existing ticket. Opens `$EDITOR` by default; use `-stdin` for piped input.
+Add a markdown comment to a ticket. Opens `$EDITOR` by default; use `-stdin` for piped input.
 
 ```bash
 jira-thing update PROJ-123
 echo "Deployed to staging." | jira-thing update PROJ-123 -stdin
 ```
 
-Requires `$EDITOR` to be set unless `-stdin` is used. **GitHub-flavoured markdown is supported** — comment text is parsed as GFM and converted to structured ADF, so headings, lists, code blocks, tables, strikethrough, and links render properly in the Jira web UI.
-
-**Do not use old Jira wiki markup** (`h1.`, `*bold*`, `{code}`, `[link|url]`) — parser is GFM-only, won't convert it. Posted as literal text. Use `#`, `**bold**`, fenced code blocks, `[text](url)` instead.
+GFM markdown is converted to ADF — headings, lists, code blocks, tables, strikethrough, and links all render in Jira.
 
 ---
 
 ### `last-comment <TICKET-KEY>` (alias: `lc`)
 
-Show the most recent comment on a ticket, converted from ADF and rendered as markdown in the terminal.
+Fetch and render the most recent comment as terminal markdown.
 
 ```bash
 jira-thing last-comment PROJ-123
@@ -78,22 +72,40 @@ jira-thing last-comment PROJ-123
 
 ---
 
+### `describe <TICKET-KEY>` (alias: `de`)
+
+Dump a ticket's full details (key, summary, status, priority, assignee, description) as rendered markdown.
+
+```bash
+jira-thing describe PROJ-123
+```
+
+---
+
 ### `my-tasks [-notupdated]` (alias: `mt`)
 
-List open Jira tasks assigned to the current user, ordered by last updated (descending).
+List open tasks assigned to you. `-notupdated` shows only tasks idle for 3+ business days.
 
 ```bash
 jira-thing my-tasks
 jira-thing my-tasks -notupdated
 ```
 
-`-notupdated` filters to tasks with no activity in the last 3 business days (stale tasks), ordered oldest-first.
+---
+
+### `attach <TICKET-KEY> <file>` (alias: `at`)
+
+Upload a local file as an attachment on a ticket.
+
+```bash
+jira-thing attach PROJ-123 screenshot.png
+```
 
 ---
 
 ### `point-check` (alias: `pc`)
 
-List tickets in the current open sprint assigned to you and report which are missing story points.
+Check current sprint tickets for missing story points.
 
 ```bash
 jira-thing point-check
@@ -103,7 +115,7 @@ jira-thing point-check
 
 ### `toil-check` (aliases: `toil`, `tc`)
 
-List toil tickets from the last week. Filters on `project`, `toil_marker`, and a team match — see [Configuration](#configuration) for how the team match is chosen.
+List toil tickets from the last week, filtered by project, toil marker, and team from config.
 
 ```bash
 jira-thing toil-check
@@ -113,7 +125,7 @@ jira-thing toil-check
 
 ### `toil-sync` (alias: `ts`)
 
-Sync TOIL tickets to Confluence. Uses the same team match as `toil-check`, plus `confluence_space` and `ticket_hanger`.
+Sync TOIL tickets to Confluence child pages under the configured hanger page. Interactive TUI for ticket selection.
 
 ```bash
 jira-thing toil-sync
@@ -121,29 +133,103 @@ jira-thing toil-sync
 
 ---
 
+### `conf browse` (alias: `conf br`)
+
+Browse the Confluence page hierarchy starting from the configured base page. Useful for finding page IDs.
+
+```bash
+jira-thing conf browse
+```
+
+TUI controls: `↑/↓` navigate, `enter/→` drill in, `backspace/←` go up, `s` select, `q` quit.
+
+---
+
+### `conf upload <file.md> [-title "Title"]` (alias: `conf up`)
+
+Convert a markdown file to Confluence storage format and publish it. Launches a space browser TUI to choose the parent page.
+
+```bash
+jira-thing conf upload docs/architecture.md -title "Architecture Overview"
+```
+
+Key behaviours:
+- **Create or update:** If a page with the same title already exists under the chosen parent, it is updated in place (version bumped). No duplicates.
+- **Attachments:** Local files referenced via `![](path)` or `[text](path)` are uploaded automatically. Duplicate filenames are deduplicated.
+- **Draw.io support:** `.drawio` files (or `.svg`/`.png` with a `.drawio` sibling) are embedded with Confluence's native draw.io macro.
+- **SVG handling:** SVGs without a `.drawio` sibling are converted to PNG via `rsvg-convert` if available.
+- **Retry resilience:** Attachment uploads retry up to 3 times on HTTP 5xx errors.
+
+Requires config: `confluence_space`, `confluence_url`, `confluence_base_page_id`.
+
+---
+
+### `subtask <PARENT-KEY> -f <file.md> [--heading regex] [--section name] [--dry-run]` (alias: `st`)
+
+Create Jira subtasks from a markdown file. Each subtask inherits the parent's project, priority, labels, and components.
+
+Three extraction modes:
+
+**Default** — extracts all list items (bullet, numbered, checkbox):
+```bash
+jira-thing st PROJ-42 -f tasks.md
+```
+
+**Heading mode** — extracts tasks from headings matching a regex. The body between headings becomes the subtask description (converted to ADF):
+```bash
+jira-thing st PROJ-42 -f docs/implementation-plan.md --heading "^Task \d+:"
+```
+
+**Section mode** — extracts list items only from a named section:
+```bash
+jira-thing st PROJ-42 -f docs/shapeup.md --section "Initial Task List"
+```
+
+Always dry-run first:
+```bash
+jira-thing st PROJ-42 -f plan.md --heading "^Task \d+:" --dry-run
+```
+
+---
+
+### `serve-mcp`
+
+Start an MCP (Model Context Protocol) server on stdio for AI agent integration. Exposes all Jira and Confluence operations as MCP tools.
+
+```bash
+jira-thing serve-mcp
+```
+
+Not run directly — configured in your AI agent's MCP settings. Tools available: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket`, `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`.
+
+---
+
 ### `diagnose` (alias: `diag`)
 
-Test API connectivity and stored credentials. Use when commands fail with auth or network errors.
+Test API connectivity. Also supports field lookups:
 
 ```bash
 jira-thing diagnose
+jira-thing diagnose -find-field team
+jira-thing diagnose -list-fields
+jira-thing diagnose -team PROJ-123
 ```
 
-Also supports lookups used to fill in `~/.config/jira-thing/jira-thing.json` — see [Configuration](#configuration):
+---
+
+### `self-update` (alias: `su`)
+
+Download and install the latest release from GitHub.
 
 ```bash
-jira-thing diagnose -userid                        # print only your accountId
-jira-thing diagnose -list-fields                    # list every field on the Jira instance
-jira-thing diagnose -find-field team                # search the field registry by name
-jira-thing diagnose -team PROJ-123                  # print PROJ-123's Team field value + resolved team ID
-jira-thing diagnose -team PROJ-123 -team-field customfield_10005   # ...against a non-default field ID
+jira-thing self-update
 ```
 
 ---
 
 ### `check-update` (alias: `cu`)
 
-Check GitHub for newer jira-thing releases.
+Check GitHub for newer releases without installing.
 
 ```bash
 jira-thing check-update
@@ -153,7 +239,7 @@ jira-thing check-update
 
 ### `clear-auth`
 
-Remove stored Jira credentials from the OS keyring.
+Remove stored credentials from the OS keyring.
 
 ```bash
 jira-thing clear-auth
@@ -161,78 +247,57 @@ jira-thing clear-auth
 
 ---
 
-### `version`
-
-Show the installed version.
-
-```bash
-jira-thing version
-```
-
----
-
-## Typical workflow
-
-```bash
-# 1. Clone an existing ticket as template
-jira-thing template PROJ-123
-
-# 2. Create a new ticket using that template
-jira-thing create
-
-# 3. Add a comment to an existing ticket
-jira-thing update PROJ-456
-
-# 4. Read the last comment back
-jira-thing last-comment PROJ-456
-
-# 5. Check your open tasks
-jira-thing my-tasks
-```
-
-## Template search path
-
-Templates are plain JSON files. Place `ticket_template.json` in one of the search path locations above to avoid specifying `-t` on every `create` invocation.
-
 ## Configuration
 
-`toil-check`/`toil-sync` (and `update`'s `$EDITOR` fallback) read settings from `~/.config/jira-thing/jira-thing.json`:
+Settings in `~/.config/jira-thing/jira-thing.json`:
 
 ```json
 {
   "project": "CRSS",
   "toil_marker": "ECP_TOIL",
-  "toil_team": "ECP_SEC_TEAM",
+  "toil_team": "ECP - Security",
   "team": "c4cb9231-6ac0-44e7-bd76-64331a96af81",
   "use_team_field": true,
-  "editor": "nvim",
-  "confluence_space": "ECP",
-  "ticket_hanger": "ECP-TOIL-Hanger"
+  "editor": "zed -w",
+  "confluence_space": "ICSCET",
+  "confluence_url": "https://yourorg.atlassian.net/wiki",
+  "confluence_base_page_id": "40786519",
+  "ticket_hanger": "ECP Security - Ticket Hangar"
 }
 ```
 
 | Field | Used by | Description |
 |---|---|---|
 | `project` | toil-check, toil-sync | Jira project key |
-| `toil_marker` | toil-check, toil-sync | Label that marks a ticket as toil |
-| `toil_team` | toil-check, toil-sync | **Legacy** team match: a second label to require (used when `use_team_field` is `false`, the default) |
-| `team` | toil-check, toil-sync | Jira team UUID to match via the ticket's Team field (used when `use_team_field` is `true`) |
-| `use_team_field` | toil-check, toil-sync | `false` (default): match `toil_team` as a label. `true`: match `team` against the Team field instead. Not every team applies the same labelling convention, so this switch exists per-user |
-| `editor` | update | Fallback editor if `$EDITOR` is unset |
-| `confluence_space` | toil-sync | Confluence space key to sync TOIL tickets into |
-| `ticket_hanger` | toil-sync | Confluence page title/ID that links to synced children |
+| `toil_marker` | toil-check, toil-sync | Label that marks toil tickets |
+| `toil_team` | toil-check, toil-sync | Legacy team label filter (when `use_team_field` is false) |
+| `team` | toil-check, toil-sync | Jira Team field UUID (when `use_team_field` is true) |
+| `use_team_field` | toil-check, toil-sync | `true`: match Team field. `false` (default): match `toil_team` label |
+| `editor` | update | Fallback editor when `$EDITOR` is unset |
+| `confluence_space` | toil-sync, conf upload | Confluence space key |
+| `confluence_url` | conf upload, conf browse | Confluence base URL (e.g. `https://yourorg.atlassian.net/wiki`) |
+| `confluence_base_page_id` | conf upload, conf browse | Root page ID for the space browser TUI |
+| `ticket_hanger` | toil-sync | Parent page title for toil ticket child pages |
 
-### Getting `team` (the Team field UUID)
-
-The Team field's customfield ID varies per Jira instance — don't guess it. Confirm it, then pull a real ticket's team ID:
+### Finding the team UUID
 
 ```bash
-# 1. Confirm the real customfield ID for "Team" (don't assume it's customfield_10001)
-jira-thing diagnose -find-field team
-
-# 2. Fetch a ticket that has the Team field set, using the ID from step 1
-jira-thing diagnose -team PROJ-123 -team-field customfield_10001
-#   → prints the raw field value plus a resolved "team ID: <uuid> (name: ...)" line
+jira-thing diagnose -find-field team         # find the customfield ID
+jira-thing diagnose -team PROJ-123           # get the team UUID from a real ticket
 ```
 
-Put that UUID in `team`, set `use_team_field: true`. If the JQL `"Team[Team]" = <uuid>` isn't supported on your Jira instance, leave `use_team_field: false` and use the legacy `toil_team` label match instead.
+Put the UUID in `team`, set `use_team_field: true`.
+
+## Typical workflow
+
+```bash
+jira-thing te PROJ-42 -o templates/task.json   # capture a template
+jira-thing cr -t templates/task.json           # create a ticket
+jira-thing mt                                  # check your tasks
+jira-thing up PROJ-42                          # add a progress comment
+jira-thing mt -notupdated                      # find stale tasks
+jira-thing conf up docs/design.md              # publish to Confluence
+jira-thing conf br                             # browse Confluence pages
+jira-thing st PROJ-42 -f plan.md --heading "^Task \d+:" --dry-run  # preview subtasks
+jira-thing st PROJ-42 -f plan.md --heading "^Task \d+:"            # create them
+```
