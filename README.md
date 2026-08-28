@@ -363,7 +363,7 @@ A breadcrumb trail at the top shows your current position in the hierarchy. On e
 
 ### `conf upload` — upload markdown to Confluence
 
-Converts a local markdown file to Confluence storage format, launches the space browser TUI to choose a parent page, creates the page, and uploads any referenced local files as attachments.
+Converts a local markdown file to Confluence storage format, launches the space browser TUI to choose a parent page, creates (or updates) the page, and uploads any referenced local files as attachments.
 
 ```bash
 jira-thing conf upload <file.md> [-title "Page Title"]
@@ -375,41 +375,112 @@ jira-thing conf upload <file.md> [-title "Page Title"]
 
 **Requires config:** `confluence_space`, `confluence_url`, `confluence_base_page_id`.
 
-**What gets converted:**
+#### Space browser TUI
+
+After converting the markdown, the space browser launches so you can choose where to put the page. It starts at the page specified by `confluence_base_page_id` in your config.
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Navigate the page list |
+| `enter` / `→` | Drill into a child page |
+| `backspace` / `←` | Go back to the parent |
+| `s` | Select the current page as the parent and proceed |
+| `q` / `esc` | Cancel the upload |
+
+A breadcrumb trail at the top shows your position in the hierarchy.
+
+#### Create vs update behaviour
+
+If a page with the same title already exists under the parent you selected, the page body is **updated in place** (version bumped) rather than creating a duplicate. This is deliberate — Confluence does not allow page deletion, only archiving, so update-in-place is the correct workflow for republishing changed documents.
+
+Attachments follow the same pattern: existing attachments with the same filename are replaced with the new version; new filenames are added.
+
+#### What gets converted
 
 | Markdown | Confluence storage format |
 |---|---|
 | Headings (`#`, `##`, etc.) | `<h1>`, `<h2>`, etc. |
 | Bold, italic, strikethrough | `<strong>`, `<em>`, `<s>` |
-| Links | `<a href>` for external URLs; `<ac:link>` attachment macro for local files |
-| Images | `<ac:image>` with `<ri:attachment>` for local files; `<ri:url>` for external URLs |
-| Code blocks | `<ac:structured-macro ac:name="code">` with language parameter |
+| Inline code | `<code>` |
+| Links to external URLs | `<a href="...">` |
+| Links to local files | `<ac:link>` attachment macro (file uploaded automatically) |
+| Images (external URL) | `<ac:image>` with `<ri:url>` |
+| Images (local file) | `<ac:image>` with `<ri:attachment>` (file uploaded automatically) |
+| Fenced code blocks | `<ac:structured-macro ac:name="code">` with language parameter |
 | Tables | `<table>` with `<th>` / `<td>` |
 | Lists, blockquotes, horizontal rules | Standard XHTML equivalents |
 
-**What gets uploaded as attachments:**
+#### What gets uploaded as attachments
 
-Local files referenced via image syntax (`![alt](path)`) or link syntax (`[text](path)`) with recognised extensions are automatically uploaded:
+Local files referenced via image syntax (`![alt](path)`) or link syntax (`[text](path)`) with recognised extensions are automatically uploaded as Confluence page attachments:
 
 - **Images:** `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.ico`
 - **Documents:** `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`, `.csv`
 - **Other:** `.zip`, `.gz`, `.tar`, `.json`, `.yaml`, `.yml`, `.xml`, `.txt`, `.log`, `.drawio`
 
-**SVG handling:** If `rsvg-convert` is installed (part of librsvg — `brew install librsvg`), SVG files are automatically converted to PNG before upload for reliable rendering in Confluence. The page XHTML is rewritten to reference the PNG filename. If `rsvg-convert` is not available, SVGs are uploaded as-is with a warning. See [Optional dependencies](#optional-dependencies) for install instructions on other platforms.
+Duplicate filenames are deduplicated — if the same image is referenced in multiple places, it is uploaded once.
 
-**Example:**
+#### Diagram handling
+
+**Draw.io files:** If a `.drawio` file is referenced directly, or if a `.drawio` sibling file exists alongside a referenced `.svg` or `.png` (e.g. `flow.svg` with `flow.drawio` in the same directory), the `.drawio` file is uploaded and embedded using Confluence's native draw.io macro. This gives full-fidelity rendering with editable diagrams.
+
+**SVG conversion:** For SVG files without a `.drawio` sibling, if `rsvg-convert` is installed (part of librsvg), SVGs are automatically converted to PNG before upload. Confluence Cloud has unreliable SVG rendering, so PNG conversion is recommended. The page XHTML is rewritten to reference the PNG filename. If `rsvg-convert` is not available, SVGs are uploaded as-is with a warning.
+
+Install `rsvg-convert`:
+```bash
+brew install librsvg          # macOS
+sudo apt install librsvg2-bin # Debian/Ubuntu
+```
+
+See [Optional dependencies](#optional-dependencies) for all platforms.
+
+**Priority order for image references:**
+1. `.drawio` sibling exists → upload `.drawio`, embed with draw.io macro
+2. `.svg` with no `.drawio` sibling → convert to PNG via `rsvg-convert` (if available)
+3. `.png`, `.jpg`, etc. → upload and embed as `<ac:image>` directly
+
+#### Attachment upload resilience
+
+Confluence Cloud occasionally returns HTTP 500 errors when uploading attachments immediately after page creation (transaction rollback race condition). `conf upload` handles this with:
+
+- A 2-second settle delay between page creation and attachment uploads
+- Up to 3 retries with 3-second backoff on HTTP 5xx errors
+- Non-5xx errors (400, 403, etc.) fail immediately without retry
+
+#### Path safety
+
+Local file paths referenced in markdown are validated against the markdown file's directory. Paths that traverse outside the base directory (e.g. `../../../etc/passwd`) are rejected with a warning. Absolute paths are allowed but logged.
+
+#### Example — first upload
 
 ```bash
 jira-thing conf upload docs/architecture.md -title "Architecture Overview"
 # Converted docs/architecture.md → 2847 bytes of storage XHTML, 3 attachment(s) found
 # Select a parent page for the upload:
-# (space browser TUI opens — navigate and press s to select)
-# Creating page "Architecture Overview" under "Engineering Docs"...
+#   ECP Service Documentation › Vulnerability Management Service
+# (navigate with arrows, press s to select)
+# Creating page "Architecture Overview" under "Vulnerability Management Service"...
 # Created page: Architecture Overview (ID: 12345678)
+# Uploading 3 attachment(s)...
 #   Attached: system-overview.png (ID: att456)
-#   Attached: data-flow.png (ID: att457)
+#   Attached: data-flow.drawio (ID: att457)
 #   Attached: report.pdf (ID: att458)
-# Done: https://yourorg.atlassian.net/wiki/spaces/MYSPACE/pages/12345678
+# Done: https://yourorg.atlassian.net/wiki/spaces/ICSCET/pages/12345678
+```
+
+#### Example — re-upload (update in place)
+
+```bash
+jira-thing conf up docs/architecture.md -title "Architecture Overview"
+# Converted docs/architecture.md → 3102 bytes of storage XHTML, 3 attachment(s) found
+# Select a parent page for the upload:
+# Page "Architecture Overview" already exists under "Vulnerability Management Service" — updating (version 1 → 2)...
+# Updated page: Architecture Overview (ID: 12345678)
+# Uploading 3 attachment(s)...
+#   Updated: system-overview.png (ID: att456)
+#   Updated: data-flow.drawio (ID: att457)
+#   Updated: report.pdf (ID: att458)
+# Done: https://yourorg.atlassian.net/wiki/spaces/ICSCET/pages/12345678
 ```
 
 ---
@@ -429,56 +500,121 @@ jira-thing diagnose -team <TICKET-KEY>   # Print a ticket's Team field value and
 
 ### `subtask` — create subtasks from a markdown task list
 
-Reads a markdown file, extracts all list items (bullet, numbered, or checkbox), and creates a Jira subtask for each one under the specified parent ticket. Each subtask inherits the parent's project, priority, labels, and components.
+Reads a markdown file, extracts tasks, and creates a Jira subtask for each one under the specified parent ticket. Each subtask inherits the parent's project, priority, labels, and components. In heading mode, the full body text between headings is captured as the subtask description (converted to ADF for rich rendering in Jira).
 
 ```bash
-jira-thing subtask <PARENT-KEY> -f tasks.md [--dry-run]
+jira-thing subtask <PARENT-KEY> -f <file.md> [--heading regex] [--section name] [--dry-run]
 ```
 
 | Flag | Description |
 |---|---|
-| `-f` | Path to markdown file containing the task list (required) |
+| `-f` | Path to markdown file containing the tasks (required) |
+| `--heading` | Extract tasks from headings matching this regex (see heading mode below) |
+| `--section` | Extract list items only from the named section heading (see section mode below) |
 | `--dry-run` | Show the parsed tasks without creating anything |
 
-**Supported markdown formats:**
+#### Three extraction modes
+
+The parser has three modes to handle different document structures:
+
+**Default mode** — extracts every list item in the file (bullet, numbered, checkbox). Best for simple task lists or ShapeUp briefs where the tasks are the only list content.
+
+```bash
+jira-thing st PROJ-42 -f tasks.md
+```
+
+**Heading mode** (`--heading`) — extracts tasks from headings matching a regex pattern. The matched prefix is stripped from the summary, and the full markdown body between headings becomes the subtask description (converted to ADF). Best for implementation plans where each task is its own section with detailed guidance.
+
+```bash
+jira-thing st PROJ-42 -f docs/implementation-plan.md --heading "^Task \d+:"
+```
+
+This finds headings like `### Task 1: Cross-Account IAM Role Module` and creates a subtask with:
+- **Summary:** `Cross-Account IAM Role Module` (prefix stripped)
+- **Description:** Everything between that heading and the next `### Task N:` heading — objective, implementation guidance, test requirements, demo criteria — all rendered as rich ADF in Jira.
+
+**Section mode** (`--section`) — extracts list items only from under a specific heading, stopping at the next heading of equal or higher level. Best for documents where tasks live in a named section alongside other content.
+
+```bash
+jira-thing st PROJ-42 -f docs/shapeup.md --section "Initial Task List"
+```
+
+#### Inherited fields
+
+Each subtask automatically inherits from the parent ticket:
+- **Project** — same Jira project
+- **Priority** — same priority level
+- **Labels** — same labels
+- **Components** — same components
+
+The issue type is set to `Sub-task` and the parent link is set automatically.
+
+#### Supported markdown formats
+
+All three modes handle standard markdown list syntax:
 
 ```markdown
 - Bullet list item
 1. Numbered list item
 - [ ] Unchecked checkbox
 - [x] Checked checkbox (still created — useful for re-importing)
+  - Nested items are flattened into the top-level list
 ```
 
-Nested items are flattened into the top-level list. Only list items are extracted — headings, paragraphs, and other content are ignored. This makes it safe to point at a full ShapeUp brief or design doc and have it pull just the task list.
+In default and section modes, nested items are flattened (Jira subtasks cannot have sub-subtasks). Headings, paragraphs, code blocks, and other non-list content are ignored.
 
-**Example — dry run first:**
+#### Example — heading mode with dry run
 
 ```bash
-jira-thing st PROJ-42 -f docs/shapeup.md --dry-run
-# Parent: PROJ-42 (8 subtask(s) from docs/shapeup.md)
+jira-thing st CRSS-123 -f docs/implementation-plan.md --heading "^Task \d+:" --dry-run
+# Fetching parent ticket CRSS-123...
+#
+# Parent: CRSS-123 (21 subtask(s) from docs/implementation-plan.md)
+#
+#    1. Cross-Account IAM Role Module (AFT — IAG + BA)
+#    2. Spike — SSM Custom Inventory PutInventory (Foundation)
+#    3. Spike — SSM Distributor Packages (Foundation)
+#    4. Project Scaffolding and pyproject.toml Setup
+#    5. Account Discovery Lambda
+#    ...
+#   21. Migrate Scan Baselines to CIS Level 1 + RHEL 10 and Windows Server 2025 Support
+#
+# Dry run — no subtasks created.
+```
+
+#### Example — default mode (simple task list)
+
+```bash
+jira-thing st PROJ-42 -f tasks.md
+# Fetching parent ticket PROJ-42...
+#
+# Parent: PROJ-42 (8 subtask(s) from tasks.md)
 #
 #    1. Set up Terraform module for new Lambda
 #    2. Implement DynamoDB schema
 #    3. Build EventBridge rule for scheduling
 #    ...
-# Dry run — no subtasks created.
-```
-
-**Example — create for real:**
-
-```bash
-jira-thing st PROJ-42 -f docs/shapeup.md
-# Fetching parent ticket PROJ-42...
-# Parent: PROJ-42 (8 subtask(s) from docs/shapeup.md)
 #
-#    1. Set up Terraform module for new Lambda
-#    2. Implement DynamoDB schema
-#    ...
 # Creating 8 subtask(s)...
 #   Created: PROJ-43  Set up Terraform module for new Lambda
 #   Created: PROJ-44  Implement DynamoDB schema
 #   ...
 # Done: 8 of 8 subtask(s) created under PROJ-42
+```
+
+#### Example — section mode (ShapeUp brief)
+
+```bash
+jira-thing st PROJ-42 -f docs/shapeup.md --section "Initial Task List" --dry-run
+# Fetching parent ticket PROJ-42...
+#
+# Parent: PROJ-42 (6 subtask(s) from docs/shapeup.md)
+#
+#    1. Create API endpoint for user preferences
+#    2. Build React settings panel
+#    ...
+#
+# Dry run — no subtasks created.
 ```
 
 ---

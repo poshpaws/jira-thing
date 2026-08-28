@@ -127,7 +127,7 @@ func printUsage() {
 		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
 		{"conf browse|br                    ", "Browse Confluence space tree"},
 		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
-		{"subtask|st <KEY> -f tasks.md       ", "Create subtasks from a markdown task list"},
+		{"subtask|st <KEY> -f file [opts]   ", "Create subtasks from a markdown task list"},
 		{"serve-mcp                         ", "Start MCP server for AI agent integration"},
 		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"diagnose -find-field <search>     ", "Look up a field's real customfield ID by name"},
