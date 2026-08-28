@@ -14,14 +14,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
+	mcpsrv "jira-thing/internal/mcpserver"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
 	vercheck "jira-thing/internal/version"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // storyPointFields lists Jira field names that may hold story points (read-only, for point-check).
@@ -81,6 +83,8 @@ func main() {
 		runConf(os.Args[2:])
 	case "subtask", "st":
 		runSubtask(os.Args[2:])
+	case "serve-mcp":
+		runServeMCP()
 	case "diagnose", "diag":
 		runDiagnose(os.Args[2:])
 	default:
@@ -124,6 +128,7 @@ func printUsage() {
 		{"conf browse|br                    ", "Browse Confluence space tree"},
 		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
 		{"subtask|st <KEY> -f tasks.md       ", "Create subtasks from a markdown task list"},
+		{"serve-mcp                         ", "Start MCP server for AI agent integration"},
 		{"diagnose|diag                     ", "Test API connectivity and credentials"},
 		{"diagnose -find-field <search>     ", "Look up a field's real customfield ID by name"},
 		{"diagnose -list-fields             ", "Print every field on the Jira instance"},
@@ -1293,4 +1298,24 @@ func describeParseMode(opts parseOpts) string {
 		return fmt.Sprintf("section %q", opts.Section)
 	}
 	return "all list items"
+}
+
+
+// runServeMCP starts the MCP server on stdio, exposing Jira and Confluence
+// tools for use by AI agents (Kiro, Claude, etc.).
+func runServeMCP() {
+	conn := mustConnect()
+
+	// Wire the markdown/ADF converters into the MCP server package.
+	// These live in package main and can't be imported directly.
+	mcpsrv.SetConverters(markdownToADF, adfToMarkdown)
+	mcpsrv.SetStorageConverter(func(md string) string {
+		result := markdownToConfluence(md, ".")
+		return result.Storage
+	})
+
+	s := mcpsrv.NewServer(version, conn)
+	if err := server.ServeStdio(s); err != nil {
+		fatal("MCP server error: %v", err)
+	}
 }

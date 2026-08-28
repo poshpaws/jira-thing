@@ -503,6 +503,61 @@ jira-thing clear-auth
 
 ---
 
+### `serve-mcp` — MCP server for AI agent integration
+
+Starts a Model Context Protocol (MCP) server on stdio, exposing jira-thing's Jira and Confluence operations as tools for AI agents (Kiro, Claude, Copilot, etc.).
+
+```bash
+jira-thing serve-mcp
+```
+
+This is not run directly — it's launched by the AI agent via the MCP configuration. The server uses the same credentials from your OS keychain as the CLI.
+
+**Available MCP tools:**
+
+| Tool | Description |
+|---|---|
+| `describe_ticket` | Fetch a ticket's full details (summary, status, priority, assignee, description) |
+| `search_tickets` | Search tickets using JQL |
+| `my_tasks` | List open tasks assigned to you |
+| `last_comment` | Fetch the most recent comment on a ticket |
+| `add_comment` | Add a markdown comment to a ticket |
+| `create_ticket` | Create a new ticket with project, summary, description, priority, labels |
+| `confluence_browse` | List child pages under a Confluence page |
+| `confluence_get_page` | Fetch a page by ID or by space + title |
+| `confluence_create_page` | Create or update a Confluence page from markdown |
+| `confluence_update_page` | Update an existing page's content from markdown |
+
+**Kiro MCP configuration** (`~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "jira-thing": {
+      "command": "jira-thing",
+      "args": ["serve-mcp"],
+      "disabled": false
+    }
+  }
+}
+```
+
+If `jira-thing` is not on your PATH, use the full path to the binary:
+
+```json
+{
+  "mcpServers": {
+    "jira-thing": {
+      "command": "/usr/local/bin/jira-thing",
+      "args": ["serve-mcp"],
+      "disabled": false
+    }
+  }
+}
+```
+
+---
+
 ## Command aliases
 
 Most commands have short aliases for quick typing:
