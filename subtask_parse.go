@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -66,6 +68,7 @@ type headingSpan struct {
 func extractHeadingTasks(root ast.Node, src []byte, md string, pattern string) []parsedTask {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid --heading regex %q: %v\n", pattern, err)
 		return nil
 	}
 

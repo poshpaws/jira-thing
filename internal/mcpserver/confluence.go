@@ -219,6 +219,10 @@ func formatConfluenceChildren(parent api.ConfluencePage, children []api.Confluen
 var markdownToStorageBody func(md string) string
 
 // SetStorageConverter wires up the markdown→Confluence storage converter.
+// Panics if fn is nil — caller must wire before serving.
 func SetStorageConverter(fn func(string) string) {
+	if fn == nil {
+		panic("mcpserver: SetStorageConverter called with nil function")
+	}
 	markdownToStorageBody = fn
 }

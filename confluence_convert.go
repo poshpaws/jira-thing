@@ -140,7 +140,7 @@ func renderConfCodeBlock(sb *strings.Builder, n ast.Node, src []byte) {
 		}
 	}
 	code := confRawLines(n, src)
-	fmt.Fprintf(sb, `<ac:plain-text-body><![CDATA[%s]]></ac:plain-text-body>`, code)
+	fmt.Fprintf(sb, `<ac:plain-text-body><![CDATA[%s]]></ac:plain-text-body>`, escapeCDATA(code))
 	sb.WriteString(`</ac:structured-macro>`)
 }
 
@@ -256,7 +256,9 @@ func renderConfLink(sb *strings.Builder, link *ast.Link, src []byte, baseDir str
 	sb.WriteString(`<ac:link>`)
 	fmt.Fprintf(sb, `<ri:attachment ri:filename="%s"/>`, html.EscapeString(filename))
 	sb.WriteString(`<ac:plain-text-link-body><![CDATA[`)
-	renderConfInlinesPlain(sb, link, src)
+	var linkText strings.Builder
+	renderConfInlinesPlain(&linkText, link, src)
+	sb.WriteString(escapeCDATA(linkText.String()))
 	sb.WriteString(`]]></ac:plain-text-link-body>`)
 	sb.WriteString(`</ac:link>`)
 }
@@ -341,13 +343,11 @@ func confRawInlineText(n ast.Node, src []byte) string {
 	return sb.String()
 }
 
-// resolveLocalPath makes a relative path absolute using baseDir and validates
-// that the result does not escape the base directory via traversal (e.g. "../../../").
-// Returns the cleaned absolute path, or an empty string if the path is outside baseDir.
+// resolveLocalPath resolves a file path against baseDir and validates that the
+// result does not escape the base directory. Both relative paths (../foo) and
+// absolute paths (/etc/passwd) are checked. Returns the cleaned absolute path,
+// or an empty string if the path is outside baseDir.
 func resolveLocalPath(dest, baseDir string) string {
-	if filepath.IsAbs(dest) {
-		return filepath.Clean(dest)
-	}
 	resolved := filepath.Clean(filepath.Join(baseDir, dest))
 	cleanBase := filepath.Clean(baseDir)
 	if !strings.HasPrefix(resolved, cleanBase+string(filepath.Separator)) && resolved != cleanBase {
@@ -400,4 +400,11 @@ func emitDrawioMacro(sb *strings.Builder, diagramName string) {
 			`<ac:parameter ac:name="diagramName">%s</ac:parameter>`+
 			`</ac:structured-macro>`,
 		html.EscapeString(diagramName))
+}
+
+
+// escapeCDATA escapes the CDATA end sequence ]]> to prevent premature
+// CDATA termination and XHTML injection in Confluence storage format.
+func escapeCDATA(s string) string {
+	return strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
 }

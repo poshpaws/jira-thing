@@ -10,9 +10,22 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 const confluenceContentEndpoint = "/wiki/rest/api/content"
+
+// maxConfluenceAttachmentSize is the maximum file size for Confluence attachments (50 MB).
+const maxConfluenceAttachmentSize = 50 * 1024 * 1024
+
+// validateNumericID checks that an ID string is a valid positive integer,
+// preventing path injection via crafted IDs like "../../rest/api/3/myself".
+func validateNumericID(id, label string) error {
+	if _, err := strconv.ParseUint(id, 10, 64); err != nil {
+		return fmt.Errorf("invalid %s %q: must be a numeric ID", label, id)
+	}
+	return nil
+}
 
 // ConfluencePage holds the metadata needed to identify and update a Confluence page.
 type ConfluencePage struct {
@@ -54,6 +67,9 @@ func FetchConfluencePage(conn JiraConnection, space, title string) (ConfluencePa
 
 // FetchConfluencePageByID retrieves a single Confluence page by its numeric ID.
 func FetchConfluencePageByID(conn JiraConnection, pageID string) (ConfluencePage, error) {
+	if err := validateNumericID(pageID, "page ID"); err != nil {
+		return ConfluencePage{}, err
+	}
 	endpoint := fmt.Sprintf("%s%s/%s?expand=version", conn.BaseURL, confluenceContentEndpoint, pageID)
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
 	if err != nil {
@@ -80,6 +96,9 @@ type ConfluencePageWithBody struct {
 
 // ListChildPages returns all direct child pages of parentID, including their storage body.
 func ListChildPages(conn JiraConnection, parentID string) ([]ConfluencePageWithBody, error) {
+	if err := validateNumericID(parentID, "parent ID"); err != nil {
+		return nil, err
+	}
 	endpoint := fmt.Sprintf("%s%s/%s/child/page?expand=body.storage,version&limit=100",
 		conn.BaseURL, confluenceContentEndpoint, parentID)
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
@@ -116,6 +135,9 @@ func ListChildPages(conn JiraConnection, parentID string) ([]ConfluencePageWithB
 // ListChildPagesSummary returns direct child pages of parentID without their body content.
 // Lighter than ListChildPages — used by the space browser TUI where only titles are needed.
 func ListChildPagesSummary(conn JiraConnection, parentID string) ([]ConfluencePage, error) {
+	if err := validateNumericID(parentID, "parent ID"); err != nil {
+		return nil, err
+	}
 	endpoint := fmt.Sprintf("%s%s/%s/child/page?expand=version&limit=100",
 		conn.BaseURL, confluenceContentEndpoint, parentID)
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
@@ -143,6 +165,9 @@ func ListChildPagesSummary(conn JiraConnection, parentID string) ([]ConfluencePa
 
 // CreateConfluencePage creates a new child page under parentID in the given space.
 func CreateConfluencePage(conn JiraConnection, spaceKey, title, parentID, body string) (ConfluencePage, error) {
+	if err := validateNumericID(parentID, "parent ID"); err != nil {
+		return ConfluencePage{}, err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"type":      "page",
 		"title":     title,
@@ -183,6 +208,9 @@ func CreateConfluencePage(conn JiraConnection, spaceKey, title, parentID, body s
 // UpdateConfluencePage replaces the storage-format body of a Confluence page,
 // incrementing its version number.
 func UpdateConfluencePage(conn JiraConnection, id string, version int, title, body string) error {
+	if err := validateNumericID(id, "page ID"); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"version": map[string]any{"number": version + 1},
 		"title":   title,
@@ -218,6 +246,9 @@ type ConfluenceAttachment struct {
 // AddConfluenceAttachment uploads a local file as an attachment on a Confluence page.
 // Returns the attachment metadata on success.
 func AddConfluenceAttachment(conn JiraConnection, pageID, filePath string) (ConfluenceAttachment, error) {
+	if err := validateNumericID(pageID, "page ID"); err != nil {
+		return ConfluenceAttachment{}, err
+	}
 	body, contentType, err := buildConfluenceAttachmentBody(filePath)
 	if err != nil {
 		return ConfluenceAttachment{}, err
@@ -250,12 +281,22 @@ func AddConfluenceAttachment(conn JiraConnection, pageID, filePath string) (Conf
 }
 
 // buildConfluenceAttachmentBody creates a multipart/form-data body for Confluence attachment upload.
+// Rejects files larger than maxConfluenceAttachmentSize to prevent OOM.
 func buildConfluenceAttachmentBody(filePath string) (io.Reader, string, error) {
 	file, err := os.Open(filePath) // #nosec G304 -- filePath is user-supplied CLI input
 	if err != nil {
 		return nil, "", fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, "", fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() > maxConfluenceAttachmentSize {
+		return nil, "", fmt.Errorf("file %s is %d MB, exceeds %d MB limit",
+			filepath.Base(filePath), info.Size()/(1024*1024), maxConfluenceAttachmentSize/(1024*1024))
+	}
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -275,6 +316,9 @@ func buildConfluenceAttachmentBody(filePath string) (io.Reader, string, error) {
 
 // ListConfluenceAttachments returns the existing attachments on a Confluence page.
 func ListConfluenceAttachments(conn JiraConnection, pageID string) ([]ConfluenceAttachment, error) {
+	if err := validateNumericID(pageID, "page ID"); err != nil {
+		return nil, err
+	}
 	endpoint := fmt.Sprintf("%s%s/%s/child/attachment?limit=100",
 		conn.BaseURL, confluenceContentEndpoint, pageID)
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
@@ -300,6 +344,12 @@ func ListConfluenceAttachments(conn JiraConnection, pageID string) ([]Confluence
 // UpdateConfluenceAttachment replaces the data of an existing Confluence attachment.
 // Uses POST /content/{pageID}/child/attachment/{attachmentID}/data.
 func UpdateConfluenceAttachment(conn JiraConnection, pageID, attachmentID, filePath string) (ConfluenceAttachment, error) {
+	if err := validateNumericID(pageID, "page ID"); err != nil {
+		return ConfluenceAttachment{}, err
+	}
+	if err := validateNumericID(attachmentID, "attachment ID"); err != nil {
+		return ConfluenceAttachment{}, err
+	}
 	body, contentType, err := buildConfluenceAttachmentBody(filePath)
 	if err != nil {
 		return ConfluenceAttachment{}, err

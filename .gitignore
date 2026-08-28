@@ -6,3 +6,5 @@ jira-client
 CLAUDE.md
 .idea/
 ticket_template.json
+
+selected_tickets.json

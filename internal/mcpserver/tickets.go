@@ -357,7 +357,11 @@ var adfToMarkdownBody func(node map[string]any) string
 // SetConverters wires up the markdown/ADF conversion functions.
 // Called from main before starting the server, since the converters
 // live in package main and cannot be imported.
+// Panics if either function is nil — callers must wire both before serving.
 func SetConverters(toADF func(string) map[string]any, toMD func(map[string]any) string) {
+	if toADF == nil || toMD == nil {
+		panic("mcpserver: SetConverters called with nil function")
+	}
 	markdownToADFBody = toADF
 	adfToMarkdownBody = toMD
 }

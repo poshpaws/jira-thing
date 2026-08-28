@@ -1072,14 +1072,14 @@ func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[st
 			})
 		case r.Method == http.MethodGet && strings.Contains(p, "child/page"):
 			results := []any{}
-			ver := 1
+			childID := 9001
 			for title, body := range existingChildren {
 				results = append(results, map[string]any{
-					"id": "child-" + title, "title": title,
-					"version": map[string]any{"number": float64(ver)},
+					"id": fmt.Sprintf("%d", childID), "title": title,
+					"version": map[string]any{"number": float64(1)},
 					"body":    map[string]any{"storage": map[string]any{"value": body}},
 				})
-				ver++
+				childID++
 			}
 			json.NewEncoder(w).Encode(map[string]any{"results": results, "size": len(results)})
 		case r.Method == http.MethodGet && strings.Contains(p, "content"):
@@ -1091,7 +1091,7 @@ func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[st
 				"size": 1,
 			})
 		case r.Method == http.MethodPost && strings.Contains(p, "content"):
-			json.NewEncoder(w).Encode(map[string]any{"id": "new-1", "title": "CRSS-1", "version": map[string]any{"number": float64(1)}})
+			json.NewEncoder(w).Encode(map[string]any{"id": "9999", "title": "CRSS-1", "version": map[string]any{"number": float64(1)}})
 		case r.Method == http.MethodPut:
 			json.NewEncoder(w).Encode(map[string]any{"id": p})
 		default:
