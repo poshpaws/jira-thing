@@ -253,16 +253,16 @@ Settings in `~/.config/jira-thing/jira-thing.json`:
 
 ```json
 {
-  "project": "CRSS",
-  "toil_marker": "ECP_TOIL",
-  "toil_team": "ECP - Security",
+  "project": "PROJ",
+  "toil_marker": "TOIL",
+  "toil_team": "My Team",
   "team": "c4cb9231-6ac0-44e7-bd76-64331a96af81",
   "use_team_field": true,
   "editor": "zed -w",
-  "confluence_space": "ICSCET",
+  "confluence_space": "ENG",
   "confluence_url": "https://yourorg.atlassian.net/wiki",
-  "confluence_base_page_id": "40786519",
-  "ticket_hanger": "ECP Security - Ticket Hangar"
+  "confluence_base_page_id": "12345678",
+  "ticket_hanger": "Toil Ticket Hangar"
 }
 ```
 

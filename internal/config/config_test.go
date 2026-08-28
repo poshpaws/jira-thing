@@ -9,7 +9,7 @@ import (
 func TestLoad_ValidConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "jira-thing.json")
-	os.WriteFile(path, []byte(`{"toil_marker":"ECP_TOIL","toil_team":"ECP_SEC_TEAM"}`), 0o644)
+	os.WriteFile(path, []byte(`{"toil_marker":"TOIL_LABEL","toil_team":"SEC_TEAM"}`), 0o644)
 
 	old := ConfigPath
 	ConfigPath = func() string { return path }
@@ -19,11 +19,11 @@ func TestLoad_ValidConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.ToilMarker != "ECP_TOIL" {
-		t.Errorf("ToilMarker = %q, want ECP_TOIL", cfg.ToilMarker)
+	if cfg.ToilMarker != "TOIL_LABEL" {
+		t.Errorf("ToilMarker = %q, want TOIL_LABEL", cfg.ToilMarker)
 	}
-	if cfg.ToilTeam != "ECP_SEC_TEAM" {
-		t.Errorf("ToilTeam = %q, want ECP_SEC_TEAM", cfg.ToilTeam)
+	if cfg.ToilTeam != "SEC_TEAM" {
+		t.Errorf("ToilTeam = %q, want SEC_TEAM", cfg.ToilTeam)
 	}
 }
 

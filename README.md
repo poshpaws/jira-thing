@@ -121,13 +121,13 @@ jira-thing clear-auth
 
 | Field | Used by | Description |
 |---|---|---|
-| `project` | `toil-check`, `toil-sync` | Jira project key (e.g. `CRSS`) |
+| `project` | `toil-check`, `toil-sync` | Jira project key (e.g. `PROJ`) |
 | `toil_marker` | `toil-check`, `toil-sync` | Label that identifies toil tickets |
 | `toil_team` | `toil-check`, `toil-sync` | Legacy team label filter (used when `use_team_field` is false) |
 | `team` | `toil-check`, `toil-sync` | Jira Team field UUID (used when `use_team_field` is true) |
 | `use_team_field` | `toil-check`, `toil-sync` | `true`: filter by Team field. `false` (default): filter by `toil_team` label |
 | `editor` | `update` | Preferred editor binary (fallback when `$EDITOR` is unset). Supports arguments, e.g. `"code --wait"` |
-| `confluence_space` | `toil-sync`, `conf upload` | Confluence space key (e.g. `ICSCET`) |
+| `confluence_space` | `toil-sync`, `conf upload` | Confluence space key (e.g. `ENG`) |
 | `confluence_url` | `conf upload`, `conf browse` | Confluence base URL (e.g. `https://yourorg.atlassian.net/wiki`) |
 | `confluence_base_page_id` | `conf upload`, `conf browse` | Numeric ID of the root page for the space browser TUI |
 | `ticket_hanger` | `toil-sync` | Title of the parent Confluence page for toil ticket child pages |
@@ -465,7 +465,7 @@ jira-thing conf upload docs/architecture.md -title "Architecture Overview"
 #   Attached: system-overview.png (ID: att456)
 #   Attached: data-flow.drawio (ID: att457)
 #   Attached: report.pdf (ID: att458)
-# Done: https://yourorg.atlassian.net/wiki/spaces/ICSCET/pages/12345678
+# Done: https://yourorg.atlassian.net/wiki/spaces/ENG/pages/12345678
 ```
 
 #### Example — re-upload (update in place)
@@ -480,7 +480,7 @@ jira-thing conf up docs/architecture.md -title "Architecture Overview"
 #   Updated: system-overview.png (ID: att456)
 #   Updated: data-flow.drawio (ID: att457)
 #   Updated: report.pdf (ID: att458)
-# Done: https://yourorg.atlassian.net/wiki/spaces/ICSCET/pages/12345678
+# Done: https://yourorg.atlassian.net/wiki/spaces/ENG/pages/12345678
 ```
 
 ---
@@ -566,10 +566,10 @@ In default and section modes, nested items are flattened (Jira subtasks cannot h
 #### Example — heading mode with dry run
 
 ```bash
-jira-thing st CRSS-123 -f docs/implementation-plan.md --heading "^Task \d+:" --dry-run
-# Fetching parent ticket CRSS-123...
+jira-thing st PROJ-123 -f docs/implementation-plan.md --heading "^Task \d+:" --dry-run
+# Fetching parent ticket PROJ-123...
 #
-# Parent: CRSS-123 (21 subtask(s) from docs/implementation-plan.md)
+# Parent: PROJ-123 (21 subtask(s) from docs/implementation-plan.md)
 #
 #    1. Cross-Account IAM Role Module (AFT — IAG + BA)
 #    2. Spike — SSM Custom Inventory PutInventory (Foundation)

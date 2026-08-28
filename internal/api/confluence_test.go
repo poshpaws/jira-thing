@@ -152,7 +152,7 @@ func TestListChildPages_ReturnsPagesWithBody(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"results": []any{
 				map[string]any{
-					"id": "101", "title": "CRSS-1",
+					"id": "101", "title": "PROJ-1",
 					"version": map[string]any{"number": float64(2)},
 					"body":    map[string]any{"storage": map[string]any{"value": "<p>existing</p>"}},
 				},
@@ -170,7 +170,7 @@ func TestListChildPages_ReturnsPagesWithBody(t *testing.T) {
 	if len(pages) != 1 {
 		t.Fatalf("len = %d, want 1", len(pages))
 	}
-	if pages[0].ID != "101" || pages[0].Title != "CRSS-1" || pages[0].Version != 2 {
+	if pages[0].ID != "101" || pages[0].Title != "PROJ-1" || pages[0].Version != 2 {
 		t.Errorf("unexpected page: %+v", pages[0])
 	}
 	if pages[0].Body != "<p>existing</p>" {
@@ -207,14 +207,14 @@ func TestCreateConfluencePage_Success(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&capturedBody)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id": "200", "title": "CRSS-1",
+			"id": "200", "title": "PROJ-1",
 			"version": map[string]any{"number": float64(1)},
 		})
 	}))
 	defer srv.Close()
 
 	conn := JiraConnection{BaseURL: srv.URL, Email: "u@example.com", APIToken: "tok"}
-	page, err := CreateConfluencePage(conn, "ENG", "CRSS-1", "99", "<p>body</p>")
+	page, err := CreateConfluencePage(conn, "ENG", "PROJ-1", "99", "<p>body</p>")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestCreateConfluencePage_Error(t *testing.T) {
 	defer srv.Close()
 
 	conn := JiraConnection{BaseURL: srv.URL, Email: "u@example.com", APIToken: "tok"}
-	if _, err := CreateConfluencePage(conn, "ENG", "CRSS-1", "99", "<p>body</p>"); err == nil {
+	if _, err := CreateConfluencePage(conn, "ENG", "PROJ-1", "99", "<p>body</p>"); err == nil {
 		t.Fatal("expected error for 400")
 	}
 }

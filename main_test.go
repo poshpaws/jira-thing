@@ -802,7 +802,7 @@ func TestThreeBusinessDaysAgo(t *testing.T) {
 func mockConfig(marker, team string) func() {
 	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
 	path := filepath.Join(dir, "jira-thing.json")
-	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":%q,"toil_team":%q}`, marker, team)
+	data := fmt.Sprintf(`{"project":"PROJ","toil_marker":%q,"toil_team":%q}`, marker, team)
 	os.WriteFile(path, []byte(data), 0o644)
 	old := config.ConfigPath
 	config.ConfigPath = func() string { return path }
@@ -812,7 +812,7 @@ func mockConfig(marker, team string) func() {
 func mockConfigTeamField(marker, team string) func() {
 	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
 	path := filepath.Join(dir, "jira-thing.json")
-	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":%q,"team":%q,"use_team_field":true}`, marker, team)
+	data := fmt.Sprintf(`{"project":"PROJ","toil_marker":%q,"team":%q,"use_team_field":true}`, marker, team)
 	os.WriteFile(path, []byte(data), 0o644)
 	old := config.ConfigPath
 	config.ConfigPath = func() string { return path }
@@ -824,7 +824,7 @@ func TestRunToilCheck_Success(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"issues": []any{
-				map[string]any{"key": "CRSS-10", "fields": map[string]any{
+				map[string]any{"key": "PROJ-10", "fields": map[string]any{
 					"summary":  "Toil task",
 					"updated":  "2026-05-20T10:00:00.000Z",
 					"status":   map[string]any{"name": "Open"},
@@ -836,11 +836,11 @@ func TestRunToilCheck_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+	defer mockConfig("TOIL_LABEL", "SEC_TEAM")()
 
 	out := captureStdout(func() { runToilCheck() })
-	if !strings.Contains(out, "CRSS-10") {
-		t.Errorf("expected CRSS-10 in output, got: %s", out)
+	if !strings.Contains(out, "PROJ-10") {
+		t.Errorf("expected PROJ-10 in output, got: %s", out)
 	}
 	if !strings.Contains(out, "1 toil ticket") {
 		t.Errorf("expected ticket count in output, got: %s", out)
@@ -854,7 +854,7 @@ func TestRunToilCheck_NoResults(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+	defer mockConfig("TOIL_LABEL", "SEC_TEAM")()
 
 	out := captureStdout(func() { runToilCheck() })
 	if !strings.Contains(out, "No toil tickets found") {
@@ -886,16 +886,16 @@ func TestRunToilCheck_JQLContainsLabels(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer mockConfig("ECP_TOIL", "ECP_SEC_TEAM")()
+	defer mockConfig("TOIL_LABEL", "SEC_TEAM")()
 
 	captureStdout(func() { runToilCheck() })
-	if !strings.Contains(receivedJQL, `labels = "ECP_TOIL"`) {
+	if !strings.Contains(receivedJQL, `labels = "TOIL_LABEL"`) {
 		t.Errorf("JQL missing toil_marker label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, `labels = "ECP_SEC_TEAM"`) {
+	if !strings.Contains(receivedJQL, `labels = "SEC_TEAM"`) {
 		t.Errorf("JQL missing legacy toil_team label: %s", receivedJQL)
 	}
-	if !strings.Contains(receivedJQL, `project = "CRSS"`) {
+	if !strings.Contains(receivedJQL, `project = "PROJ"`) {
 		t.Errorf("JQL missing project: %s", receivedJQL)
 	}
 	if !strings.Contains(receivedJQL, "updated >= -1w") {
@@ -914,7 +914,7 @@ func TestRunToilCheck_JQLUsesTeamFieldWhenEnabled(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer mockConfigTeamField("ECP_TOIL", "c4cb9231-6ac0-44e7-bd76-64331a96af81")()
+	defer mockConfigTeamField("TOIL_LABEL", "c4cb9231-6ac0-44e7-bd76-64331a96af81")()
 
 	captureStdout(func() { runToilCheck() })
 	if !strings.Contains(receivedJQL, `"Team[Team]" = c4cb9231-6ac0-44e7-bd76-64331a96af81`) {
@@ -956,11 +956,11 @@ func testIssue(key, summary string) map[string]any {
 }
 
 func TestRenderTicketPage_ContainsDetailsAndNotes(t *testing.T) {
-	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "")
+	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "")
 	for _, want := range []string{
 		"jira-thing:details:start", "jira-thing:details:end",
 		"jira-thing:notes:start", "jira-thing:notes:end",
-		"ac:structured-macro", `ac:name="jira"`, "CRSS-1",
+		"ac:structured-macro", `ac:name="jira"`, "PROJ-1",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in output: %s", want, out)
@@ -969,7 +969,7 @@ func TestRenderTicketPage_ContainsDetailsAndNotes(t *testing.T) {
 }
 
 func TestRenderTicketPage_PreservesExistingNotes(t *testing.T) {
-	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "<p>saved note</p>")
+	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "<p>saved note</p>")
 	if !strings.Contains(out, "<p>saved note</p>") {
 		t.Errorf("notes not preserved: %s", out)
 	}
@@ -983,7 +983,7 @@ func TestRenderTicketPage_KeyEscaped(t *testing.T) {
 }
 
 func TestRenderTicketPage_NewPageHasDateAndNotePanel(t *testing.T) {
-	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "")
+	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "")
 	if !strings.Contains(out, `<time datetime=`) {
 		t.Errorf("new page missing time element: %s", out)
 	}
@@ -996,7 +996,7 @@ func TestRenderTicketPage_NewPageHasDateAndNotePanel(t *testing.T) {
 }
 
 func TestRenderTicketPage_ExistingNotesNoDatePanel(t *testing.T) {
-	out := renderTicketPage(testIssue("CRSS-1", "Fix toil"), "<p>existing note</p>")
+	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "<p>existing note</p>")
 	if strings.Contains(out, `<time datetime=`) {
 		t.Errorf("existing notes page should not inject date element: %s", out)
 	}
@@ -1009,11 +1009,11 @@ func TestRenderTicketPage_ExistingNotesNoDatePanel(t *testing.T) {
 
 func TestRenderHangerPage_WithIssues(t *testing.T) {
 	issues := []map[string]any{
-		testIssue("CRSS-1", "Fix toil"),
-		testIssue("CRSS-2", "More toil"),
+		testIssue("PROJ-1", "Fix toil"),
+		testIssue("PROJ-2", "More toil"),
 	}
 	out := renderHangerPage(issues, nil)
-	for _, want := range []string{"CRSS-1", "CRSS-2", "ac:link", "ri:page"} {
+	for _, want := range []string{"PROJ-1", "PROJ-2", "ac:link", "ri:page"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in hanger page: %s", want, out)
 		}
@@ -1028,13 +1028,13 @@ func TestRenderHangerPage_Empty(t *testing.T) {
 }
 
 func TestRenderHangerPage_IncludesManualPages(t *testing.T) {
-	issues := []map[string]any{testIssue("CRSS-1", "Fix toil")}
+	issues := []map[string]any{testIssue("PROJ-1", "Fix toil")}
 	manuals := []api.ConfluencePageWithBody{
 		{ConfluencePage: api.ConfluencePage{Title: "Team Notes"}},
 		{ConfluencePage: api.ConfluencePage{Title: "Process Guide"}},
 	}
 	out := renderHangerPage(issues, manuals)
-	for _, want := range []string{"CRSS-1", "Team Notes", "Process Guide", "ac:link", "ri:page"} {
+	for _, want := range []string{"PROJ-1", "Team Notes", "Process Guide", "ac:link", "ri:page"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in hanger page: %s", want, out)
 		}
@@ -1046,7 +1046,7 @@ func TestRenderHangerPage_IncludesManualPages(t *testing.T) {
 func mockConfluenceConfig(space, hanger string) func() {
 	dir, _ := os.MkdirTemp("", "jira-thing-cfg")
 	path := filepath.Join(dir, "jira-thing.json")
-	data := fmt.Sprintf(`{"project":"CRSS","toil_marker":"ECP_TOIL","toil_team":"ECP_SEC_TEAM","confluence_space":%q,"ticket_hanger":%q}`, space, hanger)
+	data := fmt.Sprintf(`{"project":"PROJ","toil_marker":"TOIL_LABEL","toil_team":"SEC_TEAM","confluence_space":%q,"ticket_hanger":%q}`, space, hanger)
 	os.WriteFile(path, []byte(data), 0o644)
 	old := config.ConfigPath
 	config.ConfigPath = func() string { return path }
@@ -1064,7 +1064,7 @@ func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[st
 		switch {
 		case r.Method == http.MethodPost && strings.Contains(p, "search"):
 			json.NewEncoder(w).Encode(map[string]any{
-				"issues": []any{map[string]any{"key": "CRSS-1", "fields": map[string]any{
+				"issues": []any{map[string]any{"key": "PROJ-1", "fields": map[string]any{
 					"summary": "Toil task", "updated": "2026-05-20T10:00:00.000Z",
 					"status": map[string]any{"name": "Open"}, "priority": map[string]any{"name": "Medium"},
 				}}},
@@ -1091,7 +1091,7 @@ func confluenceTestServer(t *testing.T, hangerID string, existingChildren map[st
 				"size": 1,
 			})
 		case r.Method == http.MethodPost && strings.Contains(p, "content"):
-			json.NewEncoder(w).Encode(map[string]any{"id": "9999", "title": "CRSS-1", "version": map[string]any{"number": float64(1)}})
+			json.NewEncoder(w).Encode(map[string]any{"id": "9999", "title": "PROJ-1", "version": map[string]any{"number": float64(1)}})
 		case r.Method == http.MethodPut:
 			json.NewEncoder(w).Encode(map[string]any{"id": p})
 		default:
@@ -1108,14 +1108,14 @@ func TestRunToilSync_CreatesNewChildPage(t *testing.T) {
 	defer mockShowTableSelectAll()()
 
 	out := captureStdout(func() { runToilSync() })
-	if !strings.Contains(out, "Created") || !strings.Contains(out, "CRSS-1") {
-		t.Errorf("expected 'Created CRSS-1' in output, got: %s", out)
+	if !strings.Contains(out, "Created") || !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected 'Created PROJ-1' in output, got: %s", out)
 	}
 }
 
 func TestRunToilSync_UpdatesExistingChildPage(t *testing.T) {
 	existing := map[string]string{
-		"CRSS-1": "<!-- jira-thing:notes:start --><p>saved note</p><!-- jira-thing:notes:end -->",
+		"PROJ-1": "<!-- jira-thing:notes:start --><p>saved note</p><!-- jira-thing:notes:end -->",
 	}
 	srv := confluenceTestServer(t, "99", existing)
 	defer srv.Close()
@@ -1124,8 +1124,8 @@ func TestRunToilSync_UpdatesExistingChildPage(t *testing.T) {
 	defer mockShowTableSelectAll()()
 
 	out := captureStdout(func() { runToilSync() })
-	if !strings.Contains(out, "Updated") || !strings.Contains(out, "CRSS-1") {
-		t.Errorf("expected 'Updated CRSS-1' in output, got: %s", out)
+	if !strings.Contains(out, "Updated") || !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected 'Updated PROJ-1' in output, got: %s", out)
 	}
 }
 
@@ -1148,7 +1148,7 @@ func TestRunToilSync_PageNotFound(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "search"):
 			json.NewEncoder(w).Encode(map[string]any{
-				"issues": []any{map[string]any{"key": "CRSS-1", "fields": map[string]any{
+				"issues": []any{map[string]any{"key": "PROJ-1", "fields": map[string]any{
 					"summary": "Toil task", "updated": "2026-05-20T10:00:00.000Z",
 					"status": map[string]any{"name": "Open"}, "priority": map[string]any{"name": "Medium"},
 				}}},
