@@ -456,6 +456,34 @@ func TestTransitionIssue_Success(t *testing.T) {
 	}
 }
 
+func TestTransitionIssueWithOptions_FieldsAndComment(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decoding body: %v", err)
+		}
+		fields, _ := body["fields"].(map[string]any)
+		resolution, _ := fields["resolution"].(map[string]any)
+		if resolution["name"] != "Fixed" {
+			t.Errorf("got resolution %v, want Fixed", resolution["name"])
+		}
+		update, _ := body["update"].(map[string]any)
+		if update == nil {
+			t.Errorf("expected update.comment to be set")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	err := api.TransitionIssueWithOptions(conn(srv.URL), "PROJ-1", "21", api.TransitionOptions{
+		Fields:  map[string]any{"resolution": map[string]any{"name": "Fixed"}},
+		Comment: map[string]any{"type": "doc", "version": 1, "content": []any{}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestTransitionIssue_400(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"errorMessages":["invalid transition"]}`, http.StatusBadRequest)

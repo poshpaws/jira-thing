@@ -66,6 +66,8 @@ func main() {
 		runMyTasks(os.Args[2:])
 	case "state", "sta":
 		runState(os.Args[2:])
+	case "menu", "m":
+		runMenu()
 	case "update", "up":
 		runUpdate(os.Args[2:])
 	case "last-comment", "lc":
@@ -125,6 +127,7 @@ func printUsage() {
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
 		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
+		{"menu|m", "Interactive menu for all ticket operations"},
 		{"last-comment|lc <TICKET-KEY>", "Show last comment as markdown"},
 		{"attach|at <TICKET-KEY> <file>", "Attach a file to a ticket"},
 		{"describe|de <TICKET-KEY>", "Dump full ticket as rendered markdown"},

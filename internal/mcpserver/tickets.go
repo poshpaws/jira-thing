@@ -396,6 +396,15 @@ func transitionTicketTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Name of the state to move to (e.g. \"In Progress\"), matched case-insensitively against list_transitions output"),
 		),
+		mcp.WithString("comment",
+			mcp.Description("Optional comment (markdown) to add as part of the transition, for workflows that require one"),
+		),
+		mcp.WithString("resolution",
+			mcp.Description("Optional resolution name to set as part of the transition (e.g. \"Fixed\", \"Won't Do\")"),
+		),
+		mcp.WithString("assignee",
+			mcp.Description("Optional assignee to set as part of the transition: \"me\", \"unassign\", or a Jira account ID"),
+		),
 	)
 }
 
@@ -417,11 +426,36 @@ func handleTransitionTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, formatTransitions(key, transitions))), nil
 		}
-		if err := api.TransitionIssue(conn, key, transition.ID); err != nil {
+		opts, err := buildTransitionOptions(conn, req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if err := api.TransitionIssueWithOptions(conn, key, transition.ID, opts); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("transitioning %s: %v", key, err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", key, transition.Name)), nil
 	}
+}
+
+// buildTransitionOptions translates the transition_ticket request's optional side-effect
+// arguments (resolution, assignee, comment) into a TransitionOptions value.
+func buildTransitionOptions(conn api.JiraConnection, req mcp.CallToolRequest) (api.TransitionOptions, error) {
+	fields := map[string]any{}
+	if resolution := req.GetString("resolution", ""); resolution != "" {
+		fields["resolution"] = map[string]any{"name": resolution}
+	}
+	if assignee := req.GetString("assignee", ""); assignee != "" {
+		resolved, err := resolveAssignee(conn, assignee)
+		if err != nil {
+			return api.TransitionOptions{}, err
+		}
+		fields["assignee"] = resolved
+	}
+	opts := api.TransitionOptions{Fields: fields}
+	if comment := req.GetString("comment", ""); comment != "" {
+		opts.Comment = markdownToADFBody(comment)
+	}
+	return opts, nil
 }
 
 // findTransition matches targetStatus against a transition's name (case-insensitive).

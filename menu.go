@@ -1,0 +1,406 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"jira-thing/internal/api"
+	"jira-thing/internal/tui"
+)
+
+// menuAction is a single entry in the jira-thing home menu.
+type menuAction struct {
+	label string
+	desc  string
+	run   func(conn api.JiraConnection)
+}
+
+// runMenu launches the persistent interactive menu that houses jira-cli-parity
+// features. Unlike the one-shot CLI commands (which call fatal() and exit on
+// error), every menu action reports errors with printMenuErr and returns
+// control to the menu instead of terminating the process.
+func runMenu() {
+	conn := mustConnect()
+	actions := menuActions()
+
+	options := make([]tui.MenuOption, len(actions))
+	for i, a := range actions {
+		options[i] = tui.MenuOption{Label: a.label, Desc: a.desc}
+	}
+
+	for {
+		idx, cancelled, err := selectMenuOptionFn("jira-thing menu", options)
+		if err != nil {
+			fatal("menu TUI: %v", err)
+		}
+		if cancelled {
+			return
+		}
+		fmt.Println()
+		actions[idx].run(conn)
+		fmt.Println("\nPress enter to return to the menu...")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // #nosec G104 -- pause-for-enter, error (e.g. EOF) is harmless
+	}
+}
+
+// selectMenuOptionFn launches the menu-picker TUI; replaced in tests.
+var selectMenuOptionFn = tui.SelectMenuOption
+
+func menuActions() []menuAction {
+	return []menuAction{
+		{"My Tasks", "List open tasks assigned to you", menuMyTasks},
+		{"Search", "Search tickets by JQL", menuSearch},
+		{"Describe Ticket", "View full ticket details", menuDescribe},
+		{"Create Ticket", "Create a ticket from a template", func(api.JiraConnection) { runCreate(nil) }},
+		{"Change State", "Move a ticket to a new workflow state", func(api.JiraConnection) { runState(nil) }},
+		{"Update Fields", "Edit summary, priority, labels, or assignee", menuUpdateFields},
+		{"Add Comment", "Add a comment to a ticket", menuAddComment},
+		{"Add Worklog", "Log time spent against a ticket", menuAddWorklog},
+		{"Attach File", "Attach a local file to a ticket", menuAttach},
+		{"Create Subtask", "Create a subtask under a ticket", menuCreateSubtask},
+		{"Link Tickets", "Link two tickets together", menuLinkTickets},
+		{"Unlink Tickets", "Remove a link between two tickets", menuUnlinkTickets},
+		{"Clone Ticket", "Clone an existing ticket", menuCloneTicket},
+		{"Delete Ticket", "Permanently delete a ticket", menuDeleteTicket},
+		{"Boards", "List Agile boards", menuListBoards},
+		{"Sprints", "List sprints on a board and their issues", menuListSprints},
+		{"Projects", "List accessible projects", menuListProjects},
+		{"Releases", "List a project's releases/versions", menuListVersions},
+		{"Who Am I", "Show the current authenticated user", menuWhoami},
+		{"Confluence Browse", "Browse the Confluence space tree", func(api.JiraConnection) { runConfBrowse() }},
+	}
+}
+
+// printMenuErr reports a menu action failure without exiting the process.
+func printMenuErr(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", tui.ErrorStyle.Render("Error:"), fmt.Sprintf(format, args...))
+}
+
+// promptLine reads a single trimmed line from stdin with a label prompt.
+func promptLine(label string) string {
+	fmt.Print(label)
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	return strings.TrimSpace(line)
+}
+
+// promptConfirm asks a yes/no question, defaulting to no on empty input.
+func promptConfirm(label string) bool {
+	answer := strings.ToLower(promptLine(label + " [y/N]: "))
+	return answer == "y" || answer == "yes"
+}
+
+func menuMyTasks(api.JiraConnection) { runMyTasks(nil) }
+
+func menuSearch(conn api.JiraConnection) {
+	jql := promptLine("JQL: ")
+	if jql == "" {
+		printMenuErr("JQL is required")
+		return
+	}
+	result, err := api.SearchIssues(conn, api.SearchQuery{
+		JQL:        jql,
+		Fields:     []string{"summary", "status", "priority", "updated"},
+		MaxResults: 100,
+	})
+	if err != nil {
+		printMenuErr("searching: %v", err)
+		return
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No tickets found.")
+		return
+	}
+	printTasks(result.Issues)
+}
+
+func menuDescribe(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	issue, err := api.FetchIssue(conn, key)
+	if err != nil {
+		printMenuErr("fetching %s: %v", key, err)
+		return
+	}
+	renderDescribe(issue)
+}
+
+func menuUpdateFields(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	fields := map[string]any{}
+	if v := promptLine("New summary (blank to skip): "); v != "" {
+		fields["summary"] = v
+	}
+	if v := promptLine("New priority (blank to skip): "); v != "" {
+		fields["priority"] = map[string]any{"name": v}
+	}
+	if v := promptLine("New labels, comma-separated (blank to skip): "); v != "" {
+		fields["labels"] = splitCommaList(v)
+	}
+	if len(fields) == 0 {
+		fmt.Println("Nothing to update.")
+		return
+	}
+	if err := api.UpdateIssue(conn, key, fields); err != nil {
+		printMenuErr("updating %s: %v", key, err)
+		return
+	}
+	fmt.Printf("%s updated\n", key)
+}
+
+func menuAddComment(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	comment := promptLine("Comment: ")
+	if comment == "" {
+		printMenuErr("comment is empty")
+		return
+	}
+	if err := api.AddComment(conn, key, buildDescription(comment)); err != nil {
+		printMenuErr("adding comment to %s: %v", key, err)
+		return
+	}
+	fmt.Printf("Comment added to %s\n", key)
+}
+
+func menuAddWorklog(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	timeSpent := promptLine("Time spent (e.g. 2h, 1d 3h): ")
+	if timeSpent == "" {
+		printMenuErr("time spent is required")
+		return
+	}
+	var comment map[string]any
+	if c := promptLine("Comment (blank to skip): "); c != "" {
+		comment = buildDescription(c)
+	}
+	if err := api.AddWorklog(conn, key, timeSpent, comment); err != nil {
+		printMenuErr("logging work on %s: %v", key, err)
+		return
+	}
+	fmt.Printf("Logged %s on %s\n", timeSpent, key)
+}
+
+func menuAttach(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	path := promptLine("File path: ")
+	if _, err := api.AddAttachment(conn, key, path); err != nil {
+		printMenuErr("attaching %s to %s: %v", path, key, err)
+		return
+	}
+	fmt.Printf("Attached %s to %s\n", path, key)
+}
+
+func menuCreateSubtask(conn api.JiraConnection) {
+	parentKey := promptLine("Parent ticket key: ")
+	summary := promptLine("Subtask summary: ")
+	if summary == "" {
+		printMenuErr("summary is required")
+		return
+	}
+	description := promptLine("Description (blank to skip): ")
+
+	issue, err := api.FetchIssue(conn, parentKey)
+	if err != nil {
+		printMenuErr("fetching %s: %v", parentKey, err)
+		return
+	}
+	parentFields, _ := issue["fields"].(map[string]any)
+	fields := buildSubtaskFields(parentKey, inheritedFields(parentFields), parsedTask{Summary: summary, Description: description})
+	result, err := api.CreateIssue(conn, fields)
+	if err != nil {
+		printMenuErr("creating subtask: %v", err)
+		return
+	}
+	fmt.Printf("Created subtask %s under %s\n", getString(result, "key"), parentKey)
+}
+
+func menuLinkTickets(conn api.JiraConnection) {
+	types, err := api.FetchIssueLinkTypes(conn)
+	if err != nil {
+		printMenuErr("fetching link types: %v", err)
+		return
+	}
+	fmt.Println("Available link types:")
+	for _, t := range types {
+		fmt.Printf("  - %s\n", t.Name)
+	}
+	outward := promptLine("Outward ticket key: ")
+	inward := promptLine("Inward ticket key: ")
+	linkType := promptLine("Link type: ")
+	if err := api.LinkIssues(conn, outward, inward, linkType); err != nil {
+		printMenuErr("linking: %v", err)
+		return
+	}
+	fmt.Printf("Linked %s -> %s (%s)\n", outward, inward, linkType)
+}
+
+func menuUnlinkTickets(conn api.JiraConnection) {
+	key := promptLine("Ticket key: ")
+	other := promptLine("Other ticket key: ")
+	if err := api.UnlinkIssues(conn, key, other); err != nil {
+		printMenuErr("unlinking: %v", err)
+		return
+	}
+	fmt.Printf("Unlinked %s from %s\n", key, other)
+}
+
+func menuCloneTicket(conn api.JiraConnection) {
+	sourceKey := promptLine("Source ticket key: ")
+	issue, err := api.FetchIssue(conn, sourceKey)
+	if err != nil {
+		printMenuErr("fetching %s: %v", sourceKey, err)
+		return
+	}
+	source, _ := issue["fields"].(map[string]any)
+	fields := inheritedCloneFields(source)
+	summary := promptLine("Summary (blank for default): ")
+	if summary == "" {
+		summary = "CLONE - " + getString(source, "summary")
+	}
+	fields["summary"] = summary
+	result, err := api.CreateIssue(conn, fields)
+	if err != nil {
+		printMenuErr("cloning: %v", err)
+		return
+	}
+	fmt.Printf("Cloned %s -> %s\n", sourceKey, getString(result, "key"))
+}
+
+func menuDeleteTicket(conn api.JiraConnection) {
+	key := promptLine("Ticket key to delete: ")
+	if !promptConfirm(fmt.Sprintf("Permanently delete %s?", key)) {
+		fmt.Println("Cancelled.")
+		return
+	}
+	cascade := promptConfirm("Also delete its subtasks?")
+	if err := api.DeleteIssue(conn, key, cascade); err != nil {
+		printMenuErr("deleting %s: %v", key, err)
+		return
+	}
+	fmt.Printf("Deleted %s\n", key)
+}
+
+func menuListBoards(conn api.JiraConnection) {
+	projectKey := promptLine("Project key (blank for all): ")
+	boards, err := api.FetchBoards(conn, projectKey)
+	if err != nil {
+		printMenuErr("fetching boards: %v", err)
+		return
+	}
+	if len(boards) == 0 {
+		fmt.Println("No boards found.")
+		return
+	}
+	for _, b := range boards {
+		fmt.Printf("  [%d] %s (%s)\n", b.ID, b.Name, b.Type)
+	}
+}
+
+func menuListSprints(conn api.JiraConnection) {
+	boardIDStr := promptLine("Board ID: ")
+	boardID, err := strconv.Atoi(boardIDStr)
+	if err != nil {
+		printMenuErr("invalid board ID: %v", err)
+		return
+	}
+	sprints, err := api.FetchSprints(conn, boardID, "")
+	if err != nil {
+		printMenuErr("fetching sprints: %v", err)
+		return
+	}
+	if len(sprints) == 0 {
+		fmt.Println("No sprints found.")
+		return
+	}
+	for _, sp := range sprints {
+		fmt.Printf("  [%d] %s (%s)\n", sp.ID, sp.Name, sp.State)
+	}
+	sprintIDStr := promptLine("View issues in sprint ID (blank to skip): ")
+	if sprintIDStr == "" {
+		return
+	}
+	sprintID, err := strconv.Atoi(sprintIDStr)
+	if err != nil {
+		printMenuErr("invalid sprint ID: %v", err)
+		return
+	}
+	result, err := api.FetchSprintIssues(conn, sprintID, "")
+	if err != nil {
+		printMenuErr("fetching sprint issues: %v", err)
+		return
+	}
+	printTasks(result.Issues)
+}
+
+func menuListProjects(conn api.JiraConnection) {
+	projects, err := api.FetchProjects(conn)
+	if err != nil {
+		printMenuErr("fetching projects: %v", err)
+		return
+	}
+	for _, p := range projects {
+		fmt.Printf("  %s — %s\n", p.Key, p.Name)
+	}
+}
+
+func menuListVersions(conn api.JiraConnection) {
+	projectKey := promptLine("Project key: ")
+	versions, err := api.FetchProjectVersions(conn, projectKey)
+	if err != nil {
+		printMenuErr("fetching versions: %v", err)
+		return
+	}
+	if len(versions) == 0 {
+		fmt.Println("No versions found.")
+		return
+	}
+	for _, v := range versions {
+		fmt.Printf("  %s (released: %v)\n", v.Name, v.Released)
+	}
+}
+
+func menuWhoami(conn api.JiraConnection) {
+	self, err := api.FetchMyself(conn)
+	if err != nil {
+		printMenuErr("fetching current user: %v", err)
+		return
+	}
+	fmt.Printf("Account ID: %v\nDisplay name: %v\nEmail: %v\n",
+		self["accountId"], self["displayName"], self["emailAddress"])
+}
+
+// splitCommaList splits a comma-separated string into trimmed, non-empty parts.
+func splitCommaList(s string) []string {
+	parts := strings.Split(s, ",")
+	trimmed := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			trimmed = append(trimmed, t)
+		}
+	}
+	return trimmed
+}
+
+// inheritedFields extracts the subtask-inheritable fields from a parent issue's fields map.
+func inheritedFields(fields map[string]any) map[string]any {
+	inherited := make(map[string]any)
+	for _, key := range subtaskInheritFields {
+		if v, ok := fields[key]; ok && v != nil {
+			inherited[key] = v
+		}
+	}
+	return inherited
+}
+
+// inheritedCloneFields extracts the clone-inheritable fields from a source issue's fields map.
+func inheritedCloneFields(fields map[string]any) map[string]any {
+	keys := []string{"project", "issuetype", "priority", "labels", "components", "description"}
+	inherited := make(map[string]any, len(keys))
+	for _, key := range keys {
+		if v, ok := fields[key]; ok && v != nil {
+			inherited[key] = v
+		}
+	}
+	return inherited
+}

@@ -22,6 +22,9 @@ func NewServer(version string, conn api.JiraConnection) *server.MCPServer {
 	registerAttachmentTools(s, conn)
 	registerSubtaskTools(s, conn)
 	registerLinkTools(s, conn)
+	registerLifecycleTools(s, conn)
+	registerAgileTools(s, conn)
+	registerProjectTools(s, conn)
 
 	return s
 }

@@ -14,6 +14,8 @@ import (
 func registerLinkTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(listLinkTypesTool(), handleListLinkTypes(conn))
 	s.AddTool(linkTicketsTool(), handleLinkTickets(conn))
+	s.AddTool(unlinkTicketsTool(), handleUnlinkTickets(conn))
+	s.AddTool(addRemoteLinkTool(), handleAddRemoteLink(conn))
 }
 
 // --- list_link_types ---
@@ -86,5 +88,79 @@ func handleLinkTickets(conn api.JiraConnection) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("linking %s to %s: %v", outwardKey, inwardKey, err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Linked %s -> %s (%s)", outwardKey, inwardKey, linkType)), nil
+	}
+}
+
+// --- unlink_tickets ---
+
+func unlinkTicketsTool() mcp.Tool {
+	return mcp.NewTool("unlink_tickets",
+		mcp.WithDescription("Remove the link between two Jira tickets, whichever link type currently connects them."),
+		mcp.WithString("ticket_key",
+			mcp.Required(),
+			mcp.Description("Jira key of one of the linked tickets"),
+		),
+		mcp.WithString("other_key",
+			mcp.Required(),
+			mcp.Description("Jira key of the other linked ticket"),
+		),
+	)
+}
+
+func handleUnlinkTickets(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := req.RequireString("ticket_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		otherKey, err := req.RequireString("other_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if err := api.UnlinkIssues(conn, key, otherKey); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unlinking %s from %s: %v", key, otherKey, err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Unlinked %s from %s", key, otherKey)), nil
+	}
+}
+
+// --- add_remote_link ---
+
+func addRemoteLinkTool() mcp.Tool {
+	return mcp.NewTool("add_remote_link",
+		mcp.WithDescription("Attach a remote web link (e.g. a URL to external documentation or a related resource) to a Jira ticket."),
+		mcp.WithString("ticket_key",
+			mcp.Required(),
+			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
+		),
+		mcp.WithString("url",
+			mcp.Required(),
+			mcp.Description("The URL to link"),
+		),
+		mcp.WithString("title",
+			mcp.Required(),
+			mcp.Description("Display text for the link"),
+		),
+	)
+}
+
+func handleAddRemoteLink(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := req.RequireString("ticket_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		linkURL, err := req.RequireString("url")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		title, err := req.RequireString("title")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if err := api.AddRemoteLink(conn, key, linkURL, title); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("adding remote link to %s: %v", key, err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Added remote link to %s", key)), nil
 	}
 }

@@ -238,6 +238,24 @@ If a ticket has no available transitions (e.g. already in a terminal state with 
 
 ---
 
+### `menu` — interactive menu for everything else
+
+Opens a persistent home-screen TUI covering the full set of ticket operations jira-thing supports: search, describe, edit fields, comment, worklog, attach, subtasks, link/unlink, clone, delete, boards/sprints, projects/releases, and whoami. This is the jira-cli-parity surface — one place to reach every operation without memorising a flag for each.
+
+```bash
+jira-thing menu
+```
+
+Pick an action from the list; you'll be prompted for whatever it needs (ticket key, JQL, etc.) directly in the terminal. After an action finishes, press enter to return to the menu. Unlike the one-shot commands, a failed action (bad key, invalid JQL) reports the error and drops you back at the menu instead of exiting the program.
+
+| Keys | Action |
+|---|---|
+| `↑`/`↓` | Navigate |
+| `enter` | Select |
+| `q` / `esc` / `ctrl+c` | Quit the menu |
+
+---
+
 ### `update` — add a comment to a ticket
 
 Posts a new comment on an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
@@ -694,12 +712,24 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `create_ticket` | Create a new ticket with project, summary, description, priority, labels |
 | `update_ticket` | Edit summary, description, priority, labels, or assignee on an existing ticket |
 | `list_transitions` | List the workflow states a ticket can currently move to |
-| `transition_ticket` | Move a ticket to a new workflow state by name |
+| `transition_ticket` | Move a ticket to a new workflow state by name, optionally setting a comment, resolution, or assignee at the same time |
 | `list_fields` | List every field on the instance, including custom field IDs |
 | `add_attachment` | Upload a local file as an attachment on a ticket |
 | `create_subtask` | Create a subtask under a ticket, inheriting project/priority/labels/components |
 | `list_link_types` | List the issue link types configured on the instance |
 | `link_tickets` | Link two tickets together (e.g. Blocks, Relates) |
+| `unlink_tickets` | Remove the link between two tickets |
+| `add_remote_link` | Attach a remote web link to a ticket |
+| `whoami` | Show the current authenticated Jira user |
+| `delete_ticket` | Permanently delete a ticket, optionally cascading to subtasks |
+| `clone_ticket` | Clone a ticket, optionally overriding summary/priority/assignee |
+| `add_worklog` | Log time spent against a ticket |
+| `list_boards` | List Agile boards, optionally filtered to a project |
+| `list_sprints` | List the sprints on a board |
+| `list_sprint_issues` | List the issues in a sprint |
+| `add_to_sprint` | Move tickets into a sprint |
+| `list_projects` | List every accessible project |
+| `list_versions` | List a project's releases/versions |
 | `confluence_browse` | List child pages under a Confluence page |
 | `confluence_get_page` | Fetch a page by ID or by space + title |
 | `confluence_create_page` | Create or update a Confluence page from markdown |
@@ -745,6 +775,7 @@ Most commands have short aliases for quick typing:
 | `create` | `cr` |
 | `my-tasks` | `mt` |
 | `state` | `sta` |
+| `menu` | `m` |
 | `update` | `up` |
 | `last-comment` | `lc` |
 | `attach` | `at` |

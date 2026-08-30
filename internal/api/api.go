@@ -351,19 +351,40 @@ func FetchTransitions(conn JiraConnection, issueKey string) ([]Transition, error
 	return result.Transitions, nil
 }
 
+// TransitionOptions holds the optional side effects a workflow transition can apply
+// in the same call: field changes (e.g. resolution, assignee) and/or a comment.
+// Some workflows require these to be set during the transition rather than after.
+type TransitionOptions struct {
+	Fields  map[string]any
+	Comment map[string]any // ADF document body; nil to add no comment
+}
+
 // TransitionIssue moves an issue through its workflow by executing the transition
 // identified by transitionID (from FetchTransitions).
 func TransitionIssue(conn JiraConnection, issueKey, transitionID string) error {
-	payload, err := json.Marshal(map[string]any{
-		"transition": map[string]any{"id": transitionID},
-	})
+	return TransitionIssueWithOptions(conn, issueKey, transitionID, TransitionOptions{})
+}
+
+// TransitionIssueWithOptions is TransitionIssue with optional field changes and/or
+// a comment applied atomically as part of the transition.
+func TransitionIssueWithOptions(conn JiraConnection, issueKey, transitionID string, opts TransitionOptions) error {
+	payload := map[string]any{"transition": map[string]any{"id": transitionID}}
+	if len(opts.Fields) > 0 {
+		payload["fields"] = opts.Fields
+	}
+	if opts.Comment != nil {
+		payload["update"] = map[string]any{
+			"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}},
+		}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	req, err := newAuthRequest(conn, APIRequest{
 		Method:   http.MethodPost,
 		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/transitions",
-		Body:     bytes.NewReader(payload),
+		Body:     bytes.NewReader(body),
 	})
 	if err != nil {
 		return err
