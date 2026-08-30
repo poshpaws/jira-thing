@@ -695,6 +695,11 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `update_ticket` | Edit summary, description, priority, labels, or assignee on an existing ticket |
 | `list_transitions` | List the workflow states a ticket can currently move to |
 | `transition_ticket` | Move a ticket to a new workflow state by name |
+| `list_fields` | List every field on the instance, including custom field IDs |
+| `add_attachment` | Upload a local file as an attachment on a ticket |
+| `create_subtask` | Create a subtask under a ticket, inheriting project/priority/labels/components |
+| `list_link_types` | List the issue link types configured on the instance |
+| `link_tickets` | Link two tickets together (e.g. Blocks, Relates) |
 | `confluence_browse` | List child pages under a Confluence page |
 | `confluence_get_page` | Fetch a page by ID or by space + title |
 | `confluence_create_page` | Create or update a Confluence page from markdown |

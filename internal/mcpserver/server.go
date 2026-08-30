@@ -18,6 +18,10 @@ func NewServer(version string, conn api.JiraConnection) *server.MCPServer {
 
 	registerTicketTools(s, conn)
 	registerConfluenceTools(s, conn)
+	registerFieldTools(s, conn)
+	registerAttachmentTools(s, conn)
+	registerSubtaskTools(s, conn)
+	registerLinkTools(s, conn)
 
 	return s
 }
