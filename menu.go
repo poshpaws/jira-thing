@@ -69,6 +69,11 @@ func menuActions() []menuAction {
 		{"Sprints", "List sprints on a board and their issues", menuListSprints},
 		{"Projects", "List accessible projects", menuListProjects},
 		{"Releases", "List a project's releases/versions", menuListVersions},
+		{"List Epic Issues", "List the issues under an epic", menuListEpicIssues},
+		{"Create Epic", "Create a new epic", menuCreateEpic},
+		{"Add to Epic", "Add issues to an epic", menuAddToEpic},
+		{"Remove from Epic", "Remove issues from their epic", menuRemoveFromEpic},
+		{"Open in Browser", "Open a ticket (or Jira) in the browser", menuOpen},
 		{"Who Am I", "Show the current authenticated user", menuWhoami},
 		{"Confluence Browse", "Browse the Confluence space tree", func(api.JiraConnection) { runConfBrowse() }},
 	}
@@ -358,6 +363,77 @@ func menuListVersions(conn api.JiraConnection) {
 	for _, v := range versions {
 		fmt.Printf("  %s (released: %v)\n", v.Name, v.Released)
 	}
+}
+
+func menuListEpicIssues(conn api.JiraConnection) {
+	epicKey := promptLine("Epic key: ")
+	result, err := api.ListEpicIssues(conn, epicKey)
+	if err != nil {
+		printMenuErr("listing epic issues: %v", err)
+		return
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No issues found under this epic.")
+		return
+	}
+	printTasks(result.Issues)
+}
+
+func menuCreateEpic(conn api.JiraConnection) {
+	project := promptLine("Project key: ")
+	name := promptLine("Epic name: ")
+	summary := promptLine("Epic summary: ")
+	if project == "" || name == "" || summary == "" {
+		printMenuErr("project, name, and summary are all required")
+		return
+	}
+	fields := api.BuildEpicFields(conn, project, name, summary)
+	result, err := api.CreateIssue(conn, fields)
+	if err != nil {
+		printMenuErr("creating epic: %v", err)
+		return
+	}
+	fmt.Printf("Created epic %s\n", getString(result, "key"))
+}
+
+func menuAddToEpic(conn api.JiraConnection) {
+	epicKey := promptLine("Epic key: ")
+	keys := splitCommaList(promptLine("Ticket keys, comma-separated: "))
+	if len(keys) == 0 {
+		printMenuErr("at least one ticket key is required")
+		return
+	}
+	if err := api.AddIssuesToEpic(conn, epicKey, keys); err != nil {
+		printMenuErr("%v", err)
+		return
+	}
+	fmt.Printf("Added %d ticket(s) to %s\n", len(keys), epicKey)
+}
+
+func menuRemoveFromEpic(conn api.JiraConnection) {
+	keys := splitCommaList(promptLine("Ticket keys to remove from their epic, comma-separated: "))
+	if len(keys) == 0 {
+		printMenuErr("at least one ticket key is required")
+		return
+	}
+	if err := api.RemoveIssuesFromEpic(conn, keys); err != nil {
+		printMenuErr("%v", err)
+		return
+	}
+	fmt.Printf("Removed %d ticket(s) from their epic\n", len(keys))
+}
+
+func menuOpen(conn api.JiraConnection) {
+	key := promptLine("Ticket key (blank to open Jira home): ")
+	target := conn.BaseURL
+	if key != "" {
+		target = conn.BaseURL + "/browse/" + key
+	}
+	if err := openBrowser(target); err != nil {
+		printMenuErr("opening browser: %v", err)
+		return
+	}
+	fmt.Printf("Opened %s\n", target)
 }
 
 func menuWhoami(conn api.JiraConnection) {

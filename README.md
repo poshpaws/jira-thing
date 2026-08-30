@@ -256,6 +256,68 @@ Pick an action from the list; you'll be prompted for whatever it needs (ticket k
 
 ---
 
+### `list` — search with jira-cli-style filter flags
+
+Searches tickets using a JQL query built from flags, mirroring jira-cli's `issue list` ergonomics. Flags combine with AND; add `-jql` for anything the flags don't cover.
+
+```bash
+jira-thing list [flags]
+```
+
+| Flag | Description |
+|---|---|
+| `-a` | Assignee: `me`, `x` (unassigned), `~x` (assigned to someone), a name, or `~name` (not that person) |
+| `-r` | Reporter: same shorthand as `-a` |
+| `-y` | Priority name, or `~name` to exclude |
+| `-s` | Status name, or `~name` to exclude |
+| `-p` | Project key |
+| `-l` | Label (repeatable: `-l backend -l urgent`) |
+| `--created` | Created-date filter: relative (`-7d`), keyword (`day`/`week`/`month`/`year`), or absolute (`2026-01-01`) |
+| `--updated` | Same format as `--created`, filtered on the updated date |
+| `-w` | Only tickets you're watching |
+| `-jql` | Raw JQL, AND-ed in alongside the flags above |
+| `--order-by` | Sort field (default `created`) |
+| `--reverse` | Sort ascending instead of descending |
+
+**Examples:**
+
+```bash
+# High priority issues assigned to me, in progress, with the backend label
+jira-thing list -a me -yHigh -s"In Progress" -lbackend
+
+# Issues created this week, unassigned
+jira-thing list --created week -a x
+
+# Tickets I'm watching in project PROJ, oldest first
+jira-thing list -w -p PROJ --reverse
+```
+
+---
+
+### `epic` — epic management
+
+Jira has two incompatible epic models depending on how a project is configured: team-managed projects link issues via the generic `parent` field, company-managed projects use a classic `Epic Link` custom field (ID varies per instance). Every `epic` subcommand tries `parent` first and falls back to `Epic Link` automatically — you don't need to know which model your project uses.
+
+```bash
+jira-thing epic list <EPIC-KEY>              # list issues under an epic
+jira-thing epic create -p PROJ -n NAME -s SUMMARY   # create an epic
+jira-thing epic add <EPIC-KEY> <ISSUE-1> [ISSUE-2 ...]   # add issues to an epic
+jira-thing epic remove <ISSUE-1> [ISSUE-2 ...]           # remove issues from their epic
+```
+
+`epic create`'s `-n` (epic name) only takes effect on instances with a classic `Epic Name` field — team-managed projects don't have one, so it's silently omitted there.
+
+---
+
+### `open` — open a ticket in the browser
+
+```bash
+jira-thing open PROJ-101   # opens the ticket
+jira-thing open            # opens the Jira base URL
+```
+
+---
+
 ### `update` — add a comment to a ticket
 
 Posts a new comment on an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
@@ -730,6 +792,10 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `add_to_sprint` | Move tickets into a sprint |
 | `list_projects` | List every accessible project |
 | `list_versions` | List a project's releases/versions |
+| `create_epic` | Create an epic (sets the classic Epic Name field when the instance has one) |
+| `list_epic_issues` | List the issues under an epic (parent field, falling back to Epic Link) |
+| `add_to_epic` | Add issues to an epic |
+| `remove_from_epic` | Remove issues from their epic |
 | `confluence_browse` | List child pages under a Confluence page |
 | `confluence_get_page` | Fetch a page by ID or by space + title |
 | `confluence_create_page` | Create or update a Confluence page from markdown |
@@ -776,6 +842,8 @@ Most commands have short aliases for quick typing:
 | `my-tasks` | `mt` |
 | `state` | `sta` |
 | `menu` | `m` |
+| `list` | `ls` |
+| `open` | `o` |
 | `update` | `up` |
 | `last-comment` | `lc` |
 | `attach` | `at` |

@@ -64,10 +64,16 @@ func main() {
 		runCreate(os.Args[2:])
 	case "my-tasks", "mt":
 		runMyTasks(os.Args[2:])
+	case "list", "ls":
+		runList(os.Args[2:])
 	case "state", "sta":
 		runState(os.Args[2:])
 	case "menu", "m":
 		runMenu()
+	case "epic":
+		runEpic(os.Args[2:])
+	case "open", "o":
+		runOpen(os.Args[2:])
 	case "update", "up":
 		runUpdate(os.Args[2:])
 	case "last-comment", "lc":
@@ -126,8 +132,14 @@ func printUsage() {
 		{"create|cr [-t template.json]", "Create a new ticket from a template"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
+		{"list|ls [flags]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
 		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
 		{"menu|m", "Interactive menu for all ticket operations"},
+		{"epic list <EPIC-KEY>", "List issues under an epic"},
+		{"epic create -p P -n N -s S", "Create an epic"},
+		{"epic add <EPIC-KEY> <KEY...>", "Add issues to an epic"},
+		{"epic remove <KEY...>", "Remove issues from their epic"},
+		{"open|o [TICKET-KEY]", "Open a ticket (or Jira) in the browser"},
 		{"last-comment|lc <TICKET-KEY>", "Show last comment as markdown"},
 		{"attach|at <TICKET-KEY> <file>", "Attach a file to a ticket"},
 		{"describe|de <TICKET-KEY>", "Dump full ticket as rendered markdown"},
