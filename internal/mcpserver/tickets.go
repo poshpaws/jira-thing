@@ -18,6 +18,8 @@ func registerTicketTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(lastCommentTool(), handleLastComment(conn))
 	s.AddTool(addCommentTool(), handleAddComment(conn))
 	s.AddTool(createTicketTool(), handleCreateTicket(conn))
+	s.AddTool(listTransitionsTool(), handleListTransitions(conn))
+	s.AddTool(transitionTicketTool(), handleTransitionTicket(conn))
 }
 
 // --- describe_ticket ---
@@ -251,6 +253,98 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Created ticket: %s\nURL: %s/browse/%s", key, conn.BaseURL, key)), nil
 	}
+}
+
+// --- list_transitions ---
+
+func listTransitionsTool() mcp.Tool {
+	return mcp.NewTool("list_transitions",
+		mcp.WithDescription("List the workflow states a Jira ticket can currently move to. Boards customise workflows "+
+			"heavily (a personal board may have 4 states, a client board 12), so always call this before transition_ticket "+
+			"rather than assuming a state name is valid."),
+		mcp.WithString("ticket_key",
+			mcp.Required(),
+			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
+		),
+	)
+}
+
+func handleListTransitions(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := req.RequireString("ticket_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		transitions, err := api.FetchTransitions(conn, key)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
+		}
+		if len(transitions) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No transitions available for %s.", key)), nil
+		}
+		return mcp.NewToolResultText(formatTransitions(key, transitions)), nil
+	}
+}
+
+// --- transition_ticket ---
+
+func transitionTicketTool() mcp.Tool {
+	return mcp.NewTool("transition_ticket",
+		mcp.WithDescription("Move a Jira ticket to a new workflow state. The target_status must match one of the "+
+			"states returned by list_transitions for this ticket — call that tool first if unsure what states are available."),
+		mcp.WithString("ticket_key",
+			mcp.Required(),
+			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
+		),
+		mcp.WithString("target_status",
+			mcp.Required(),
+			mcp.Description("Name of the state to move to (e.g. \"In Progress\"), matched case-insensitively against list_transitions output"),
+		),
+	)
+}
+
+func handleTransitionTicket(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := req.RequireString("ticket_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		targetStatus, err := req.RequireString("target_status")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		transitions, err := api.FetchTransitions(conn, key)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
+		}
+		transition, err := findTransition(transitions, targetStatus)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, formatTransitions(key, transitions))), nil
+		}
+		if err := api.TransitionIssue(conn, key, transition.ID); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("transitioning %s: %v", key, err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", key, transition.Name)), nil
+	}
+}
+
+// findTransition matches targetStatus against a transition's name (case-insensitive).
+func findTransition(transitions []api.Transition, targetStatus string) (api.Transition, error) {
+	for _, t := range transitions {
+		if strings.EqualFold(t.Name, targetStatus) {
+			return t, nil
+		}
+	}
+	return api.Transition{}, fmt.Errorf("no transition to %q is available from the current state", targetStatus)
+}
+
+func formatTransitions(key string, transitions []api.Transition) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Available states for %s:\n\n", key)
+	for _, t := range transitions {
+		fmt.Fprintf(&sb, "- %s\n", t.Name)
+	}
+	return sb.String()
 }
 
 // --- formatters ---

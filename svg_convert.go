@@ -85,7 +85,6 @@ func isSVGFile(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".svg")
 }
 
-
 // rewriteSVGReferences updates the storage XHTML to reference .png filenames
 // wherever an SVG was converted. It compares the original and converted path
 // lists — when a path changed (SVG→PNG), the filename in the XHTML is replaced.

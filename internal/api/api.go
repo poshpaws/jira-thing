@@ -298,6 +298,61 @@ func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
 	return result, executeRequest(req, &result)
 }
 
+// Transition describes a single workflow transition available on an issue,
+// as returned by GET /rest/api/3/issue/{key}/transitions.
+type Transition struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	To   struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"to"`
+}
+
+// transitionsResponse wraps the Jira transitions list endpoint response.
+type transitionsResponse struct {
+	Transitions []Transition `json:"transitions"`
+}
+
+// FetchTransitions returns the workflow transitions currently available on an issue.
+// Boards customise workflows heavily, so this list (and the target states it names)
+// must always be read live rather than assumed.
+func FetchTransitions(conn JiraConnection, issueKey string) ([]Transition, error) {
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodGet,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/transitions",
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result transitionsResponse
+	if err := executeRequest(req, &result); err != nil {
+		return nil, err
+	}
+	return result.Transitions, nil
+}
+
+// TransitionIssue moves an issue through its workflow by executing the transition
+// identified by transitionID (from FetchTransitions).
+func TransitionIssue(conn JiraConnection, issueKey, transitionID string) error {
+	payload, err := json.Marshal(map[string]any{
+		"transition": map[string]any{"id": transitionID},
+	})
+	if err != nil {
+		return err
+	}
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPost,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/transitions",
+		Body:     bytes.NewReader(payload),
+	})
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return executeRequest(req, nil)
+}
+
 // Field describes a Jira field as returned by GET /rest/api/3/field.
 type Field struct {
 	ID     string `json:"id"`

@@ -353,3 +353,79 @@ func TestFetchMyself_InvalidURL(t *testing.T) {
 		t.Fatal("expected error for invalid URL, got nil")
 	}
 }
+
+func TestFetchTransitions_ReturnsList(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/PROJ-1/transitions") {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"transitions": []map[string]any{
+				{"id": "11", "name": "In Progress", "to": map[string]any{"id": "3", "name": "In Progress"}},
+				{"id": "21", "name": "Done", "to": map[string]any{"id": "5", "name": "Done"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	transitions, err := api.FetchTransitions(conn(srv.URL), "PROJ-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(transitions) != 2 {
+		t.Fatalf("got %d transitions, want 2", len(transitions))
+	}
+	if transitions[0].ID != "11" || transitions[0].Name != "In Progress" || transitions[0].To.Name != "In Progress" {
+		t.Errorf("unexpected transition: %+v", transitions[0])
+	}
+}
+
+func TestFetchTransitions_404(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["not found"]}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := api.FetchTransitions(conn(srv.URL), "BAD-1")
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+}
+
+func TestTransitionIssue_Success(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decoding body: %v", err)
+		}
+		transition, _ := body["transition"].(map[string]any)
+		if transition["id"] != "21" {
+			t.Errorf("got transition id %v, want 21", transition["id"])
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := api.TransitionIssue(conn(srv.URL), "PROJ-1", "21"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTransitionIssue_400(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["invalid transition"]}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	err := api.TransitionIssue(conn(srv.URL), "PROJ-1", "99")
+	if err == nil {
+		t.Fatal("expected error for 400, got nil")
+	}
+}

@@ -210,6 +210,24 @@ func mockShowTableSelectAll() func() {
 	return func() { showTableFn = old }
 }
 
+// mockSelectTransition replaces selectTransitionFn to auto-pick the given transition by name.
+// If name is "", it cancels instead.
+func mockSelectTransition(name string) func() {
+	old := selectTransitionFn
+	selectTransitionFn = func(ticketKey string, options []tui.TransitionOption) (tui.TransitionOption, bool, error) {
+		if name == "" {
+			return tui.TransitionOption{}, true, nil
+		}
+		for _, o := range options {
+			if o.Name == name {
+				return o, false, nil
+			}
+		}
+		return tui.TransitionOption{}, false, fmt.Errorf("no such transition: %s", name)
+	}
+	return func() { selectTransitionFn = old }
+}
+
 // exitSignal is a sentinel panic value used to simulate os.Exit in tests.
 type exitSignal struct{ code int }
 
@@ -452,6 +470,102 @@ func TestRunMyTasks_WithResults(t *testing.T) {
 	out := captureStdout(func() { runMyTasks([]string{}) })
 	if !strings.Contains(out, "PROJ-5") {
 		t.Errorf("expected PROJ-5 in output, got: %s", out)
+	}
+}
+
+func TestRunState_WithKeyMovesTicket(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/transitions") && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"transitions": []map[string]any{
+					{"id": "21", "name": "Done", "to": map[string]any{"id": "5", "name": "Done"}},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/transitions") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockSelectTransition("Done")()
+
+	out := captureStdout(func() { runState([]string{"PROJ-9"}) })
+	if !strings.Contains(out, "PROJ-9 moved to Done") {
+		t.Errorf("expected move confirmation, got: %s", out)
+	}
+}
+
+func TestRunState_NoTransitionsAvailable(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"transitions": []any{}})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runState([]string{"PROJ-9"}) })
+	if !strings.Contains(out, "No transitions available") {
+		t.Errorf("expected no-transitions message, got: %s", out)
+	}
+}
+
+func TestRunState_Cancelled(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"transitions": []map[string]any{
+				{"id": "21", "name": "Done", "to": map[string]any{"id": "5", "name": "Done"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockSelectTransition("")()
+
+	out := captureStdout(func() { runState([]string{"PROJ-9"}) })
+	if !strings.Contains(out, "Cancelled") {
+		t.Errorf("expected Cancelled, got: %s", out)
+	}
+}
+
+func TestRunState_NoKeyPicksFromMyTasks(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/search/jql"):
+			json.NewEncoder(w).Encode(map[string]any{
+				"issues": []any{
+					map[string]any{"key": "PROJ-5", "fields": map[string]any{
+						"summary": "Do a thing", "updated": "2026-04-20T10:00:00.000Z",
+						"status": map[string]any{"name": "Open"}, "priority": map[string]any{"name": "High"},
+					}},
+				},
+				"total": 1, "maxResults": 100,
+			})
+		case strings.HasSuffix(r.URL.Path, "/transitions") && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"transitions": []map[string]any{
+					{"id": "21", "name": "Done", "to": map[string]any{"id": "5", "name": "Done"}},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/transitions") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	defer mockShowTableSelectAll()()
+	defer mockSelectTransition("Done")()
+
+	out := captureStdout(func() { runState([]string{}) })
+	if !strings.Contains(out, "PROJ-5 moved to Done") {
+		t.Errorf("expected move confirmation for picked ticket, got: %s", out)
 	}
 }
 

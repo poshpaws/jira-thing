@@ -16,8 +16,8 @@ const (
 
 // ReleaseInfo holds the latest release metadata.
 type ReleaseInfo struct {
-	TagName string        `json:"tag_name"`
-	HTMLURL string        `json:"html_url"`
+	TagName string         `json:"tag_name"`
+	HTMLURL string         `json:"html_url"`
 	Assets  []ReleaseAsset `json:"assets"`
 }
 

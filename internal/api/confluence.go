@@ -313,7 +313,6 @@ func buildConfluenceAttachmentBody(filePath string) (io.Reader, string, error) {
 	return &buf, writer.FormDataContentType(), nil
 }
 
-
 // ListConfluenceAttachments returns the existing attachments on a Confluence page.
 func ListConfluenceAttachments(conn JiraConnection, pageID string) ([]ConfluenceAttachment, error) {
 	if err := validateNumericID(pageID, "page ID"); err != nil {

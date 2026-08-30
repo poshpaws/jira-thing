@@ -38,6 +38,9 @@ var getCredentialsFn = auth.GetCredentials
 // showTableFn launches the interactive TUI; replaced in tests.
 var showTableFn = tui.ShowTable
 
+// selectTransitionFn launches the transition-picker TUI; replaced in tests.
+var selectTransitionFn = tui.SelectTransition
+
 // osExit calls os.Exit; replaced in tests to prevent process termination.
 var osExit = os.Exit
 
@@ -61,6 +64,8 @@ func main() {
 		runCreate(os.Args[2:])
 	case "my-tasks", "mt":
 		runMyTasks(os.Args[2:])
+	case "state", "sta":
+		runState(os.Args[2:])
 	case "update", "up":
 		runUpdate(os.Args[2:])
 	case "last-comment", "lc":
@@ -119,6 +124,7 @@ func printUsage() {
 		{"create|cr   [-t template.json]    ", "Create a new ticket from a template"},
 		{"update|up   <TICKET-KEY> [-stdin] ", "Add a comment via $EDITOR or stdin"},
 		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
+		{"state|sta [TICKET-KEY]            ", "TUI to move a ticket to a new state"},
 		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
 		{"attach|at   <TICKET-KEY> <file>   ", "Attach a file to a ticket"},
 		{"describe|de <TICKET-KEY>          ", "Dump full ticket as rendered markdown"},
@@ -329,6 +335,84 @@ func runMyTasks(args []string) {
 	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d %s task(s):", len(result.Issues), taskLabel(*notUpdated))))
 	fmt.Println()
 	printTasks(result.Issues)
+}
+
+// runState moves a ticket to a new workflow state via an interactive TUI.
+// Available states are read live from Jira since workflows are heavily
+// customised per board (a 4-state personal board vs. a 12-state client board).
+func runState(args []string) {
+	fs := flag.NewFlagSet("state", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil {
+		fatal("parsing flags: %v", err)
+	}
+	conn := mustConnect()
+
+	key := fs.Arg(0)
+	if key == "" {
+		key = pickTicketForState(conn)
+		if key == "" {
+			return
+		}
+	}
+
+	transitions, err := api.FetchTransitions(conn, key)
+	if err != nil {
+		fatal("fetching transitions for %s: %v", key, err)
+	}
+	if len(transitions) == 0 {
+		fmt.Printf("No transitions available for %s.\n", key)
+		return
+	}
+
+	picked, cancelled, err := selectTransitionFn(key, transitionsToOptions(transitions))
+	if err != nil {
+		fatal("TUI: %v", err)
+	}
+	if cancelled {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	if err := api.TransitionIssue(conn, key, picked.ID); err != nil {
+		fatal("transitioning %s: %v", key, err)
+	}
+	fmt.Printf("%s moved to %s\n", key, picked.Name)
+}
+
+// pickTicketForState lists the user's open tasks in a TUI and returns the
+// selected ticket key, or "" if nothing was selected.
+func pickTicketForState(conn api.JiraConnection) string {
+	q := api.SearchQuery{
+		JQL:        buildMyTasksJQL(false),
+		Fields:     []string{"summary", "status", "priority", "updated"},
+		MaxResults: 100,
+	}
+	result, err := api.SearchIssues(conn, q)
+	if err != nil {
+		fatal("fetching tasks: %v", err)
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No open tasks found.")
+		return ""
+	}
+	selected, err := showTableFn(issuesToTickets(result.Issues))
+	if err != nil {
+		fatal("TUI: %v", err)
+	}
+	if len(selected) == 0 {
+		fmt.Println("No ticket selected.")
+		return ""
+	}
+	return selected[0].Key
+}
+
+// transitionsToOptions converts API transitions to TUI selection options.
+func transitionsToOptions(transitions []api.Transition) []tui.TransitionOption {
+	options := make([]tui.TransitionOption, len(transitions))
+	for i, t := range transitions {
+		options[i] = tui.TransitionOption{ID: t.ID, Name: t.Name}
+	}
+	return options
 }
 
 // issuesToTickets converts Jira search results to TUI tickets.
@@ -1177,7 +1261,6 @@ func deduplicateByFilename(paths []string) []string {
 	return unique
 }
 
-
 // subtaskInheritFields are the parent ticket fields copied to each subtask.
 var subtaskInheritFields = []string{"project", "priority", "labels", "components"}
 
@@ -1288,7 +1371,6 @@ func buildSubtaskFields(parentKey string, inherited map[string]any, task parsedT
 	return fields
 }
 
-
 // describeParseMode returns a human-readable description of the parse mode for error messages.
 func describeParseMode(opts parseOpts) string {
 	if opts.HeadingPattern != "" {
@@ -1299,7 +1381,6 @@ func describeParseMode(opts parseOpts) string {
 	}
 	return "all list items"
 }
-
 
 // runServeMCP starts the MCP server on stdio, exposing Jira and Confluence
 // tools for use by AI agents (Kiro, Claude, etc.).

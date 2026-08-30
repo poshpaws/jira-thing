@@ -27,13 +27,6 @@ var attachmentExtensions = map[string]bool{
 	".txt": true, ".log": true, ".drawio": true,
 }
 
-// imageExtensions lists file extensions rendered inline via <ac:image>.
-// Other attachment types use the view-file macro instead.
-var imageExtensions = map[string]bool{
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true,
-	".svg": true, ".bmp": true, ".ico": true,
-}
-
 // confluenceResult holds the converted storage-format XHTML and the local file
 // paths referenced in the markdown that need uploading as Confluence attachments.
 type confluenceResult struct {
@@ -369,7 +362,6 @@ func isAttachmentFile(dest string) bool {
 	return attachmentExtensions[ext]
 }
 
-
 // isDrawioFile returns true if the path has a .drawio extension.
 func isDrawioFile(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".drawio")
@@ -401,7 +393,6 @@ func emitDrawioMacro(sb *strings.Builder, diagramName string) {
 			`</ac:structured-macro>`,
 		html.EscapeString(diagramName))
 }
-
 
 // escapeCDATA escapes the CDATA end sequence ]]> to prevent premature
 // CDATA termination and XHTML injection in Confluence storage format.

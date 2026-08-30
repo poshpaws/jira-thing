@@ -205,6 +205,39 @@ jira-thing mt
 
 ---
 
+### `state` — move a ticket to a new workflow state
+
+Opens a TUI to move a ticket through its Jira workflow. Available states are **always read live from the ticket** via the Jira transitions API — workflows are heavily customised per board (a personal board might have 4 states, a client board 12), so nothing is hardcoded.
+
+```bash
+jira-thing state [TICKET-KEY]
+```
+
+If `TICKET-KEY` is omitted, a TUI first lists your open tasks (same list as `my-tasks`) so you can pick one. It then fetches that ticket's available transitions and shows a second TUI to pick the target state.
+
+| Keys | Action |
+|---|---|
+| `↑`/`↓` | Navigate |
+| `enter` | Select |
+| `q` / `esc` / `ctrl+c` | Cancel |
+
+**Example:**
+
+```bash
+jira-thing state PROJ-101
+#   PROJ-101 — choose new state
+#   Move to
+#   In Review
+#   Done
+#   Blocked
+# (enter on "Done")
+# PROJ-101 moved to Done
+```
+
+If a ticket has no available transitions (e.g. already in a terminal state with no outgoing edges), the command reports that and exits without opening a TUI.
+
+---
+
 ### `update` — add a comment to a ticket
 
 Posts a new comment on an existing Jira ticket. Opens `$EDITOR` to compose the comment, or reads from stdin with `-stdin`.
@@ -659,6 +692,8 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `last_comment` | Fetch the most recent comment on a ticket |
 | `add_comment` | Add a markdown comment to a ticket |
 | `create_ticket` | Create a new ticket with project, summary, description, priority, labels |
+| `list_transitions` | List the workflow states a ticket can currently move to |
+| `transition_ticket` | Move a ticket to a new workflow state by name |
 | `confluence_browse` | List child pages under a Confluence page |
 | `confluence_get_page` | Fetch a page by ID or by space + title |
 | `confluence_create_page` | Create or update a Confluence page from markdown |
@@ -703,6 +738,7 @@ Most commands have short aliases for quick typing:
 | `template` | `te` |
 | `create` | `cr` |
 | `my-tasks` | `mt` |
+| `state` | `sta` |
 | `update` | `up` |
 | `last-comment` | `lc` |
 | `attach` | `at` |

@@ -106,6 +106,7 @@ flowchart TD
 | `update <KEY> [-stdin]` | Add a comment via `$EDITOR` or stdin |
 | `last-comment <KEY>` | Fetch and render the most recent comment as markdown |
 | `my-tasks [-notupdated]` | List open tickets assigned to `currentUser()`; `-notupdated` filters to tickets idle for 3+ business days |
+| `state [KEY]` | TUI to move a ticket to a new workflow state; transitions are read live via `FetchTransitions` since workflows are customised per board |
 | `clear-auth` | Delete all stored credentials from the OS keyring |
 
 ## Key Design Decisions
