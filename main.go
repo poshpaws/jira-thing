@@ -121,35 +121,42 @@ func printUsage() {
 
 	commands := []struct{ cmd, desc string }{
 		{"template|te <TICKET-KEY> [-o file]", "Fetch a ticket and save as template"},
-		{"create|cr   [-t template.json]    ", "Create a new ticket from a template"},
-		{"update|up   <TICKET-KEY> [-stdin] ", "Add a comment via $EDITOR or stdin"},
-		{"my-tasks|mt [-notupdated]         ", "List open tasks assigned to you"},
-		{"state|sta [TICKET-KEY]            ", "TUI to move a ticket to a new state"},
-		{"last-comment|lc <TICKET-KEY>      ", "Show last comment as markdown"},
-		{"attach|at   <TICKET-KEY> <file>   ", "Attach a file to a ticket"},
-		{"describe|de <TICKET-KEY>          ", "Dump full ticket as rendered markdown"},
-		{"toil-check|tc                     ", "List toil tickets from the last week"},
-		{"point-check|pc                     ", "Check sprint tickets have story points"},
-		{"toil-sync|ts                      ", "Sync TOIL tickets to Confluence"},
-		{"conf browse|br                    ", "Browse Confluence space tree"},
+		{"create|cr [-t template.json]", "Create a new ticket from a template"},
+		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
+		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
+		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
+		{"last-comment|lc <TICKET-KEY>", "Show last comment as markdown"},
+		{"attach|at <TICKET-KEY> <file>", "Attach a file to a ticket"},
+		{"describe|de <TICKET-KEY>", "Dump full ticket as rendered markdown"},
+		{"toil-check|tc", "List toil tickets from the last week"},
+		{"point-check|pc", "Check sprint tickets have story points"},
+		{"toil-sync|ts", "Sync TOIL tickets to Confluence"},
+		{"conf browse|br", "Browse Confluence space tree"},
 		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
-		{"subtask|st <KEY> -f file [opts]   ", "Create subtasks from a markdown task list"},
-		{"serve-mcp                         ", "Start MCP server for AI agent integration"},
-		{"diagnose|diag                     ", "Test API connectivity and credentials"},
-		{"diagnose -find-field <search>     ", "Look up a field's real customfield ID by name"},
-		{"diagnose -list-fields             ", "Print every field on the Jira instance"},
-		{"diagnose -team <KEY>              ", "Print a ticket's Team custom field + ID"},
-		{"clear-auth                        ", "Clear stored credentials"},
-		{"check-update|cu                    ", "Check for newer releases on GitHub"},
-		{"self-update|su                     ", "Download and install the latest release"},
-		{"version|--version|-v              ", "Show version"},
+		{"subtask|st <KEY> -f file [opts]", "Create subtasks from a markdown task list"},
+		{"serve-mcp", "Start MCP server for AI agent integration"},
+		{"diagnose|diag", "Test API connectivity and credentials"},
+		{"diagnose -find-field <search>", "Look up a field's real customfield ID by name"},
+		{"diagnose -list-fields", "Print every field on the Jira instance"},
+		{"diagnose -team <KEY>", "Print a ticket's Team custom field + ID"},
+		{"clear-auth", "Clear stored credentials"},
+		{"check-update|cu", "Check for newer releases on GitHub"},
+		{"self-update|su", "Download and install the latest release"},
+		{"version|--version|-v", "Show version"},
+	}
+
+	width := 0
+	for _, c := range commands {
+		if len(c.cmd) > width {
+			width = len(c.cmd)
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n  %s\n\n", title)
 	fmt.Fprintf(os.Stderr, "  %s\n\n", usage)
 	fmt.Fprintf(os.Stderr, "  %s\n\n", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("Commands:"))
 	for _, c := range commands {
-		fmt.Fprintf(os.Stderr, "    %s  %s\n", cmdStyle.Render(c.cmd), descStyle.Render(c.desc))
+		fmt.Fprintf(os.Stderr, "    %s  %s\n", cmdStyle.Render(fmt.Sprintf("%-*s", width, c.cmd)), descStyle.Render(c.desc))
 	}
 	fmt.Fprintln(os.Stderr)
 }
