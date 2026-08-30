@@ -18,6 +18,7 @@ func registerTicketTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(lastCommentTool(), handleLastComment(conn))
 	s.AddTool(addCommentTool(), handleAddComment(conn))
 	s.AddTool(createTicketTool(), handleCreateTicket(conn))
+	s.AddTool(updateTicketTool(), handleUpdateTicket(conn))
 	s.AddTool(listTransitionsTool(), handleListTransitions(conn))
 	s.AddTool(transitionTicketTool(), handleTransitionTicket(conn))
 }
@@ -233,14 +234,7 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 			fields["description"] = markdownToADFBody(desc)
 		}
 		if labelsStr := req.GetString("labels", ""); labelsStr != "" {
-			labels := strings.Split(labelsStr, ",")
-			trimmed := make([]string, 0, len(labels))
-			for _, l := range labels {
-				if t := strings.TrimSpace(l); t != "" {
-					trimmed = append(trimmed, t)
-				}
-			}
-			fields["labels"] = trimmed
+			fields["labels"] = splitLabels(labelsStr)
 		}
 
 		result, err := api.CreateIssue(conn, fields)
@@ -253,6 +247,108 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Created ticket: %s\nURL: %s/browse/%s", key, conn.BaseURL, key)), nil
 	}
+}
+
+// --- update_ticket ---
+
+func updateTicketTool() mcp.Tool {
+	return mcp.NewTool("update_ticket",
+		mcp.WithDescription("Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee). "+
+			"Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use "+
+			"transition_ticket instead."),
+		mcp.WithString("ticket_key",
+			mcp.Required(),
+			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
+		),
+		mcp.WithString("summary",
+			mcp.Description("New ticket summary/title"),
+		),
+		mcp.WithString("description",
+			mcp.Description("New ticket description in markdown format (replaces the existing description)"),
+		),
+		mcp.WithString("priority",
+			mcp.Description("New priority name (e.g. High, Medium, Low)"),
+		),
+		mcp.WithString("labels",
+			mcp.Description("Comma-separated list of labels (replaces all existing labels)"),
+		),
+		mcp.WithString("assignee",
+			mcp.Description("Who to assign the ticket to: \"me\" for the current user, \"unassign\" to clear the assignee, "+
+				"or a Jira account ID"),
+		),
+	)
+}
+
+func handleUpdateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := req.RequireString("ticket_key")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		fields, err := buildUpdateFields(conn, req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if len(fields) == 0 {
+			return mcp.NewToolResultError("no fields provided to update"), nil
+		}
+		if err := api.UpdateIssue(conn, key, fields); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("updating %s: %v", key, err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("%s updated", key)), nil
+	}
+}
+
+// buildUpdateFields translates the update_ticket request arguments into a Jira fields payload.
+func buildUpdateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[string]any, error) {
+	fields := map[string]any{}
+	if summary := req.GetString("summary", ""); summary != "" {
+		fields["summary"] = summary
+	}
+	if desc := req.GetString("description", ""); desc != "" {
+		fields["description"] = markdownToADFBody(desc)
+	}
+	if priority := req.GetString("priority", ""); priority != "" {
+		fields["priority"] = map[string]any{"name": priority}
+	}
+	if labelsStr := req.GetString("labels", ""); labelsStr != "" {
+		fields["labels"] = splitLabels(labelsStr)
+	}
+	if assignee := req.GetString("assignee", ""); assignee != "" {
+		resolved, err := resolveAssignee(conn, assignee)
+		if err != nil {
+			return nil, err
+		}
+		fields["assignee"] = resolved
+	}
+	return fields, nil
+}
+
+// resolveAssignee turns the assignee argument into the Jira API's expected assignee field value.
+func resolveAssignee(conn api.JiraConnection, assignee string) (any, error) {
+	switch assignee {
+	case "unassign":
+		return nil, nil
+	case "me":
+		self, err := api.FetchMyself(conn)
+		if err != nil {
+			return nil, fmt.Errorf("resolving current user: %w", err)
+		}
+		return map[string]any{"accountId": self["accountId"]}, nil
+	default:
+		return map[string]any{"accountId": assignee}, nil
+	}
+}
+
+func splitLabels(labelsStr string) []string {
+	labels := strings.Split(labelsStr, ",")
+	trimmed := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if t := strings.TrimSpace(l); t != "" {
+			trimmed = append(trimmed, t)
+		}
+	}
+	return trimmed
 }
 
 // --- list_transitions ---

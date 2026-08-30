@@ -396,6 +396,44 @@ func TestFetchTransitions_404(t *testing.T) {
 	}
 }
 
+func TestUpdateIssue_Success(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/PROJ-1") {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decoding body: %v", err)
+		}
+		fields, _ := body["fields"].(map[string]any)
+		if fields["summary"] != "New summary" {
+			t.Errorf("got summary %v, want New summary", fields["summary"])
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	err := api.UpdateIssue(conn(srv.URL), "PROJ-1", map[string]any{"summary": "New summary"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateIssue_400(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"errorMessages":["invalid field"]}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	err := api.UpdateIssue(conn(srv.URL), "PROJ-1", map[string]any{"summary": "x"})
+	if err == nil {
+		t.Fatal("expected error for 400, got nil")
+	}
+}
+
 func TestTransitionIssue_Success(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

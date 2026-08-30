@@ -692,6 +692,7 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `last_comment` | Fetch the most recent comment on a ticket |
 | `add_comment` | Add a markdown comment to a ticket |
 | `create_ticket` | Create a new ticket with project, summary, description, priority, labels |
+| `update_ticket` | Edit summary, description, priority, labels, or assignee on an existing ticket |
 | `list_transitions` | List the workflow states a ticket can currently move to |
 | `transition_ticket` | Move a ticket to a new workflow state by name |
 | `confluence_browse` | List child pages under a Confluence page |

@@ -171,6 +171,25 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 	return result, executeRequest(req, &result)
 }
 
+// UpdateIssue edits fields on an existing Jira issue (e.g. summary, description,
+// priority, labels, assignee). Only the fields present in the map are changed.
+func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) error {
+	body, err := json.Marshal(map[string]any{"fields": fields})
+	if err != nil {
+		return err
+	}
+	req, err := newAuthRequest(conn, APIRequest{
+		Method:   http.MethodPut,
+		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey,
+		Body:     bytes.NewReader(body),
+	})
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return executeRequest(req, nil)
+}
+
 // AddComment posts a comment on an existing Jira issue.
 func AddComment(conn JiraConnection, issueKey string, body map[string]any) error {
 	payload, err := json.Marshal(map[string]any{"body": body})
