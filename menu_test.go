@@ -94,6 +94,56 @@ func TestRunMenu_WhoamiAction(t *testing.T) {
 	}
 }
 
+// mockPickTicket replaces pickTicketFn to return a fixed result.
+func mockPickTicket(res tui.PickTicketResult) func() {
+	old := pickTicketFn
+	pickTicketFn = func(tickets []tui.Ticket) (tui.PickTicketResult, error) { return res, nil }
+	return func() { pickTicketFn = old }
+}
+
+func TestPickTicketKey_PicksFromList(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0})
+	}))
+	defer srv.Close()
+	defer mockPickTicket(tui.PickTicketResult{Key: "PROJ-9"})()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	if got := pickTicketKey(conn, "Ticket key: "); got != "PROJ-9" {
+		t.Errorf("got %q, want PROJ-9", got)
+	}
+}
+
+func TestPickTicketKey_Cancelled(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0})
+	}))
+	defer srv.Close()
+	defer mockPickTicket(tui.PickTicketResult{Cancelled: true})()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	if got := pickTicketKey(conn, "Ticket key: "); got != "" {
+		t.Errorf("got %q, want empty string on cancel", got)
+	}
+}
+
+func TestPickTicketKey_ManualFallsBackToPrompt(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "total": 0})
+	}))
+	defer srv.Close()
+	defer mockPickTicket(tui.PickTicketResult{Manual: true})()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	// Stdin is empty/EOF in the test process, so the manual prompt reads "".
+	if got := pickTicketKey(conn, "Ticket key: "); got != "" {
+		t.Errorf("got %q, want empty string from empty manual input", got)
+	}
+}
+
 // mockShowTableQuickAction replaces showTableQuickActionsFn to return a fixed result once.
 func mockShowTableQuickAction(res tui.TableResult) func() {
 	old := showTableQuickActionsFn

@@ -404,8 +404,9 @@ func runState(args []string) {
 	fmt.Printf("%s moved to %s\n", key, picked.Name)
 }
 
-// pickTicketForState lists the user's open tasks in a TUI and returns the
-// selected ticket key, or "" if nothing was selected.
+// pickTicketForState lists the user's open tasks in a picker TUI (with an
+// option to type a key manually) and returns the chosen ticket key, or "" if
+// cancelled.
 func pickTicketForState(conn api.JiraConnection) string {
 	q := api.SearchQuery{
 		JQL:        buildMyTasksJQL(false),
@@ -416,19 +417,18 @@ func pickTicketForState(conn api.JiraConnection) string {
 	if err != nil {
 		fatal("fetching tasks: %v", err)
 	}
-	if len(result.Issues) == 0 {
-		fmt.Println("No open tasks found.")
-		return ""
-	}
-	selected, err := showTableFn(issuesToTickets(result.Issues))
+	res, err := pickTicketFn(issuesToTickets(result.Issues))
 	if err != nil {
 		fatal("TUI: %v", err)
 	}
-	if len(selected) == 0 {
-		fmt.Println("No ticket selected.")
+	if res.Cancelled {
+		fmt.Println("Cancelled.")
 		return ""
 	}
-	return selected[0].Key
+	if res.Manual {
+		return promptLine("Ticket key: ")
+	}
+	return res.Key
 }
 
 // transitionsToOptions converts API transitions to TUI selection options.

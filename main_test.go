@@ -210,6 +210,18 @@ func mockShowTableSelectAll() func() {
 	return func() { showTableFn = old }
 }
 
+// mockPickTicketFirst replaces pickTicketFn to auto-pick the first ticket in the list.
+func mockPickTicketFirst() func() {
+	old := pickTicketFn
+	pickTicketFn = func(tickets []tui.Ticket) (tui.PickTicketResult, error) {
+		if len(tickets) == 0 {
+			return tui.PickTicketResult{Cancelled: true}, nil
+		}
+		return tui.PickTicketResult{Key: tickets[0].Key}, nil
+	}
+	return func() { pickTicketFn = old }
+}
+
 // mockSelectTransition replaces selectTransitionFn to auto-pick the given transition by name.
 // If name is "", it cancels instead.
 func mockSelectTransition(name string) func() {
@@ -560,7 +572,7 @@ func TestRunState_NoKeyPicksFromMyTasks(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer mockCreds(srv.URL)()
-	defer mockShowTableSelectAll()()
+	defer mockPickTicketFirst()()
 	defer mockSelectTransition("Done")()
 
 	out := captureStdout(func() { runState([]string{}) })

@@ -53,6 +53,34 @@ var selectMenuOptionFn = tui.SelectMenuOption
 // quick actions; replaced in tests.
 var showTableQuickActionsFn = tui.ShowTableWithQuickActions
 
+// pickTicketFn launches the ticket-picker TUI; replaced in tests.
+var pickTicketFn = tui.PickTicket
+
+// pickTicketKey shows the user's open tasks in a picker TUI, with an option to
+// type a key manually for tickets not in the list. Returns "" if the user
+// cancelled. Every menu action that needs a ticket key uses this instead of a
+// bare text prompt, so the common case (one of your own tasks) never requires
+// typing a key by hand.
+func pickTicketKey(conn api.JiraConnection, label string) string {
+	tickets, err := fetchTicketsByJQL(conn, buildMyTasksJQL(false))
+	if err != nil {
+		printMenuErr("fetching your tasks: %v", err)
+		return promptLine(label)
+	}
+	res, err := pickTicketFn(tickets)
+	if err != nil {
+		printMenuErr("TUI: %v", err)
+		return ""
+	}
+	if res.Cancelled {
+		return ""
+	}
+	if res.Manual {
+		return promptLine(label)
+	}
+	return res.Key
+}
+
 func menuActions() []menuAction {
 	return []menuAction{
 		{"My Tasks", "List open tasks assigned to you", menuMyTasks},
@@ -220,7 +248,11 @@ func menuTransitionTicket(conn api.JiraConnection, key string) {
 }
 
 func menuDescribe(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	issue, err := api.FetchIssue(conn, key)
 	if err != nil {
 		printMenuErr("fetching %s: %v", key, err)
@@ -230,7 +262,11 @@ func menuDescribe(conn api.JiraConnection) {
 }
 
 func menuUpdateFields(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	fields := map[string]any{}
 	if v := promptLine("New summary (blank to skip): "); v != "" {
 		fields["summary"] = v
@@ -253,7 +289,11 @@ func menuUpdateFields(conn api.JiraConnection) {
 }
 
 func menuAddComment(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	comment := promptLine("Comment: ")
 	if comment == "" {
 		printMenuErr("comment is empty")
@@ -267,7 +307,11 @@ func menuAddComment(conn api.JiraConnection) {
 }
 
 func menuAddWorklog(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	timeSpent := promptLine("Time spent (e.g. 2h, 1d 3h): ")
 	if timeSpent == "" {
 		printMenuErr("time spent is required")
@@ -285,7 +329,11 @@ func menuAddWorklog(conn api.JiraConnection) {
 }
 
 func menuAttach(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	path := promptLine("File path: ")
 	if _, err := api.AddAttachment(conn, key, path); err != nil {
 		printMenuErr("attaching %s to %s: %v", path, key, err)
@@ -295,7 +343,11 @@ func menuAttach(conn api.JiraConnection) {
 }
 
 func menuCreateSubtask(conn api.JiraConnection) {
-	parentKey := promptLine("Parent ticket key: ")
+	parentKey := pickTicketKey(conn, "Parent ticket key: ")
+	if parentKey == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	summary := promptLine("Subtask summary: ")
 	if summary == "" {
 		printMenuErr("summary is required")
@@ -328,8 +380,16 @@ func menuLinkTickets(conn api.JiraConnection) {
 	for _, t := range types {
 		fmt.Printf("  - %s\n", t.Name)
 	}
-	outward := promptLine("Outward ticket key: ")
-	inward := promptLine("Inward ticket key: ")
+	outward := pickTicketKey(conn, "Outward ticket key: ")
+	if outward == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
+	inward := pickTicketKey(conn, "Inward ticket key: ")
+	if inward == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	linkType := promptLine("Link type: ")
 	if err := api.LinkIssues(conn, outward, inward, linkType); err != nil {
 		printMenuErr("linking: %v", err)
@@ -339,8 +399,16 @@ func menuLinkTickets(conn api.JiraConnection) {
 }
 
 func menuUnlinkTickets(conn api.JiraConnection) {
-	key := promptLine("Ticket key: ")
-	other := promptLine("Other ticket key: ")
+	key := pickTicketKey(conn, "Ticket key: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
+	other := pickTicketKey(conn, "Other ticket key: ")
+	if other == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	if err := api.UnlinkIssues(conn, key, other); err != nil {
 		printMenuErr("unlinking: %v", err)
 		return
@@ -349,7 +417,11 @@ func menuUnlinkTickets(conn api.JiraConnection) {
 }
 
 func menuCloneTicket(conn api.JiraConnection) {
-	sourceKey := promptLine("Source ticket key: ")
+	sourceKey := pickTicketKey(conn, "Source ticket key: ")
+	if sourceKey == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	issue, err := api.FetchIssue(conn, sourceKey)
 	if err != nil {
 		printMenuErr("fetching %s: %v", sourceKey, err)
@@ -371,7 +443,11 @@ func menuCloneTicket(conn api.JiraConnection) {
 }
 
 func menuDeleteTicket(conn api.JiraConnection) {
-	key := promptLine("Ticket key to delete: ")
+	key := pickTicketKey(conn, "Ticket key to delete: ")
+	if key == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	if !promptConfirm(fmt.Sprintf("Permanently delete %s?", key)) {
 		fmt.Println("Cancelled.")
 		return
@@ -464,7 +540,11 @@ func menuListVersions(conn api.JiraConnection) {
 }
 
 func menuListEpicIssues(conn api.JiraConnection) {
-	epicKey := promptLine("Epic key: ")
+	epicKey := pickTicketKey(conn, "Epic key: ")
+	if epicKey == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	result, err := api.ListEpicIssues(conn, epicKey)
 	if err != nil {
 		printMenuErr("listing epic issues: %v", err)
@@ -495,7 +575,11 @@ func menuCreateEpic(conn api.JiraConnection) {
 }
 
 func menuAddToEpic(conn api.JiraConnection) {
-	epicKey := promptLine("Epic key: ")
+	epicKey := pickTicketKey(conn, "Epic key: ")
+	if epicKey == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
 	keys := splitCommaList(promptLine("Ticket keys, comma-separated: "))
 	if len(keys) == 0 {
 		printMenuErr("at least one ticket key is required")
@@ -522,7 +606,7 @@ func menuRemoveFromEpic(conn api.JiraConnection) {
 }
 
 func menuOpen(conn api.JiraConnection) {
-	key := promptLine("Ticket key (blank to open Jira home): ")
+	key := pickTicketKey(conn, "Ticket key (blank to open Jira home): ")
 	target := conn.BaseURL
 	if key != "" {
 		target = conn.BaseURL + "/browse/" + key

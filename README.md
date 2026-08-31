@@ -246,7 +246,9 @@ Opens a persistent home-screen TUI covering the full set of ticket operations ji
 jira-thing menu
 ```
 
-Pick an action from the list; you'll be prompted for whatever it needs (ticket key, JQL, etc.) directly in the terminal. After an action finishes, press enter to return to the menu. Unlike the one-shot commands, a failed action (bad key, invalid JQL) reports the error and drops you back at the menu instead of exiting the program.
+Pick an action from the list; you'll be prompted for whatever it needs directly in the terminal. After an action finishes, press enter to return to the menu. Unlike the one-shot commands, a failed action (bad key, invalid JQL) reports the error and drops you back at the menu instead of exiting the program.
+
+Every action that needs a ticket key (Update Fields, Change State, Add Comment, Clone, Delete, Link/Unlink, etc.) opens a picker pre-populated with your open tasks instead of a bare text prompt — pick one with `enter`, or select the first row (**✎ Type a ticket key manually…**) to type any key, including tickets not assigned to you.
 
 | Keys | Action |
 |---|---|
