@@ -102,21 +102,19 @@ func promptConfirm(label string) bool {
 }
 
 func menuMyTasks(conn api.JiraConnection) {
-	q := api.SearchQuery{
-		JQL:        buildMyTasksJQL(false),
-		Fields:     []string{"summary", "status", "priority", "updated"},
-		MaxResults: 100,
+	fetch := func() ([]tui.Ticket, error) {
+		return fetchTicketsByJQL(conn, buildMyTasksJQL(false))
 	}
-	result, err := api.SearchIssues(conn, q)
+	tickets, err := fetch()
 	if err != nil {
 		printMenuErr("fetching tasks: %v", err)
 		return
 	}
-	if len(result.Issues) == 0 {
+	if len(tickets) == 0 {
 		fmt.Println("No tasks found.")
 		return
 	}
-	browseWithQuickActions(conn, issuesToTickets(result.Issues))
+	browseWithQuickActions(conn, tickets, fetch)
 }
 
 func menuSearch(conn api.JiraConnection) {
@@ -125,26 +123,37 @@ func menuSearch(conn api.JiraConnection) {
 		printMenuErr("JQL is required")
 		return
 	}
+	fetch := func() ([]tui.Ticket, error) { return fetchTicketsByJQL(conn, jql) }
+	tickets, err := fetch()
+	if err != nil {
+		printMenuErr("searching: %v", err)
+		return
+	}
+	if len(tickets) == 0 {
+		fmt.Println("No tickets found.")
+		return
+	}
+	browseWithQuickActions(conn, tickets, fetch)
+}
+
+// fetchTicketsByJQL runs a JQL search and converts the results to tui.Ticket rows.
+func fetchTicketsByJQL(conn api.JiraConnection, jql string) ([]tui.Ticket, error) {
 	result, err := api.SearchIssues(conn, api.SearchQuery{
 		JQL:        jql,
 		Fields:     []string{"summary", "status", "priority", "updated"},
 		MaxResults: 100,
 	})
 	if err != nil {
-		printMenuErr("searching: %v", err)
-		return
+		return nil, err
 	}
-	if len(result.Issues) == 0 {
-		fmt.Println("No tickets found.")
-		return
-	}
-	browseWithQuickActions(conn, issuesToTickets(result.Issues))
+	return issuesToTickets(result.Issues), nil
 }
 
 // browseWithQuickActions shows tickets in the interactive table and performs
-// whichever quick action (view/open/transition) the user triggered on exit.
-func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket) {
-	res, err := showTableQuickActionsFn(tickets)
+// whichever quick action (view/open/transition/copy) the user triggered on exit.
+// fetch, if non-nil, backs the table's ctrl+r refresh.
+func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket, fetch tui.TicketFetcher) {
+	res, err := showTableQuickActionsFn(tickets, fetch)
 	if err != nil {
 		printMenuErr("TUI: %v", err)
 		return
@@ -166,6 +175,19 @@ func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket) {
 		fmt.Printf("Opened %s\n", target)
 	case tui.ActionTransition:
 		menuTransitionTicket(conn, res.Key)
+	case tui.ActionCopyKey:
+		if err := copyToClipboard(res.Key); err != nil {
+			printMenuErr("copying key: %v", err)
+			return
+		}
+		fmt.Printf("Copied %s to clipboard\n", res.Key)
+	case tui.ActionCopyURL:
+		target := conn.BaseURL + "/browse/" + res.Key
+		if err := copyToClipboard(target); err != nil {
+			printMenuErr("copying url: %v", err)
+			return
+		}
+		fmt.Printf("Copied %s to clipboard\n", target)
 	}
 }
 

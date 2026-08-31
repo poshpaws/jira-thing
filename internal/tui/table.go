@@ -37,6 +37,8 @@ const (
 	ActionView       TableActionKind = "view"
 	ActionOpen       TableActionKind = "open"
 	ActionTransition TableActionKind = "transition"
+	ActionCopyKey    TableActionKind = "copy_key"
+	ActionCopyURL    TableActionKind = "copy_url"
 )
 
 // TableResult is the outcome of ShowTableWithQuickActions: either a normal
@@ -48,6 +50,16 @@ type TableResult struct {
 	Key      string
 }
 
+// TicketFetcher reloads the tickets shown in the table, e.g. by re-running the
+// search that originally produced them. Used for the ctrl+r refresh action.
+type TicketFetcher func() ([]Ticket, error)
+
+// refreshMsg carries the result of an async refresh triggered by ctrl+r.
+type refreshMsg struct {
+	tickets []Ticket
+	err     error
+}
+
 // model is the bubbletea model for the ticket table.
 type model struct {
 	table               table.Model
@@ -57,6 +69,9 @@ type model struct {
 	quickActionsEnabled bool
 	quickAction         TableActionKind
 	quickKey            string
+	fetcher             TicketFetcher
+	refreshing          bool
+	refreshErr          error
 }
 
 // ShowTable launches the interactive table TUI. Returns selected tickets.
@@ -77,11 +92,13 @@ func ShowTable(tickets []Ticket) ([]Ticket, error) {
 	return final.selected, nil
 }
 
-// ShowTableWithQuickActions launches the interactive table TUI with three extra
+// ShowTableWithQuickActions launches the interactive table TUI with extra
 // single-key actions available on the ticket under the cursor: v (view), o
-// (open in browser), m (transition). The caller performs the actual action
-// after the TUI exits, based on the returned TableResult.
-func ShowTableWithQuickActions(tickets []Ticket) (TableResult, error) {
+// (open in browser), m (transition), c (copy URL), ctrl+k (copy key). If
+// fetcher is non-nil, ctrl+r re-runs it and reloads the table in place.
+// The caller performs the actual action after the TUI exits, based on the
+// returned TableResult.
+func ShowTableWithQuickActions(tickets []Ticket, fetcher TicketFetcher) (TableResult, error) {
 	if len(tickets) == 0 {
 		fmt.Println("No tickets to display.")
 		return TableResult{}, nil
@@ -89,6 +106,7 @@ func ShowTableWithQuickActions(tickets []Ticket) (TableResult, error) {
 
 	m := newModel(tickets)
 	m.quickActionsEnabled = true
+	m.fetcher = fetcher
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
@@ -100,6 +118,10 @@ func ShowTableWithQuickActions(tickets []Ticket) (TableResult, error) {
 }
 
 func newModel(tickets []Ticket) model {
+	return model{table: newTicketTable(tickets), tickets: tickets}
+}
+
+func newTicketTable(tickets []Ticket) table.Model {
 	columns := []table.Column{
 		{Title: "Key", Width: colWidthKey},
 		{Title: "Status", Width: colWidthStat},
@@ -129,14 +151,15 @@ func newModel(tickets []Ticket) model {
 		Foreground(lipgloss.Color("229")).
 		Background(lipgloss.Color("57"))
 	t.SetStyles(s)
-
-	return model{table: t, tickets: tickets}
+	return t
 }
 
 func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case refreshMsg:
+		return m.handleRefresh(msg), nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
@@ -147,16 +170,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.quitting = true
 			return m, tea.Quit
-		case "v", "o", "m":
+		case "v", "o", "m", "c", "ctrl+k":
 			if action, ok := quickActionFor(msg.String()); m.quickActionsEnabled && ok {
 				m.recordQuickAction(action)
 				return m, tea.Quit
+			}
+		case "ctrl+r":
+			if m.quickActionsEnabled && m.fetcher != nil && !m.refreshing {
+				m.refreshing = true
+				return m, m.refreshCmd()
 			}
 		}
 	}
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+// refreshCmd asynchronously re-runs the fetcher and reports the result as a refreshMsg.
+func (m model) refreshCmd() tea.Cmd {
+	fetcher := m.fetcher
+	return func() tea.Msg {
+		tickets, err := fetcher()
+		return refreshMsg{tickets: tickets, err: err}
+	}
+}
+
+// handleRefresh applies the outcome of a ctrl+r refresh, rebuilding the table
+// on success or recording the error for display otherwise.
+func (m model) handleRefresh(msg refreshMsg) model {
+	m.refreshing = false
+	if msg.err != nil {
+		m.refreshErr = msg.err
+		return m
+	}
+	m.refreshErr = nil
+	m.tickets = msg.tickets
+	m.selected = nil
+	m.table = newTicketTable(msg.tickets)
+	return m
 }
 
 // quickActionFor maps a quick-action keypress to its TableActionKind.
@@ -168,6 +220,10 @@ func quickActionFor(key string) (TableActionKind, bool) {
 		return ActionOpen, true
 	case "m":
 		return ActionTransition, true
+	case "c":
+		return ActionCopyURL, true
+	case "ctrl+k":
+		return ActionCopyKey, true
 	}
 	return ActionNone, false
 }
@@ -230,12 +286,20 @@ func (m model) View() string {
 }
 
 func (m model) tableView() string {
-	help := "\n  ↑/↓ navigate • enter/space select • s save & quit"
+	help := "\n  ↑/↓/j/k navigate • g/G top/bottom • enter/space select • s save & quit"
 	if m.quickActionsEnabled {
-		help += " • v view • o open • m transition"
+		help += " • v view • o open • m transition • c copy url • ctrl+k copy key"
+		if m.fetcher != nil {
+			help += " • ctrl+r refresh"
+		}
 	}
 	help += " • q quit\n"
 	status := fmt.Sprintf("  %d ticket(s) selected", len(m.selected))
+	if m.refreshing {
+		status += "  (refreshing...)"
+	} else if m.refreshErr != nil {
+		status += fmt.Sprintf("  (refresh failed: %v)", m.refreshErr)
+	}
 	return "\n" + m.table.View() + "\n" + status + help
 }
 

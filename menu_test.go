@@ -97,7 +97,9 @@ func TestRunMenu_WhoamiAction(t *testing.T) {
 // mockShowTableQuickAction replaces showTableQuickActionsFn to return a fixed result once.
 func mockShowTableQuickAction(res tui.TableResult) func() {
 	old := showTableQuickActionsFn
-	showTableQuickActionsFn = func(tickets []tui.Ticket) (tui.TableResult, error) { return res, nil }
+	showTableQuickActionsFn = func(tickets []tui.Ticket, fetch tui.TicketFetcher) (tui.TableResult, error) {
+		return res, nil
+	}
 	return func() { showTableQuickActionsFn = old }
 }
 
@@ -115,7 +117,7 @@ func TestBrowseWithQuickActions_ViewFetchesAndRenders(t *testing.T) {
 	defer mockShowTableQuickAction(tui.TableResult{Action: tui.ActionView, Key: "PROJ-1"})()
 
 	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
-	out := captureStdout(func() { browseWithQuickActions(conn, nil) })
+	out := captureStdout(func() { browseWithQuickActions(conn, nil, nil) })
 	if !strings.Contains(out, "PROJ-1") {
 		t.Errorf("expected rendered ticket, got: %s", out)
 	}
@@ -135,7 +137,7 @@ func TestBrowseWithQuickActions_TransitionRunsFlow(t *testing.T) {
 	defer mockSelectTransition("Done")()
 
 	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
-	out := captureStdout(func() { browseWithQuickActions(conn, nil) })
+	out := captureStdout(func() { browseWithQuickActions(conn, nil, nil) })
 	if !strings.Contains(out, "PROJ-1 moved to Done") {
 		t.Errorf("expected transition confirmation, got: %s", out)
 	}
@@ -149,7 +151,7 @@ func TestBrowseWithQuickActions_NoActionIsQuiet(t *testing.T) {
 	defer mockShowTableQuickAction(tui.TableResult{Action: tui.ActionNone})()
 
 	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
-	browseWithQuickActions(conn, nil)
+	browseWithQuickActions(conn, nil, nil)
 }
 
 func TestRunMenu_CancelledImmediately(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // runOpen opens a ticket (or the Jira base URL, if no key given) in the default browser.
@@ -36,4 +37,20 @@ func openBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url) // #nosec G204 -- see above
 	}
 	return cmd.Start()
+}
+
+// copyToClipboard writes text to the OS clipboard. On Linux this requires
+// xclip (X11) to be installed; there's no dependency-free universal fallback.
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	}
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }

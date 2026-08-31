@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -77,6 +78,8 @@ func TestQuickActionFor(t *testing.T) {
 		{"v", true, ActionView},
 		{"o", true, ActionOpen},
 		{"m", true, ActionTransition},
+		{"c", true, ActionCopyURL},
+		{"ctrl+k", true, ActionCopyKey},
 		{"z", false, ActionNone},
 	}
 	for _, tt := range tests {
@@ -109,8 +112,43 @@ func TestRecordQuickAction_SetsKeyFromCursor(t *testing.T) {
 	}
 }
 
+func TestHandleRefresh_Success(t *testing.T) {
+	m := newModel([]Ticket{{Key: "PROJ-1"}})
+	m.refreshing = true
+	m.selected = []Ticket{{Key: "PROJ-1"}}
+
+	updated := m.handleRefresh(refreshMsg{tickets: []Ticket{{Key: "PROJ-2"}, {Key: "PROJ-3"}}})
+
+	if updated.refreshing {
+		t.Error("expected refreshing to be cleared")
+	}
+	if len(updated.tickets) != 2 || updated.tickets[0].Key != "PROJ-2" {
+		t.Errorf("unexpected tickets after refresh: %+v", updated.tickets)
+	}
+	if len(updated.selected) != 0 {
+		t.Error("expected selection to be cleared on refresh")
+	}
+}
+
+func TestHandleRefresh_Error(t *testing.T) {
+	m := newModel([]Ticket{{Key: "PROJ-1"}})
+	m.refreshing = true
+
+	updated := m.handleRefresh(refreshMsg{err: fmt.Errorf("boom")})
+
+	if updated.refreshing {
+		t.Error("expected refreshing to be cleared even on error")
+	}
+	if updated.refreshErr == nil {
+		t.Error("expected refreshErr to be set")
+	}
+	if len(updated.tickets) != 1 {
+		t.Error("expected tickets to be left unchanged on refresh error")
+	}
+}
+
 func TestShowTableWithQuickActions_EmptyReturnsZeroResult(t *testing.T) {
-	result, err := ShowTableWithQuickActions(nil)
+	result, err := ShowTableWithQuickActions(nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

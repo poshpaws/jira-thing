@@ -254,13 +254,18 @@ Pick an action from the list; you'll be prompted for whatever it needs (ticket k
 | `enter` | Select |
 | `q` / `esc` / `ctrl+c` | Quit the menu |
 
-**My Tasks** and **Search** open the ticket list in an interactive table with three extra quick-action keys on the highlighted row, so you don't need to retype the key into a follow-up prompt:
+**My Tasks** and **Search** open the ticket list in an interactive table with quick-action keys on the highlighted row, so you don't need to retype the key into a follow-up prompt. Navigation supports vim-style keys (`j`/`k`, `g`/`G` for top/bottom) in addition to arrows, courtesy of the underlying table widget.
 
 | Key | Action |
 |---|---|
 | `v` | View the ticket's full details |
 | `o` | Open the ticket in the browser |
 | `m` | Transition the ticket to a new state |
+| `c` | Copy the ticket's URL to the clipboard |
+| `ctrl+k` | Copy the ticket key to the clipboard |
+| `ctrl+r` | Refresh the list (re-runs the same search) |
+
+Clipboard copy uses `pbcopy` (macOS), `clip` (Windows), or `xclip` (Linux — must be installed separately; there's no dependency-free universal fallback).
 
 ---
 
