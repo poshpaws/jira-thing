@@ -68,6 +68,57 @@ func TestFormatSelected_Empty(t *testing.T) {
 	}
 }
 
+func TestQuickActionFor(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantOK   bool
+		wantKind TableActionKind
+	}{
+		{"v", true, ActionView},
+		{"o", true, ActionOpen},
+		{"m", true, ActionTransition},
+		{"z", false, ActionNone},
+	}
+	for _, tt := range tests {
+		kind, ok := quickActionFor(tt.key)
+		if ok != tt.wantOK || kind != tt.wantKind {
+			t.Errorf("quickActionFor(%q) = (%v, %v), want (%v, %v)", tt.key, kind, ok, tt.wantKind, tt.wantOK)
+		}
+	}
+}
+
+func TestRecordQuickAction_SetsKeyFromCursor(t *testing.T) {
+	tickets := []Ticket{
+		{Key: "PROJ-101"},
+		{Key: "PROJ-102"},
+	}
+	m := newModel(tickets)
+	m.quickActionsEnabled = true
+	m.table.SetCursor(1)
+
+	m.recordQuickAction(ActionOpen)
+
+	if m.quickAction != ActionOpen {
+		t.Errorf("quickAction = %v, want %v", m.quickAction, ActionOpen)
+	}
+	if m.quickKey != "PROJ-102" {
+		t.Errorf("quickKey = %q, want PROJ-102", m.quickKey)
+	}
+	if !m.quitting {
+		t.Error("expected quitting to be set")
+	}
+}
+
+func TestShowTableWithQuickActions_EmptyReturnsZeroResult(t *testing.T) {
+	result, err := ShowTableWithQuickActions(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Action != ActionNone || len(result.Selected) != 0 {
+		t.Errorf("expected zero-value result for empty tickets, got %+v", result)
+	}
+}
+
 func TestFormatSelected_WithTickets(t *testing.T) {
 	tickets := []Ticket{
 		{Key: "PROJ-101", Summary: "Fix login"},

@@ -254,6 +254,14 @@ Pick an action from the list; you'll be prompted for whatever it needs (ticket k
 | `enter` | Select |
 | `q` / `esc` / `ctrl+c` | Quit the menu |
 
+**My Tasks** and **Search** open the ticket list in an interactive table with three extra quick-action keys on the highlighted row, so you don't need to retype the key into a follow-up prompt:
+
+| Key | Action |
+|---|---|
+| `v` | View the ticket's full details |
+| `o` | Open the ticket in the browser |
+| `m` | Transition the ticket to a new state |
+
 ---
 
 ### `list` — search with jira-cli-style filter flags
@@ -314,6 +322,17 @@ jira-thing epic remove <ISSUE-1> [ISSUE-2 ...]           # remove issues from th
 ```bash
 jira-thing open PROJ-101   # opens the ticket
 jira-thing open            # opens the Jira base URL
+```
+
+---
+
+### `completion` — shell completion
+
+Prints a completion script for bash or zsh, covering top-level command names and aliases.
+
+```bash
+jira-thing completion bash >> ~/.bashrc
+jira-thing completion zsh > "${fpath[1]}/_jira-thing"
 ```
 
 ---

@@ -49,6 +49,10 @@ func runMenu() {
 // selectMenuOptionFn launches the menu-picker TUI; replaced in tests.
 var selectMenuOptionFn = tui.SelectMenuOption
 
+// showTableQuickActionsFn launches the ticket table with view/open/transition
+// quick actions; replaced in tests.
+var showTableQuickActionsFn = tui.ShowTableWithQuickActions
+
 func menuActions() []menuAction {
 	return []menuAction{
 		{"My Tasks", "List open tasks assigned to you", menuMyTasks},
@@ -97,7 +101,23 @@ func promptConfirm(label string) bool {
 	return answer == "y" || answer == "yes"
 }
 
-func menuMyTasks(api.JiraConnection) { runMyTasks(nil) }
+func menuMyTasks(conn api.JiraConnection) {
+	q := api.SearchQuery{
+		JQL:        buildMyTasksJQL(false),
+		Fields:     []string{"summary", "status", "priority", "updated"},
+		MaxResults: 100,
+	}
+	result, err := api.SearchIssues(conn, q)
+	if err != nil {
+		printMenuErr("fetching tasks: %v", err)
+		return
+	}
+	if len(result.Issues) == 0 {
+		fmt.Println("No tasks found.")
+		return
+	}
+	browseWithQuickActions(conn, issuesToTickets(result.Issues))
+}
 
 func menuSearch(conn api.JiraConnection) {
 	jql := promptLine("JQL: ")
@@ -118,7 +138,63 @@ func menuSearch(conn api.JiraConnection) {
 		fmt.Println("No tickets found.")
 		return
 	}
-	printTasks(result.Issues)
+	browseWithQuickActions(conn, issuesToTickets(result.Issues))
+}
+
+// browseWithQuickActions shows tickets in the interactive table and performs
+// whichever quick action (view/open/transition) the user triggered on exit.
+func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket) {
+	res, err := showTableQuickActionsFn(tickets)
+	if err != nil {
+		printMenuErr("TUI: %v", err)
+		return
+	}
+	switch res.Action {
+	case tui.ActionView:
+		issue, err := api.FetchIssue(conn, res.Key)
+		if err != nil {
+			printMenuErr("fetching %s: %v", res.Key, err)
+			return
+		}
+		renderDescribe(issue)
+	case tui.ActionOpen:
+		target := conn.BaseURL + "/browse/" + res.Key
+		if err := openBrowser(target); err != nil {
+			printMenuErr("opening browser: %v", err)
+			return
+		}
+		fmt.Printf("Opened %s\n", target)
+	case tui.ActionTransition:
+		menuTransitionTicket(conn, res.Key)
+	}
+}
+
+// menuTransitionTicket runs the same transition flow as the `state` command,
+// inline for a ticket key already known (e.g. from a quick action).
+func menuTransitionTicket(conn api.JiraConnection, key string) {
+	transitions, err := api.FetchTransitions(conn, key)
+	if err != nil {
+		printMenuErr("fetching transitions for %s: %v", key, err)
+		return
+	}
+	if len(transitions) == 0 {
+		fmt.Printf("No transitions available for %s.\n", key)
+		return
+	}
+	picked, cancelled, err := selectTransitionFn(key, transitionsToOptions(transitions))
+	if err != nil {
+		printMenuErr("TUI: %v", err)
+		return
+	}
+	if cancelled {
+		fmt.Println("Cancelled.")
+		return
+	}
+	if err := api.TransitionIssue(conn, key, picked.ID); err != nil {
+		printMenuErr("transitioning %s: %v", key, err)
+		return
+	}
+	fmt.Printf("%s moved to %s\n", key, picked.Name)
 }
 
 func menuDescribe(conn api.JiraConnection) {

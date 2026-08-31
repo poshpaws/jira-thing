@@ -28,12 +28,35 @@ type Ticket struct {
 	Summary  string
 }
 
+// TableActionKind identifies a quick action triggered from the ticket table,
+// as opposed to the normal multi-select-then-quit flow.
+type TableActionKind string
+
+const (
+	ActionNone       TableActionKind = ""
+	ActionView       TableActionKind = "view"
+	ActionOpen       TableActionKind = "open"
+	ActionTransition TableActionKind = "transition"
+)
+
+// TableResult is the outcome of ShowTableWithQuickActions: either a normal
+// selection (Action == ActionNone) or a quick action against the ticket under
+// the cursor when the key was pressed.
+type TableResult struct {
+	Selected []Ticket
+	Action   TableActionKind
+	Key      string
+}
+
 // model is the bubbletea model for the ticket table.
 type model struct {
-	table    table.Model
-	tickets  []Ticket
-	selected []Ticket
-	quitting bool
+	table               table.Model
+	tickets             []Ticket
+	selected            []Ticket
+	quitting            bool
+	quickActionsEnabled bool
+	quickAction         TableActionKind
+	quickKey            string
 }
 
 // ShowTable launches the interactive table TUI. Returns selected tickets.
@@ -52,6 +75,28 @@ func ShowTable(tickets []Ticket) ([]Ticket, error) {
 
 	final := result.(model)
 	return final.selected, nil
+}
+
+// ShowTableWithQuickActions launches the interactive table TUI with three extra
+// single-key actions available on the ticket under the cursor: v (view), o
+// (open in browser), m (transition). The caller performs the actual action
+// after the TUI exits, based on the returned TableResult.
+func ShowTableWithQuickActions(tickets []Ticket) (TableResult, error) {
+	if len(tickets) == 0 {
+		fmt.Println("No tickets to display.")
+		return TableResult{}, nil
+	}
+
+	m := newModel(tickets)
+	m.quickActionsEnabled = true
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return TableResult{}, fmt.Errorf("running TUI: %w", err)
+	}
+
+	final := result.(model)
+	return TableResult{Selected: final.selected, Action: final.quickAction, Key: final.quickKey}, nil
 }
 
 func newModel(tickets []Ticket) model {
@@ -102,11 +147,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.quitting = true
 			return m, tea.Quit
+		case "v", "o", "m":
+			if action, ok := quickActionFor(msg.String()); m.quickActionsEnabled && ok {
+				m.recordQuickAction(action)
+				return m, tea.Quit
+			}
 		}
 	}
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+// quickActionFor maps a quick-action keypress to its TableActionKind.
+func quickActionFor(key string) (TableActionKind, bool) {
+	switch key {
+	case "v":
+		return ActionView, true
+	case "o":
+		return ActionOpen, true
+	case "m":
+		return ActionTransition, true
+	}
+	return ActionNone, false
+}
+
+// recordQuickAction marks the ticket under the cursor as the target of a quick action.
+func (m *model) recordQuickAction(action TableActionKind) {
+	cursor := m.table.Cursor()
+	if cursor < len(m.tickets) {
+		m.quickKey = m.tickets[cursor].Key
+	}
+	m.quickAction = action
+	m.quitting = true
 }
 
 func (m *model) toggleSelection() {
@@ -157,7 +230,11 @@ func (m model) View() string {
 }
 
 func (m model) tableView() string {
-	help := "\n  ↑/↓ navigate • enter/space select • s save & quit • q quit\n"
+	help := "\n  ↑/↓ navigate • enter/space select • s save & quit"
+	if m.quickActionsEnabled {
+		help += " • v view • o open • m transition"
+	}
+	help += " • q quit\n"
 	status := fmt.Sprintf("  %d ticket(s) selected", len(m.selected))
 	return "\n" + m.table.View() + "\n" + status + help
 }

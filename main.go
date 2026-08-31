@@ -100,6 +100,8 @@ func main() {
 		runServeMCP()
 	case "diagnose", "diag":
 		runDiagnose(os.Args[2:])
+	case "completion":
+		runCompletion(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -140,6 +142,7 @@ func printUsage() {
 		{"epic add <EPIC-KEY> <KEY...>", "Add issues to an epic"},
 		{"epic remove <KEY...>", "Remove issues from their epic"},
 		{"open|o [TICKET-KEY]", "Open a ticket (or Jira) in the browser"},
+		{"completion <bash|zsh>", "Print a shell completion script"},
 		{"last-comment|lc <TICKET-KEY>", "Show last comment as markdown"},
 		{"attach|at <TICKET-KEY> <file>", "Attach a file to a ticket"},
 		{"describe|de <TICKET-KEY>", "Dump full ticket as rendered markdown"},

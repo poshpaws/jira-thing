@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"jira-thing/internal/api"
 	"jira-thing/internal/tui"
 )
 
@@ -91,6 +92,64 @@ func TestRunMenu_WhoamiAction(t *testing.T) {
 	if !strings.Contains(out, "Test User") {
 		t.Errorf("expected whoami output, got: %s", out)
 	}
+}
+
+// mockShowTableQuickAction replaces showTableQuickActionsFn to return a fixed result once.
+func mockShowTableQuickAction(res tui.TableResult) func() {
+	old := showTableQuickActionsFn
+	showTableQuickActionsFn = func(tickets []tui.Ticket) (tui.TableResult, error) { return res, nil }
+	return func() { showTableQuickActionsFn = old }
+}
+
+func TestBrowseWithQuickActions_ViewFetchesAndRenders(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"key": "PROJ-1",
+			"fields": map[string]any{
+				"summary": "Test ticket",
+			},
+		})
+	}))
+	defer srv.Close()
+	defer mockShowTableQuickAction(tui.TableResult{Action: tui.ActionView, Key: "PROJ-1"})()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	out := captureStdout(func() { browseWithQuickActions(conn, nil) })
+	if !strings.Contains(out, "PROJ-1") {
+		t.Errorf("expected rendered ticket, got: %s", out)
+	}
+}
+
+func TestBrowseWithQuickActions_TransitionRunsFlow(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"transitions": []map[string]any{
+				{"id": "21", "name": "Done", "to": map[string]any{"id": "5", "name": "Done"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	defer mockShowTableQuickAction(tui.TableResult{Action: tui.ActionTransition, Key: "PROJ-1"})()
+	defer mockSelectTransition("Done")()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	out := captureStdout(func() { browseWithQuickActions(conn, nil) })
+	if !strings.Contains(out, "PROJ-1 moved to Done") {
+		t.Errorf("expected transition confirmation, got: %s", out)
+	}
+}
+
+func TestBrowseWithQuickActions_NoActionIsQuiet(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("no API calls expected when no quick action is taken")
+	}))
+	defer srv.Close()
+	defer mockShowTableQuickAction(tui.TableResult{Action: tui.ActionNone})()
+
+	conn := api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: testAPIToken}
+	browseWithQuickActions(conn, nil)
 }
 
 func TestRunMenu_CancelledImmediately(t *testing.T) {
