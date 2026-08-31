@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/tui"
 )
 
@@ -101,7 +102,8 @@ func menuActions() []menuAction {
 		{"Sprints", "List sprints on a board and their issues", menuListSprints},
 		{"Projects", "List accessible projects", menuListProjects},
 		{"Releases", "List a project's releases/versions", menuListVersions},
-		{"List Epic Issues", "List the issues under an epic", menuListEpicIssues},
+		{"List Epics", "List every epic in a project", menuListEpics},
+		{"Describe Epic", "List the issues under an epic", menuDescribeEpic},
 		{"Create Epic", "Create a new epic", menuCreateEpic},
 		{"Add to Epic", "Add issues to an epic", menuAddToEpic},
 		{"Remove from Epic", "Remove issues from their epic", menuRemoveFromEpic},
@@ -539,7 +541,29 @@ func menuListVersions(conn api.JiraConnection) {
 	}
 }
 
-func menuListEpicIssues(conn api.JiraConnection) {
+func menuListEpics(conn api.JiraConnection) {
+	projectKey := promptLine("Project key (blank for config default): ")
+	if projectKey == "" {
+		cfg, err := config.Load()
+		if err != nil || cfg.Project == "" {
+			printMenuErr("no project specified and no default project in config")
+			return
+		}
+		projectKey = cfg.Project
+	}
+	result, err := api.FetchEpics(conn, projectKey)
+	if err != nil {
+		printMenuErr("listing epics: %v", err)
+		return
+	}
+	if len(result.Issues) == 0 {
+		fmt.Printf("No epics found in %s.\n", projectKey)
+		return
+	}
+	printTasks(result.Issues)
+}
+
+func menuDescribeEpic(conn api.JiraConnection) {
 	epicKey := pickTicketKey(conn, "Epic key: ")
 	if epicKey == "" {
 		fmt.Println("Cancelled.")

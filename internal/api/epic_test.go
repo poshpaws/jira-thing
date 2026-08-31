@@ -10,6 +10,45 @@ import (
 	"jira-thing/internal/api"
 )
 
+func TestFetchEpics_ReturnsEpicsInProject(t *testing.T) {
+	var capturedJQL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decoding body: %v", err)
+		}
+		capturedJQL, _ = body["jql"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"issues": []any{map[string]any{"key": "PROJ-1"}}, "total": 1,
+		})
+	}))
+	defer srv.Close()
+
+	result, err := api.FetchEpics(conn(srv.URL), "PROJ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("got total %d, want 1", result.Total)
+	}
+	if !strings.Contains(capturedJQL, `project = "PROJ"`) || !strings.Contains(capturedJQL, "issuetype = Epic") {
+		t.Errorf("unexpected JQL: %s", capturedJQL)
+	}
+}
+
+func TestFetchEpics_500(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := api.FetchEpics(conn(srv.URL), "PROJ")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 func TestListEpicIssues_ParentFieldWorks(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

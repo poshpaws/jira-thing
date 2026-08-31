@@ -311,14 +311,17 @@ jira-thing list -w -p PROJ --reverse
 
 ### `epic` — epic management
 
-Jira has two incompatible epic models depending on how a project is configured: team-managed projects link issues via the generic `parent` field, company-managed projects use a classic `Epic Link` custom field (ID varies per instance). Every `epic` subcommand tries `parent` first and falls back to `Epic Link` automatically — you don't need to know which model your project uses.
+Jira has two incompatible epic models depending on how a project is configured: team-managed projects link issues via the generic `parent` field, company-managed projects use a classic `Epic Link` custom field (ID varies per instance). Every `epic` subcommand that touches issue-to-epic links tries `parent` first and falls back to `Epic Link` automatically — you don't need to know which model your project uses.
 
 ```bash
-jira-thing epic list <EPIC-KEY>              # list issues under an epic
-jira-thing epic create -p PROJ -n NAME -s SUMMARY   # create an epic
+jira-thing epic list [-p PROJECT]                        # list every epic in a project (default: config's "project")
+jira-thing epic describe <EPIC-KEY>                      # list issues under a specific epic
+jira-thing epic create -p PROJ -n NAME -s SUMMARY        # create an epic
 jira-thing epic add <EPIC-KEY> <ISSUE-1> [ISSUE-2 ...]   # add issues to an epic
 jira-thing epic remove <ISSUE-1> [ISSUE-2 ...]           # remove issues from their epic
 ```
+
+`epic list` defaults to the `project` key set in `~/.config/jira-thing/jira-thing.json`; pass `-p` to override, or set the config value if neither is present and the command errors out.
 
 `epic create`'s `-n` (epic name) only takes effect on instances with a classic `Epic Name` field — team-managed projects don't have one, so it's silently omitted there.
 
@@ -819,9 +822,12 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 | `list_projects` | List every accessible project |
 | `list_versions` | List a project's releases/versions |
 | `create_epic` | Create an epic (sets the classic Epic Name field when the instance has one) |
-| `list_epic_issues` | List the issues under an epic (parent field, falling back to Epic Link) |
+| `list_epics` | List every epic in a project |
+| `list_epic_issues` | List the issues under a specific epic (parent field, falling back to Epic Link) |
 | `add_to_epic` | Add issues to an epic |
 | `remove_from_epic` | Remove issues from their epic |
+| `list_toil_tickets` | List toil tickets using the project/marker/team configured in jira-thing.json |
+| `check_story_points` | Check the current user's open-sprint tickets for missing story points |
 | `confluence_browse` | List child pages under a Confluence page |
 | `confluence_get_page` | Fetch a page by ID or by space + title |
 | `confluence_create_page` | Create or update a Confluence page from markdown |

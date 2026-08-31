@@ -27,6 +27,18 @@ func findFieldByName(conn JiraConnection, name string) (string, error) {
 	return "", fmt.Errorf("no field named %q on this instance", name)
 }
 
+// FetchEpics returns every epic in a project. Unlike issue-under-epic lookups,
+// this doesn't need the parent/Epic-Link fallback dance: issuetype = Epic is a
+// standard Jira concept regardless of whether the project is team-managed or
+// company-managed.
+func FetchEpics(conn JiraConnection, projectKey string) (SearchResult, error) {
+	return SearchIssues(conn, SearchQuery{
+		JQL:        fmt.Sprintf(`project = %q AND issuetype = Epic ORDER BY created DESC`, projectKey),
+		Fields:     []string{"summary", "status", "priority", "updated"},
+		MaxResults: 100,
+	})
+}
+
 // ListEpicIssues returns the issues under an epic, trying the "parent" field
 // first and falling back to the classic "Epic Link" custom field.
 func ListEpicIssues(conn JiraConnection, epicKey string) (SearchResult, error) {

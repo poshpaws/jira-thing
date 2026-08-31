@@ -6,17 +6,20 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/tui"
 )
 
-// runEpic dispatches epic sub-commands: list, create, add, remove.
+// runEpic dispatches epic sub-commands: list, describe, create, add, remove.
 func runEpic(args []string) {
 	if len(args) < 1 {
-		fatal("usage: jira-thing epic <list|create|add|remove> [options]")
+		fatal("usage: jira-thing epic <list|describe|create|add|remove> [options]")
 	}
 	switch args[0] {
 	case "list":
 		runEpicList(args[1:])
+	case "describe":
+		runEpicDescribe(args[1:])
 	case "create":
 		runEpicCreate(args[1:])
 	case "add":
@@ -24,16 +27,44 @@ func runEpic(args []string) {
 	case "remove":
 		runEpicRemove(args[1:])
 	default:
-		fatal("unknown epic sub-command: %s\nusage: jira-thing epic <list|create|add|remove> [options]", args[0])
+		fatal("unknown epic sub-command: %s\nusage: jira-thing epic <list|describe|create|add|remove> [options]", args[0])
 	}
 }
 
-// runEpicList lists the issues under an epic. Tries the "parent" field, then
-// falls back to the classic "Epic Link" custom field.
+// runEpicList lists every epic in a project (default: the "project" set in
+// config; override with -p).
 func runEpicList(args []string) {
 	fs := flag.NewFlagSet("epic list", flag.ExitOnError)
+	project := fs.String("p", "", "Project key (defaults to \"project\" in config)")
+	if err := fs.Parse(args); err != nil {
+		fatal("usage: jira-thing epic list [-p PROJECT]")
+	}
+	projectKey := *project
+	if projectKey == "" {
+		cfg, err := config.Load()
+		if err != nil || cfg.Project == "" {
+			fatal("no project specified: pass -p PROJECT or set \"project\" in ~/.config/jira-thing/jira-thing.json")
+		}
+		projectKey = cfg.Project
+	}
+	conn := mustConnect()
+	result, err := api.FetchEpics(conn, projectKey)
+	if err != nil {
+		fatal("listing epics: %v", err)
+	}
+	if len(result.Issues) == 0 {
+		fmt.Printf("No epics found in %s.\n", projectKey)
+		return
+	}
+	printTasks(result.Issues)
+}
+
+// runEpicDescribe lists the issues under a specific epic. Tries the "parent"
+// field, then falls back to the classic "Epic Link" custom field.
+func runEpicDescribe(args []string) {
+	fs := flag.NewFlagSet("epic describe", flag.ExitOnError)
 	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing epic list <EPIC-KEY>")
+		fatal("usage: jira-thing epic describe <EPIC-KEY>")
 	}
 	conn := mustConnect()
 	result, err := api.ListEpicIssues(conn, fs.Arg(0))

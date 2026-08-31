@@ -12,9 +12,39 @@ import (
 
 func registerEpicTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(createEpicTool(), handleCreateEpic(conn))
+	s.AddTool(listEpicsTool(), handleListEpics(conn))
 	s.AddTool(listEpicIssuesTool(), handleListEpicIssues(conn))
 	s.AddTool(addToEpicTool(), handleAddToEpic(conn))
 	s.AddTool(removeFromEpicTool(), handleRemoveFromEpic(conn))
+}
+
+// --- list_epics ---
+
+func listEpicsTool() mcp.Tool {
+	return mcp.NewTool("list_epics",
+		mcp.WithDescription("List every epic in a project."),
+		mcp.WithString("project",
+			mcp.Required(),
+			mcp.Description("Project key (e.g. PROJ)"),
+		),
+	)
+}
+
+func handleListEpics(conn api.JiraConnection) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		project, err := req.RequireString("project")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		result, err := api.FetchEpics(conn, project)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("listing epics for %s: %v", project, err)), nil
+		}
+		if len(result.Issues) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No epics found in %s.", project)), nil
+		}
+		return mcp.NewToolResultText(formatSearchResults(result)), nil
+	}
 }
 
 // --- create_epic ---
