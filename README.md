@@ -793,45 +793,50 @@ This is not run directly — it's launched by the AI agent via the MCP configura
 
 **Available MCP tools:**
 
+Generated from the tool registrations in `internal/mcpserver` — run `make gen-docs` after adding or changing a tool (`go test ./...` fails if this table drifts from the code).
+
+<!-- mcp-tools:start -->
 | Tool | Description |
 |---|---|
-| `describe_ticket` | Fetch a ticket's full details (summary, status, priority, assignee, description) |
-| `search_tickets` | Search tickets using JQL |
-| `my_tasks` | List open tasks assigned to you |
-| `last_comment` | Fetch the most recent comment on a ticket |
-| `add_comment` | Add a markdown comment to a ticket |
-| `create_ticket` | Create a new ticket with project, summary, description, priority, labels |
-| `update_ticket` | Edit summary, description, priority, labels, or assignee on an existing ticket |
-| `list_transitions` | List the workflow states a ticket can currently move to |
-| `transition_ticket` | Move a ticket to a new workflow state by name, optionally setting a comment, resolution, or assignee at the same time |
-| `list_fields` | List every field on the instance, including custom field IDs |
-| `add_attachment` | Upload a local file as an attachment on a ticket |
-| `create_subtask` | Create a subtask under a ticket, inheriting project/priority/labels/components |
-| `list_link_types` | List the issue link types configured on the instance |
-| `link_tickets` | Link two tickets together (e.g. Blocks, Relates) |
-| `unlink_tickets` | Remove the link between two tickets |
-| `add_remote_link` | Attach a remote web link to a ticket |
-| `whoami` | Show the current authenticated Jira user |
-| `delete_ticket` | Permanently delete a ticket, optionally cascading to subtasks |
-| `clone_ticket` | Clone a ticket, optionally overriding summary/priority/assignee |
-| `add_worklog` | Log time spent against a ticket |
-| `list_boards` | List Agile boards, optionally filtered to a project |
-| `list_sprints` | List the sprints on a board |
-| `list_sprint_issues` | List the issues in a sprint |
-| `add_to_sprint` | Move tickets into a sprint |
-| `list_projects` | List every accessible project |
-| `list_versions` | List a project's releases/versions |
-| `create_epic` | Create an epic (sets the classic Epic Name field when the instance has one) |
-| `list_epics` | List every epic in a project |
-| `list_epic_issues` | List the issues under a specific epic (parent field, falling back to Epic Link) |
-| `add_to_epic` | Add issues to an epic |
-| `remove_from_epic` | Remove issues from their epic |
-| `list_toil_tickets` | List toil tickets using the project/marker/team configured in jira-thing.json |
-| `check_story_points` | Check the current user's open-sprint tickets for missing story points |
-| `confluence_browse` | List child pages under a Confluence page |
-| `confluence_get_page` | Fetch a page by ID or by space + title |
-| `confluence_create_page` | Create or update a Confluence page from markdown |
-| `confluence_update_page` | Update an existing page's content from markdown |
+| `add_attachment` | Upload a local file as an attachment on a Jira ticket. The file must be accessible on the filesystem where jira-thing is running. |
+| `add_comment` | Add a markdown comment to a Jira ticket. The markdown is converted to Atlassian Document Format automatically. |
+| `add_remote_link` | Attach a remote web link (e.g. a URL to external documentation or a related resource) to a Jira ticket. |
+| `add_to_epic` | Add issues to an epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
+| `add_to_sprint` | Move tickets into a sprint (up to 50 at a time). |
+| `add_worklog` | Log time spent against a Jira ticket. |
+| `check_story_points` | Check the current user's open-sprint tickets for missing story points. Checks a few common story-point field names/IDs; if this instance uses a different custom field, use list_fields to find its ID and inspect tickets with describe_ticket instead. |
+| `clone_ticket` | Clone an existing Jira ticket, optionally overriding summary, priority, or assignee on the copy. |
+| `confluence_browse` | List child pages under a Confluence page. Use to navigate the page hierarchy. |
+| `confluence_create_page` | Create a new Confluence page under a parent page. Content is provided as markdown and converted to Confluence storage format. |
+| `confluence_get_page` | Fetch a Confluence page by space key and title, or by page ID. Returns the page's storage-format body. |
+| `confluence_update_page` | Update an existing Confluence page's content. Content is provided as markdown and converted to Confluence storage format. |
+| `create_epic` | Create an epic. Jira has two incompatible epic models depending on how the project is configured (team-managed vs company-managed); this tool sets the classic "Epic Name" field when the instance has one, and is a no-op on team-managed projects where it doesn't exist. |
+| `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
+| `create_ticket` | Create a new Jira ticket with the specified fields |
+| `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone — use with care. |
+| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, and description |
+| `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
+| `link_tickets` | Link two Jira tickets together (e.g. mark one as blocking another). The link_type must match one of the types returned by list_link_types — call that tool first if unsure. |
+| `list_boards` | List Agile (Scrum/Kanban) boards visible to the current user, optionally filtered to a project. |
+| `list_epic_issues` | List the issues under an epic. Tries the "parent" field (team-managed projects) then falls back to the classic "Epic Link" custom field (company-managed projects). |
+| `list_epics` | List every epic in a project. |
+| `list_fields` | List every field known to the Jira instance, including custom fields with their customfield_XXXXX IDs. Custom fields are configured per instance, so their IDs must always be looked up here rather than assumed — the same field name can map to a different ID on different boards. |
+| `list_link_types` | List the issue link types configured on this Jira instance (e.g. Blocks, Relates, Duplicate). Link types are instance-configurable, so always call this before link_tickets rather than assuming a type name is valid. |
+| `list_projects` | List every Jira project the current user can access |
+| `list_sprint_issues` | List the issues in a sprint. Get the sprint_id from list_sprints. |
+| `list_sprints` | List the sprints on a board. Get the board_id from list_boards. |
+| `list_toil_tickets` | List toil tickets for the project/team configured in ~/.config/jira-thing/jira-thing.json (project, toil_marker label, and team filter). Fails if those aren't configured — this tool is specific to instances that have set up toil tracking. |
+| `list_transitions` | List the workflow states a Jira ticket can currently move to. Boards customise workflows heavily (a personal board may have 4 states, a client board 12), so always call this before transition_ticket rather than assuming a state name is valid. |
+| `list_versions` | List the releases/versions configured on a project |
+| `my_tasks` | List open Jira tasks assigned to the current user |
+| `remove_from_epic` | Remove issues from their epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
+| `search_tickets` | Search Jira tickets using JQL. Returns key, summary, status, priority, and updated date for each match. |
+| `transition_ticket` | Move a Jira ticket to a new workflow state. The target_status must match one of the states returned by list_transitions for this ticket — call that tool first if unsure what states are available. |
+| `unlink_tickets` | Remove the link between two Jira tickets, whichever link type currently connects them. |
+| `update_ticket` | Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee). Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use transition_ticket instead. |
+| `whoami` | Show the current authenticated Jira user (account ID, display name, email) |
+
+<!-- mcp-tools:end -->
 
 **Kiro MCP configuration** (`~/.kiro/settings/mcp.json` or `.kiro/settings/mcp.json`):
 

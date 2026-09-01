@@ -6,7 +6,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 
 INSTALL_DIR := $(HOME)/bin
 
-.PHONY: all build test lint security clean install
+.PHONY: all build test lint security clean install gen-docs
 
 tools:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -38,3 +38,6 @@ install: $(BINARY)
 
 clean:
 	rm -f $(BINARY)
+
+gen-docs:
+	go run ./internal/mcpserver/gendocs

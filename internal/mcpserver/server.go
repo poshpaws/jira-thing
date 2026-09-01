@@ -6,6 +6,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+//go:generate go run ./gendocs
+
 // NewServer creates a configured MCP server with all jira-thing tools registered.
 // The conn provides authenticated access to the Jira/Confluence API.
 func NewServer(version string, conn api.JiraConnection) *server.MCPServer {
