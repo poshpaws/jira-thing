@@ -525,7 +525,7 @@ func formatIssue(issue map[string]any) string {
 
 func formatSearchResults(result api.SearchResult) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Found %d ticket(s):\n\n", result.Total)
+	fmt.Fprintf(&sb, "Found %d ticket(s):\n\n", len(result.Issues))
 	for _, issue := range result.Issues {
 		key, _ := issue["key"].(string)
 		f, _ := issue["fields"].(map[string]any)
