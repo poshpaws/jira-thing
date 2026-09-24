@@ -247,3 +247,40 @@ func TestCreateConfluencePage_Error(t *testing.T) {
 		t.Fatal("expected error for 400")
 	}
 }
+
+func TestFetchConfluencePageBody_Success(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wiki/rest/api/content/12345" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if !strings.Contains(r.URL.Query().Get("expand"), "body.storage") {
+			t.Errorf("missing body.storage expand: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": "12345", "title": "Toil Tracker",
+			"version": map[string]any{"number": float64(5)},
+			"body":    map[string]any{"storage": map[string]any{"value": "<p>hello</p>"}},
+		})
+	}))
+	defer srv.Close()
+
+	conn := JiraConnection{BaseURL: srv.URL, Email: "u@example.com", APIToken: "tok"}
+	page, err := FetchConfluencePageBody(conn, "12345")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if page.ID != "12345" || page.Title != "Toil Tracker" || page.Version != 5 {
+		t.Errorf("unexpected page metadata: %+v", page)
+	}
+	if page.Body != "<p>hello</p>" {
+		t.Errorf("Body = %q, want <p>hello</p>", page.Body)
+	}
+}
+
+func TestFetchConfluencePageBody_InvalidID(t *testing.T) {
+	conn := JiraConnection{BaseURL: "https://example.com", Email: "u@example.com", APIToken: "tok"}
+	if _, err := FetchConfluencePageBody(conn, "not-a-number"); err == nil {
+		t.Fatal("expected error for non-numeric page ID")
+	}
+}

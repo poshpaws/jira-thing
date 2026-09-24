@@ -808,6 +808,7 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `clone_ticket` | Clone an existing Jira ticket, optionally overriding summary, priority, or assignee on the copy. |
 | `confluence_browse` | List child pages under a Confluence page. Use to navigate the page hierarchy. |
 | `confluence_create_page` | Create a new Confluence page under a parent page. Content is provided as markdown and converted to Confluence storage format. |
+| `confluence_export_page` | Export a Confluence page as markdown, given its numeric page ID. Also resolves every embedded document the page references — images, attached files, view-file/multimedia macros, draw.io diagrams — downloading them into an attachments/ subdirectory when output_dir is given. |
 | `confluence_get_page` | Fetch a Confluence page by space key and title, or by page ID. Returns the page's storage-format body. |
 | `confluence_update_page` | Update an existing Confluence page's content. Content is provided as markdown and converted to Confluence storage format. |
 | `create_epic` | Create an epic. Jira has two incompatible epic models depending on how the project is configured (team-managed vs company-managed); this tool sets the classic "Epic Name" field when the instance has one, and is a no-op on team-managed projects where it doesn't exist. |

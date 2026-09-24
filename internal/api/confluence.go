@@ -4,19 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 )
 
 const confluenceContentEndpoint = "/wiki/rest/api/content"
-
-// maxConfluenceAttachmentSize is the maximum file size for Confluence attachments (50 MB).
-const maxConfluenceAttachmentSize = 50 * 1024 * 1024
 
 // validateNumericID checks that an ID string is a valid positive integer,
 // preventing path injection via crafted IDs like "../../rest/api/3/myself".
@@ -63,6 +56,38 @@ func FetchConfluencePage(conn JiraConnection, space, title string) (ConfluencePa
 	}
 	r := result.Results[0]
 	return ConfluencePage{ID: r.ID, Title: r.Title, Version: r.Version.Number}, nil
+}
+
+// FetchConfluencePageBody retrieves a single Confluence page by its numeric ID,
+// including its current storage-format body — used to export the page as markdown.
+func FetchConfluencePageBody(conn JiraConnection, pageID string) (ConfluencePageWithBody, error) {
+	if err := validateNumericID(pageID, "page ID"); err != nil {
+		return ConfluencePageWithBody{}, err
+	}
+	endpoint := fmt.Sprintf("%s%s/%s?expand=body.storage,version", conn.BaseURL, confluenceContentEndpoint, pageID)
+	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
+	if err != nil {
+		return ConfluencePageWithBody{}, err
+	}
+	var result struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Version struct {
+			Number int `json:"number"`
+		} `json:"version"`
+		Body struct {
+			Storage struct {
+				Value string `json:"value"`
+			} `json:"storage"`
+		} `json:"body"`
+	}
+	if err := executeRequest(req, &result); err != nil {
+		return ConfluencePageWithBody{}, err
+	}
+	return ConfluencePageWithBody{
+		ConfluencePage: ConfluencePage{ID: result.ID, Title: result.Title, Version: result.Version.Number},
+		Body:           result.Body.Storage.Value,
+	}, nil
 }
 
 // FetchConfluencePageByID retrieves a single Confluence page by its numeric ID.
@@ -235,142 +260,4 @@ func UpdateConfluencePage(conn JiraConnection, id string, version int, title, bo
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return executeRequest(req, nil)
-}
-
-// ConfluenceAttachment holds metadata for an uploaded Confluence attachment.
-type ConfluenceAttachment struct {
-	ID    string
-	Title string
-}
-
-// AddConfluenceAttachment uploads a local file as an attachment on a Confluence page.
-// Returns the attachment metadata on success.
-func AddConfluenceAttachment(conn JiraConnection, pageID, filePath string) (ConfluenceAttachment, error) {
-	if err := validateNumericID(pageID, "page ID"); err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	body, contentType, err := buildConfluenceAttachmentBody(filePath)
-	if err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	endpoint := fmt.Sprintf("%s%s/%s/child/attachment", conn.BaseURL, confluenceContentEndpoint, pageID)
-	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodPost,
-		Endpoint: endpoint,
-		Body:     body,
-	})
-	if err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-Atlassian-Token", "nocheck")
-	var result struct {
-		Results []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"results"`
-	}
-	if err := executeRequest(req, &result); err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	if len(result.Results) == 0 {
-		return ConfluenceAttachment{}, fmt.Errorf("attachment upload returned no results")
-	}
-	r := result.Results[0]
-	return ConfluenceAttachment{ID: r.ID, Title: r.Title}, nil
-}
-
-// buildConfluenceAttachmentBody creates a multipart/form-data body for Confluence attachment upload.
-// Rejects files larger than maxConfluenceAttachmentSize to prevent OOM.
-func buildConfluenceAttachmentBody(filePath string) (io.Reader, string, error) {
-	file, err := os.Open(filePath) // #nosec G304 -- filePath is user-supplied CLI input
-	if err != nil {
-		return nil, "", fmt.Errorf("opening file: %w", err)
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return nil, "", fmt.Errorf("stat file: %w", err)
-	}
-	if info.Size() > maxConfluenceAttachmentSize {
-		return nil, "", fmt.Errorf("file %s is %d MB, exceeds %d MB limit",
-			filepath.Base(filePath), info.Size()/(1024*1024), maxConfluenceAttachmentSize/(1024*1024))
-	}
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-	if err != nil {
-		return nil, "", fmt.Errorf("building attachment form: %w", err)
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return nil, "", fmt.Errorf("reading file: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return nil, "", fmt.Errorf("closing multipart writer: %w", err)
-	}
-	return &buf, writer.FormDataContentType(), nil
-}
-
-// ListConfluenceAttachments returns the existing attachments on a Confluence page.
-func ListConfluenceAttachments(conn JiraConnection, pageID string) ([]ConfluenceAttachment, error) {
-	if err := validateNumericID(pageID, "page ID"); err != nil {
-		return nil, err
-	}
-	endpoint := fmt.Sprintf("%s%s/%s/child/attachment?limit=100",
-		conn.BaseURL, confluenceContentEndpoint, pageID)
-	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
-	if err != nil {
-		return nil, err
-	}
-	var result struct {
-		Results []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"results"`
-	}
-	if err := executeRequest(req, &result); err != nil {
-		return nil, err
-	}
-	attachments := make([]ConfluenceAttachment, len(result.Results))
-	for i, r := range result.Results {
-		attachments[i] = ConfluenceAttachment{ID: r.ID, Title: r.Title}
-	}
-	return attachments, nil
-}
-
-// UpdateConfluenceAttachment replaces the data of an existing Confluence attachment.
-// Uses POST /content/{pageID}/child/attachment/{attachmentID}/data.
-func UpdateConfluenceAttachment(conn JiraConnection, pageID, attachmentID, filePath string) (ConfluenceAttachment, error) {
-	if err := validateNumericID(pageID, "page ID"); err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	if err := validateNumericID(attachmentID, "attachment ID"); err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	body, contentType, err := buildConfluenceAttachmentBody(filePath)
-	if err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	endpoint := fmt.Sprintf("%s%s/%s/child/attachment/%s/data",
-		conn.BaseURL, confluenceContentEndpoint, pageID, attachmentID)
-	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodPost,
-		Endpoint: endpoint,
-		Body:     body,
-	})
-	if err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-Atlassian-Token", "nocheck")
-	var result struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-	}
-	if err := executeRequest(req, &result); err != nil {
-		return ConfluenceAttachment{}, err
-	}
-	return ConfluenceAttachment{ID: result.ID, Title: result.Title}, nil
 }

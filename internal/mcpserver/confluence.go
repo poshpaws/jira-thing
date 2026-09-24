@@ -16,6 +16,7 @@ func registerConfluenceTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(confluenceGetPageTool(), handleConfluenceGetPage(conn))
 	s.AddTool(confluenceCreatePageTool(), handleConfluenceCreatePage(conn))
 	s.AddTool(confluenceUpdatePageTool(), handleConfluenceUpdatePage(conn))
+	s.AddTool(confluenceExportPageTool(), handleConfluenceExportPage(conn))
 }
 
 // --- confluence_browse ---

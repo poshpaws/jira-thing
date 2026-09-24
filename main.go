@@ -152,6 +152,7 @@ func printUsage() {
 		{"toil-sync|ts", "Sync TOIL tickets to Confluence"},
 		{"conf browse|br", "Browse Confluence space tree"},
 		{"conf upload|up <file.md> [-title T]", "Upload markdown to Confluence"},
+		{"conf export|exp <page-id> [-o dir]", "Export a Confluence page + attachments as markdown"},
 		{"subtask|st <KEY> -f file [opts]", "Create subtasks from a markdown task list"},
 		{"serve-mcp", "Start MCP server for AI agent integration"},
 		{"diagnose|diag", "Test API connectivity and credentials"},
@@ -996,15 +997,17 @@ var browseSpaceFn = tui.BrowseSpace
 // runConf dispatches Confluence sub-commands.
 func runConf(args []string) {
 	if len(args) < 1 {
-		fatal("usage: jira-thing conf <browse|upload> [options]")
+		fatal("usage: jira-thing conf <browse|upload|export> [options]")
 	}
 	switch args[0] {
 	case "browse", "br":
 		runConfBrowse()
 	case "upload", "up":
 		runConfUpload(args[1:])
+	case "export", "exp":
+		runConfExport(args[1:])
 	default:
-		fatal("unknown conf sub-command: %s\nusage: jira-thing conf <browse|upload> [options]", args[0])
+		fatal("unknown conf sub-command: %s\nusage: jira-thing conf <browse|upload|export> [options]", args[0])
 	}
 }
 
@@ -1112,6 +1115,108 @@ func runConfUpload(args []string) {
 	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
 	fmt.Printf("\n%s %s/spaces/%s/pages/%s\n",
 		tui.SuccessStyle.Render("Done:"), confluenceURL, cfg.ConfluenceSpace, page.ID)
+}
+
+// confluenceExportAttachDir is the subdirectory name (relative to the export
+// output directory) that downloaded attachments/embedded documents are
+// written to, and that exported markdown image/link paths point at.
+const confluenceExportAttachDir = "attachments"
+
+// runConfExport fetches a Confluence page by numeric ID, converts its
+// storage-format body to markdown, and downloads every attachment or
+// embedded document (images, attached files, view-file/multimedia macro
+// embeds, draw.io sources) it references so the markdown's local links
+// resolve without needing further API access.
+func runConfExport(args []string) {
+	fs := flag.NewFlagSet("conf-export", flag.ContinueOnError)
+	outDir := fs.String("o", "", "Output directory (default: page title, slugified)")
+	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing conf export <page-id> [-o output-dir]")
+	}
+	pageID := fs.Arg(0)
+
+	conn := mustConnect()
+	page, err := api.FetchConfluencePageBody(conn, pageID)
+	if err != nil {
+		fatal("fetching page %s: %v", pageID, err)
+	}
+
+	dir := *outDir
+	if dir == "" {
+		dir = slugify(page.Title)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		fatal("creating output directory %q: %v", dir, err)
+	}
+
+	mdPath, attachDir := writeConfluenceExport(conn, page, dir)
+	fmt.Printf("\n%s %s\n", tui.SuccessStyle.Render("Exported:"), mdPath)
+	if attachDir != "" {
+		fmt.Printf("Attachments: %s\n", attachDir)
+	}
+}
+
+// writeConfluenceExport converts page.Body to markdown, downloads every
+// referenced attachment into <dir>/attachments, and writes the markdown
+// file. Returns the markdown file path and the attachments directory
+// (empty if the page referenced no attachments).
+func writeConfluenceExport(conn api.JiraConnection, page api.ConfluencePageWithBody, dir string) (mdPath, attachDir string) {
+	export := confluenceStorageToMarkdown(page.Body, confluenceExportAttachDir)
+
+	if len(export.Attachments) > 0 {
+		attachDir = filepath.Join(dir, confluenceExportAttachDir)
+		if err := os.MkdirAll(attachDir, 0o750); err != nil {
+			fatal("creating attachments directory: %v", err)
+		}
+		downloadConfluenceExportAttachments(conn, page.ID, export.Attachments, attachDir)
+	}
+
+	content := fmt.Sprintf("# %s\n\n%s", page.Title, export.Markdown)
+	mdPath = filepath.Join(dir, "index.md")
+	if err := os.WriteFile(mdPath, []byte(content), 0o644); err != nil { // #nosec G306 -- exported markdown is not sensitive
+		fatal("writing markdown file: %v", err)
+	}
+	return mdPath, attachDir
+}
+
+// downloadConfluenceExportAttachments downloads every attachment referenced
+// by an exported page and reports progress. A referenced filename with no
+// matching attachment on the page (e.g. one since deleted) is warned about
+// rather than treated as fatal — the rest of the export still succeeds.
+func downloadConfluenceExportAttachments(conn api.JiraConnection, pageID string, filenames []string, attachDir string) {
+	fmt.Printf("Downloading %d attachment(s)...\n", len(filenames))
+	downloaded, missing, err := api.DownloadConfluenceAttachmentsByFilename(conn, pageID, filenames, attachDir)
+	if err != nil {
+		fatal("downloading attachments: %v", err)
+	}
+	for _, name := range downloaded {
+		fmt.Printf("  %s %s\n", tui.SuccessStyle.Render("Downloaded:"), name)
+	}
+	for _, name := range missing {
+		fmt.Fprintf(os.Stderr, "  %s referenced attachment %q not found on page\n", tui.ErrorStyle.Render("Warning:"), name)
+	}
+}
+
+// slugify converts a page title into a filesystem-safe directory name:
+// lowercase, with runs of non-alphanumeric characters collapsed to a single hyphen.
+func slugify(title string) string {
+	var sb strings.Builder
+	prevHyphen := false
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			sb.WriteRune(r)
+			prevHyphen = false
+		case !prevHyphen:
+			sb.WriteRune('-')
+			prevHyphen = true
+		}
+	}
+	slug := strings.Trim(sb.String(), "-")
+	if slug == "" {
+		return "confluence-page"
+	}
+	return slug
 }
 
 // createOrUpdatePage checks whether a page with the given title already exists
@@ -1419,6 +1524,10 @@ func runServeMCP() {
 	mcpsrv.SetStorageConverter(func(md string) string {
 		result := markdownToConfluence(md, ".")
 		return result.Storage
+	})
+	mcpsrv.SetMarkdownExporter(func(storageXHTML, attachmentDir string) (string, []string) {
+		export := confluenceStorageToMarkdown(storageXHTML, attachmentDir)
+		return export.Markdown, export.Attachments
 	})
 
 	s := mcpsrv.NewServer(version, conn)
