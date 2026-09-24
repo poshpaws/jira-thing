@@ -150,6 +150,16 @@ func TestDownloadConfluenceAttachmentsByFilename_DownloadsMatchesAndReportsMissi
 	}
 }
 
+func TestDownloadHTTPClient_UsesLongerTimeoutThanAPIRequests(t *testing.T) {
+	client := downloadHTTPClient()
+	if client.Timeout != downloadTimeout {
+		t.Errorf("Timeout = %v, want %v", client.Timeout, downloadTimeout)
+	}
+	if client.Timeout <= requestTimeout {
+		t.Errorf("download timeout %v should be longer than the API request timeout %v", client.Timeout, requestTimeout)
+	}
+}
+
 func TestDownloadConfluenceAttachmentsByFilename_Empty(t *testing.T) {
 	conn := JiraConnection{BaseURL: "https://example.com", Email: "u@example.com", APIToken: "tok"}
 	downloaded, missing, err := DownloadConfluenceAttachmentsByFilename(conn, "99", nil, t.TempDir())
@@ -188,5 +198,55 @@ func TestDownloadConfluenceAttachmentsByFilename_SanitisesTraversal(t *testing.T
 	}
 	if _, err := os.Stat(filepath.Join(dir, "evil.png")); err != nil {
 		t.Errorf("expected sanitised filename evil.png under destDir: %v", err)
+	}
+}
+
+func TestDownloadConfluenceAttachment_OversizedResponseRejectedNotTruncated(t *testing.T) {
+	orig := maxConfluenceDownloadSize
+	maxConfluenceDownloadSize = 10
+	defer func() { maxConfluenceDownloadSize = orig }()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("this is way more than ten bytes"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "big.bin")
+	conn := JiraConnection{BaseURL: srv.URL, Email: "u@example.com", APIToken: "tok"}
+	err := DownloadConfluenceAttachment(conn, "/download/attachments/1/big.bin", dest)
+	if err == nil {
+		t.Fatal("expected error for a response over the size limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("error should mention the size limit: %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Errorf("expected partial file to be removed, but it exists (stat err: %v)", statErr)
+	}
+}
+
+func TestDownloadConfluenceAttachment_ExactlyAtLimitSucceeds(t *testing.T) {
+	orig := maxConfluenceDownloadSize
+	maxConfluenceDownloadSize = 10
+	defer func() { maxConfluenceDownloadSize = orig }()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("0123456789")) // exactly 10 bytes
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "exact.bin")
+	conn := JiraConnection{BaseURL: srv.URL, Email: "u@example.com", APIToken: "tok"}
+	if err := DownloadConfluenceAttachment(conn, "/download/attachments/1/exact.bin", dest); err != nil {
+		t.Fatalf("unexpected error for a response exactly at the limit: %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("reading downloaded file: %v", err)
+	}
+	if string(data) != "0123456789" {
+		t.Errorf("content = %q, want 0123456789", data)
 	}
 }

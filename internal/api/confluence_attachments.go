@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // maxConfluenceAttachmentSize is the maximum file size for Confluence attachments (50 MB).
@@ -16,7 +17,15 @@ const maxConfluenceAttachmentSize = 50 * 1024 * 1024
 
 // maxConfluenceDownloadSize caps how much data a single attachment download will
 // stream to disk, as a safety backstop against a misbehaving/malicious server.
-const maxConfluenceDownloadSize = 200 * 1024 * 1024
+// A var (not const) so tests can shrink it to exercise the oversized-attachment
+// path without streaming hundreds of real megabytes.
+var maxConfluenceDownloadSize int64 = 200 * 1024 * 1024
+
+// downloadTimeout is the round-trip timeout for attachment downloads — much
+// longer than requestTimeout (api.go), which is sized for small JSON API
+// calls and would otherwise cut off any attachment of meaningful size before
+// it finishes streaming.
+const downloadTimeout = 5 * time.Minute
 
 // ConfluenceAttachment holds metadata for a Confluence attachment.
 // DownloadPath and MediaType are populated by ListConfluenceAttachments (empty
@@ -191,10 +200,25 @@ func DownloadConfluenceAttachment(conn JiraConnection, downloadPath, destPath st
 	return streamAttachmentToFile(req, destPath)
 }
 
-// streamAttachmentToFile executes req and writes its response body to destPath,
-// capped at maxConfluenceDownloadSize.
+// downloadHTTPClient is httpClient with a longer timeout suited to streaming
+// large attachment bodies. It's built fresh per call (not cached) so it
+// picks up test overrides made via SetHTTPClient (e.g. self-signed-cert
+// tolerant transports in httptest-based tests).
+func downloadHTTPClient() *http.Client {
+	return &http.Client{
+		Transport:     httpClient.Transport,
+		CheckRedirect: httpClient.CheckRedirect,
+		Timeout:       downloadTimeout,
+	}
+}
+
+// streamAttachmentToFile executes req and writes its response body to
+// destPath, capped at maxConfluenceDownloadSize. A response larger than the
+// cap is rejected outright — the partial file is removed and an explicit
+// error returned — rather than silently writing a truncated file and
+// reporting success.
 func streamAttachmentToFile(req *http.Request, destPath string) error {
-	resp, err := httpClient.Do(req) // #nosec G107 -- URL built from conn.BaseURL (user's own config) + a Confluence-issued download path
+	resp, err := downloadHTTPClient().Do(req) // #nosec G107 -- URL built from conn.BaseURL (user's own config) + a Confluence-issued download path
 	if err != nil {
 		return err
 	}
@@ -207,9 +231,21 @@ func streamAttachmentToFile(req *http.Request, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", destPath, err)
 	}
-	defer out.Close()
-	if _, err := io.Copy(out, io.LimitReader(resp.Body, maxConfluenceDownloadSize)); err != nil {
-		return fmt.Errorf("writing %s: %w", destPath, err)
+	// Read one byte past the cap so a copy that stops exactly at the limit
+	// (io.LimitReader returns io.EOF there, which io.Copy treats as a normal
+	// complete copy) is still detectable as oversized.
+	written, copyErr := io.Copy(out, io.LimitReader(resp.Body, maxConfluenceDownloadSize+1))
+	closeErr := out.Close()
+	if copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		os.Remove(destPath) // #nosec G104 -- best-effort cleanup of a partially-written file; the copy error is already being returned
+		return fmt.Errorf("writing %s: %w", destPath, copyErr)
+	}
+	if written > maxConfluenceDownloadSize {
+		os.Remove(destPath) // #nosec G104 -- best-effort cleanup; the size-limit error below is already being returned
+		return fmt.Errorf("attachment exceeds %d MB download limit", maxConfluenceDownloadSize/(1024*1024))
 	}
 	return nil
 }
