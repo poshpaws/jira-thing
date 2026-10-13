@@ -81,6 +81,20 @@ func TestMarkdownToADF_InlineMarks(t *testing.T) {
 	jsonEq(t, want, got)
 }
 
+// TestMarkdownToADF_CodeSpanDropsEnclosingMarks guards against invalid ADF:
+// Jira rejects a text node carrying "code" alongside "strong"/"em"/"strike"
+// as not valid ADF, because the code mark excludes every other mark. A
+// CodeSpan inside bold/italic/strikethrough must emit only the code mark.
+func TestMarkdownToADF_CodeSpanDropsEnclosingMarks(t *testing.T) {
+	got := markdownToADF("**bold `code` text**")
+	want := eDoc(eNode("paragraph",
+		eText("bold ", eMark("strong")),
+		eText("code", eMark("code")),
+		eText(" text", eMark("strong")),
+	))
+	jsonEq(t, want, got)
+}
+
 func TestMarkdownToADF_Link(t *testing.T) {
 	got := markdownToADF("a [site](https://example.com) here")
 	linkMark := map[string]any{
@@ -158,16 +172,20 @@ func TestMarkdownToADF_ThematicBreak(t *testing.T) {
 
 func TestMarkdownToADF_Table(t *testing.T) {
 	got := markdownToADF("| Col A | Col B |\n|-------|-------|\n| 1 | 2 |")
-	want := eDoc(eNode("table",
-		eNode("tableRow",
-			eNode("tableHeader", eNode("paragraph", eText("Col A"))),
-			eNode("tableHeader", eNode("paragraph", eText("Col B"))),
-		),
-		eNode("tableRow",
-			eNode("tableCell", eNode("paragraph", eText("1"))),
-			eNode("tableCell", eNode("paragraph", eText("2"))),
-		),
-	))
+	want := eDoc(map[string]any{
+		"type":  "table",
+		"attrs": map[string]any{"isNumberColumnEnabled": false, "layout": "default"},
+		"content": []any{
+			eNode("tableRow",
+				eNode("tableHeader", eNode("paragraph", eText("Col A"))),
+				eNode("tableHeader", eNode("paragraph", eText("Col B"))),
+			),
+			eNode("tableRow",
+				eNode("tableCell", eNode("paragraph", eText("1"))),
+				eNode("tableCell", eNode("paragraph", eText("2"))),
+			),
+		},
+	})
 	jsonEq(t, want, got)
 }
 

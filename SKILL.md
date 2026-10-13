@@ -11,7 +11,9 @@ Go CLI tool for Jira and Confluence. Credentials stored in OS keyring (same cred
 
 ## When to use
 
-- Fetch, search, create, or describe Jira tickets
+- Fetch, search, create, edit, or describe Jira tickets
+- Create tickets non-interactively (`-y`/`-non-interactive`) or in a batch from a JSON array — the right path for agents/CI, since plain `create` can block on a prompt
+- Edit fields (summary, description, priority, labels, assignee, parent) on an existing ticket without the interactive TUI
 - Add markdown comments to tickets (converted to ADF automatically)
 - Show the last comment on a ticket
 - List open tasks or find stale ones
@@ -38,14 +40,74 @@ jira-thing template PROJ-123 -o my-template.json
 
 ### `create [-t template.json]` (alias: `cr`)
 
-Create a new Jira ticket from a template. Prompts for summary and description.
+Create a new Jira ticket from a template. If the template already contains
+`summary`/`description` (and optionally `parent`), it is created with **zero
+prompts** — nothing is required interactively. Any field still missing is
+prompted for unless `-non-interactive`/`-y` is set, in which case a missing
+summary is a fatal error instead of a blocking prompt. This is the
+non-interactive path agents/CI should use — it never blocks on stdin.
 
 ```bash
-jira-thing create
+jira-thing create                                              # interactive, uses default template search path
 jira-thing create -t /path/to/template.json
+jira-thing create -t template.json -y                          # fail fast instead of prompting
+jira-thing create -t template.json -y -description-file body.md # description from a markdown file, not the prompt
 ```
 
 Template search path: current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
+
+Template fields an agent can set directly to avoid every prompt:
+
+```json
+{
+  "summary": "Fix the thing",
+  "description": "Full GFM markdown body, converted to ADF automatically",
+  "parent": "PROJ-10",
+  "project": {"key": "PROJ"},
+  "issuetype": {"name": "Task"}
+}
+```
+
+`parent` links the new ticket to an epic/parent immediately after creation
+(same fallback logic as `epic add`: tries the `parent` field, falls back to
+the classic Epic Link field) — no separate `epic add` call needed.
+
+**Batch create** with `-f`: a JSON array of the same template shape, created
+non-interactively, continuing past per-ticket failures:
+
+```bash
+jira-thing create -f tickets.json
+```
+
+```json
+[
+  {"summary": "First ticket", "project": {"key": "PROJ"}, "issuetype": {"name": "Task"}},
+  {"summary": "Second ticket", "project": {"key": "PROJ"}, "issuetype": {"name": "Task"}, "parent": "PROJ-10"}
+]
+```
+
+---
+
+### `edit <TICKET-KEY> [flags]` (alias: `ed`)
+
+Edit fields on an **existing** ticket non-interactively. Only the flags you
+pass are changed — everything else on the ticket is left alone. This is the
+field-level counterpart to `update`, which only adds a comment and can't
+touch summary/description/priority/labels/assignee/parent.
+
+```bash
+jira-thing edit PROJ-123 -summary "New title"
+jira-thing edit PROJ-123 -description-file body.md
+jira-thing edit PROJ-123 -priority High -labels bug,urgent
+jira-thing edit PROJ-123 -assignee me
+jira-thing edit PROJ-123 -assignee unassign
+jira-thing edit PROJ-123 -parent PROJ-10
+```
+
+Flags: `-summary`, `-description-file` (markdown file, converted to ADF),
+`-priority`, `-labels` (comma-separated, replaces all existing labels),
+`-assignee` (`me`, `unassign`, or a literal Jira account ID), `-parent`
+(epic/parent key to link to). At least one flag is required.
 
 ---
 
@@ -200,7 +262,7 @@ Start an MCP (Model Context Protocol) server on stdio for AI agent integration. 
 jira-thing serve-mcp
 ```
 
-Not run directly — configured in your AI agent's MCP settings. Tools available: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket`, `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`.
+Not run directly — configured in your AI agent's MCP settings. Tools available include: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket` (accepts `parent` to link on creation), `update_ticket` (field-level edit — summary/description/priority/labels/assignee/parent; the MCP equivalent of the CLI's `edit` command), `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`, and more — see the full table in `README.md` (generated from source, always current).
 
 ---
 
@@ -292,9 +354,10 @@ Put the UUID in `team`, set `use_team_field: true`.
 
 ```bash
 jira-thing te PROJ-42 -o templates/task.json   # capture a template
-jira-thing cr -t templates/task.json           # create a ticket
+jira-thing cr -t templates/task.json -y        # create a ticket, non-interactively
 jira-thing mt                                  # check your tasks
 jira-thing up PROJ-42                          # add a progress comment
+jira-thing ed PROJ-42 -priority High           # edit a field without the TUI
 jira-thing mt -notupdated                      # find stale tasks
 jira-thing conf up docs/design.md              # publish to Confluence
 jira-thing conf br                             # browse Confluence pages

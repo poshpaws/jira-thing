@@ -65,7 +65,7 @@ func convertBlock(n ast.Node, src []byte) map[string]any {
 	case *ast.ThematicBreak:
 		return map[string]any{"type": "rule"}
 	case *east.Table:
-		return adfNode("table", convertTableRows(node, src))
+		return convertTable(node, src)
 	default:
 		return nil
 	}
@@ -112,6 +112,15 @@ func rawLines(n ast.Node, src []byte) string {
 	return sb.String()
 }
 
+// convertTable converts a goldmark table to an ADF table node. Jira's ADF
+// schema requires isNumberColumnEnabled/layout attrs on every table node —
+// omitting them makes Jira reject the whole document as invalid ADF.
+func convertTable(table *east.Table, src []byte) map[string]any {
+	n := adfNode("table", convertTableRows(table, src))
+	n["attrs"] = map[string]any{"isNumberColumnEnabled": false, "layout": "default"}
+	return n
+}
+
 // convertTableRows converts table rows, using tableHeader cells for the header row.
 func convertTableRows(table *east.Table, src []byte) []any {
 	rows := []any{}
@@ -155,7 +164,11 @@ func convertInline(n ast.Node, src []byte, marks []any) []any {
 	case *ast.Emphasis:
 		return convertInlines(n, src, appendMark(marks, emphasisMark(node)))
 	case *ast.CodeSpan:
-		return []any{adfText(rawText(n, src), appendMark(marks, markNode("code")))}
+		// ADF's code mark excludes every other mark (Jira rejects a text node
+		// carrying "code" alongside "strong"/"em"/etc. as invalid ADF), so
+		// inherited marks from an enclosing bold/italic/link are dropped here
+		// rather than appended.
+		return []any{adfText(rawText(n, src), []any{markNode("code")})}
 	case *east.Strikethrough:
 		return convertInlines(n, src, appendMark(marks, markNode("strike")))
 	case *ast.Link:

@@ -10,7 +10,7 @@ import (
 // there's no cobra-style command registry to generate it from.
 var completionCommands = []string{
 	"template", "te", "create", "cr", "my-tasks", "mt", "list", "ls", "state", "sta",
-	"menu", "m", "epic", "open", "o", "update", "up", "last-comment", "lc", "attach", "at",
+	"menu", "m", "epic", "open", "o", "update", "up", "edit", "ed", "last-comment", "lc", "attach", "at",
 	"describe", "de", "toil-check", "tc", "toil", "point-check", "pc", "toil-sync", "ts",
 	"conf", "subtask", "st", "serve-mcp", "diagnose", "diag", "clear-auth",
 	"check-update", "cu", "self-update", "su", "version", "completion", "help",

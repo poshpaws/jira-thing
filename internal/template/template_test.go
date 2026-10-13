@@ -1,14 +1,27 @@
 package template_test
 
 import (
+	"crypto/tls"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"jira-thing/internal/api"
 	"jira-thing/internal/template"
 )
+
+func init() {
+	// Allow test TLS servers with self-signed certs.
+	api.SetHTTPClient(&http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- test only
+		},
+	})
+}
 
 var sampleIssue = map[string]any{
 	"key": "PROJ-123",
@@ -445,5 +458,66 @@ func TestResolveAssignee_LeavesNonMarkerAlone(t *testing.T) {
 	}
 	if assignee["accountId"] != "someone-else" {
 		t.Errorf("accountId changed unexpectedly to %v", assignee["accountId"])
+	}
+}
+
+// --- SplitLabels ---
+
+func TestSplitLabels_TrimsAndDropsEmpty(t *testing.T) {
+	got := template.SplitLabels(" a, b ,, c")
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSplitLabels_Empty(t *testing.T) {
+	if got := template.SplitLabels(""); len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+// --- ResolveAssigneeArg ---
+
+func TestResolveAssigneeArg_Unassign(t *testing.T) {
+	got, err := template.ResolveAssigneeArg(api.JiraConnection{}, "unassign")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+func TestResolveAssigneeArg_Me(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"accountId": "acc-123"})
+	}))
+	defer srv.Close()
+
+	got, err := template.ResolveAssigneeArg(api.JiraConnection{BaseURL: srv.URL, Email: "a@b.com", APIToken: "tok"}, "me")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok || m["accountId"] != "acc-123" {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestResolveAssigneeArg_LiteralAccountID(t *testing.T) {
+	got, err := template.ResolveAssigneeArg(api.JiraConnection{}, "acc-999")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok || m["accountId"] != "acc-999" {
+		t.Errorf("got %v", got)
 	}
 }

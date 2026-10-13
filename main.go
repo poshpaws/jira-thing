@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -76,6 +75,8 @@ func main() {
 		runOpen(os.Args[2:])
 	case "update", "up":
 		runUpdate(os.Args[2:])
+	case "edit", "ed":
+		runEdit(os.Args[2:])
 	case "last-comment", "lc":
 		runLastComment(os.Args[2:])
 	case "attach", "at":
@@ -131,8 +132,10 @@ func printUsage() {
 
 	commands := []struct{ cmd, desc string }{
 		{"template|te <TICKET-KEY> [-o file]", "Fetch a ticket and save as template"},
-		{"create|cr [-t template.json]", "Create a new ticket from a template"},
+		{"create|cr [-t template.json]", "Create a new ticket from a template (-y for non-interactive)"},
+		{"create|cr -f tickets.json", "Batch-create tickets from a JSON array, non-interactively"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
+		{"edit|ed <TICKET-KEY> [flags]", "Edit fields on an existing ticket (summary/description/priority/labels/assignee/parent)"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
 		{"list|ls [flags]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
 		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
@@ -244,96 +247,6 @@ func runTemplate(args []string) {
 		fatal("marshalling template: %v", err)
 	}
 	fmt.Println(string(out))
-}
-
-// runCreate loads a template, prompts for summary/description, and creates a Jira ticket.
-func runCreate(args []string) {
-	fs := flag.NewFlagSet("create", flag.ExitOnError)
-	templatePath := fs.String("t", "", "Path to template file")
-	if err := fs.Parse(args); err != nil {
-		fatal("parsing flags: %v", err)
-	}
-
-	tmpl, err := template.Load(*templatePath)
-	if err != nil {
-		if *templatePath == "" {
-			fatal("no template found in search path.\n\nCreate one first:\n  jira-thing template <TICKET-KEY> [-o ticket_template.json]\n\nThen place ticket_template.json in one of:\n  - current directory\n  - same directory as the jira-thing binary\n  - $XDG_CONFIG_HOME/jira-thing/\n  - ~/.config/jira-thing/\n\nOr specify a path directly:\n  jira-thing create -t /path/to/template.json")
-		}
-		fatal("loading template: %v", err)
-	}
-	summary, description, err := promptTicketFields()
-	if err != nil {
-		fatal("%v", err)
-	}
-	tmpl["summary"] = summary
-	tmpl["description"] = buildDescription(description)
-	template.StripExcludedFields(tmpl)
-
-	conn := mustConnect()
-
-	if tmpl["assignee"] == template.AssigneeSelf {
-		me, err := api.FetchMyself(conn)
-		if err != nil {
-			fatal("fetching current user: %v", err)
-		}
-		template.ResolveAssignee(tmpl, me["accountId"].(string))
-	}
-
-	result, err := api.CreateIssue(conn, tmpl)
-	if err != nil {
-		fatal("creating issue: %v", err)
-	}
-	key := getString(result, "key")
-	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(key))
-	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
-}
-
-// promptTicketFields reads summary and description from stdin.
-func promptTicketFields() (summary, description string, err error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Enter ticket summary: ")
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", "", fmt.Errorf("reading summary: %w", err)
-	}
-	summary = strings.TrimSpace(line)
-	if summary == "" {
-		return "", "", fmt.Errorf("summary is required")
-	}
-	fmt.Print("Enter ticket description: ")
-	line, err = reader.ReadString('\n')
-	if err != nil {
-		return "", "", fmt.Errorf("reading description: %w", err)
-	}
-	return summary, strings.TrimSpace(line), nil
-}
-
-// promptAssigneeChoice asks the user whether to use self or the original assignee in the template.
-// If no assignee is present, it defaults to self without prompting.
-func promptAssigneeChoice(tmpl map[string]any) {
-	assignee, ok := tmpl["assignee"].(map[string]any)
-	if !ok {
-		tmpl["assignee"] = template.AssigneeSelf
-		return
-	}
-	displayName, _ := assignee["displayName"].(string)
-	if displayName == "" {
-		displayName = "original user"
-	}
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Assignee: (1) current user (self) or (2) %s? [1/2]: ", displayName)
-	line, _ := reader.ReadString('\n')
-	if strings.TrimSpace(line) == "2" {
-		fmt.Printf("Keeping assignee: %s\n", displayName)
-		return
-	}
-	tmpl["assignee"] = template.AssigneeSelf
-	fmt.Println("Assignee set to current user (resolved at ticket creation time)")
-}
-
-// buildDescription converts markdown text to the Jira Atlassian Document Format structure.
-func buildDescription(text string) map[string]any {
-	return markdownToADF(text)
 }
 
 // runMyTasks lists open Jira tasks assigned to the current user.

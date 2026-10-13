@@ -342,50 +342,63 @@ func TestMustConnect_Fatal(t *testing.T) {
 	}
 }
 
-// --- promptTicketFields ---
+// --- resolveSummary / resolveDescription ---
 
-func TestPromptTicketFields_Success(t *testing.T) {
-	defer pipeStdinLines(t, "Fix the bug", "Some description")()
-	summary, desc, err := promptTicketFields()
+func TestResolveSummary_UsesTemplateValue(t *testing.T) {
+	tmpl := map[string]any{"summary": "From template"}
+	summary, err := resolveSummary(tmpl, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary != "From template" {
+		t.Errorf("summary = %q", summary)
+	}
+}
+
+func TestResolveSummary_PromptsWhenMissing(t *testing.T) {
+	defer pipeStdinLines(t, "Fix the bug")()
+	summary, err := resolveSummary(map[string]any{}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if summary != "Fix the bug" {
 		t.Errorf("summary = %q", summary)
 	}
-	if desc != "Some description" {
-		t.Errorf("desc = %q", desc)
-	}
 }
 
-func TestPromptTicketFields_EmptySummary(t *testing.T) {
-	defer pipeStdinLines(t, "", "desc")()
-	_, _, err := promptTicketFields()
+func TestResolveSummary_EmptyPromptErrors(t *testing.T) {
+	defer pipeStdinLines(t, "")()
+	_, err := resolveSummary(map[string]any{}, false)
 	if err == nil {
 		t.Fatal("expected error for empty summary")
 	}
 }
 
-func TestPromptTicketFields_SummaryReadError(t *testing.T) {
-	r, w, _ := os.Pipe()
-	w.Close()
-	old := os.Stdin
-	os.Stdin = r
-	defer func() { os.Stdin = old; r.Close() }()
-
-	_, _, err := promptTicketFields()
+func TestResolveSummary_NonInteractiveMissingErrors(t *testing.T) {
+	_, err := resolveSummary(map[string]any{}, true)
 	if err == nil {
-		t.Fatal("expected error for stdin EOF")
+		t.Fatal("expected error for missing summary in non-interactive mode")
 	}
 }
 
-func TestPromptTicketFields_DescriptionReadError(t *testing.T) {
-	defer pipeStdinLines(t, "My summary")() // no description line written
-	_, _, err := promptTicketFields()
-	// On EOF for description, the function returns without error (empty desc is OK).
-	// The description read can return io.EOF which is treated as an error.
-	// Either outcome (err or empty desc) is acceptable; just must not panic.
-	_ = err
+func TestResolveDescription_UsesTemplateValue(t *testing.T) {
+	tmpl := map[string]any{"description": "From template"}
+	if got := resolveDescription(tmpl, false); got != "From template" {
+		t.Errorf("description = %q", got)
+	}
+}
+
+func TestResolveDescription_PromptsWhenMissing(t *testing.T) {
+	defer pipeStdinLines(t, "Some description")()
+	if got := resolveDescription(map[string]any{}, false); got != "Some description" {
+		t.Errorf("description = %q", got)
+	}
+}
+
+func TestResolveDescription_NonInteractiveMissingIsEmpty(t *testing.T) {
+	if got := resolveDescription(map[string]any{}, true); got != "" {
+		t.Errorf("description = %q, want empty", got)
+	}
 }
 
 // --- runTemplate ---

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"jira-thing/internal/api"
 )
 
 const defaultTemplateFile = "ticket_template.json"
@@ -43,6 +45,37 @@ var ExcludedFields = []string{
 func ResolveAssignee(tmpl map[string]any, accountID string) {
 	if tmpl["assignee"] == AssigneeSelf {
 		tmpl["assignee"] = map[string]any{"accountId": accountID}
+	}
+}
+
+// SplitLabels splits a comma-separated label string into trimmed, non-empty labels.
+func SplitLabels(s string) []string {
+	parts := strings.Split(s, ",")
+	labels := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			labels = append(labels, t)
+		}
+	}
+	return labels
+}
+
+// ResolveAssigneeArg turns an assignee argument into the Jira API's expected
+// assignee field value: "me" resolves to the current user's account ID,
+// "unassign" clears the assignee, and anything else is treated as a literal
+// Jira account ID.
+func ResolveAssigneeArg(conn api.JiraConnection, assignee string) (any, error) {
+	switch assignee {
+	case "unassign":
+		return nil, nil
+	case "me":
+		self, err := api.FetchMyself(conn)
+		if err != nil {
+			return nil, fmt.Errorf("resolving current user: %w", err)
+		}
+		return map[string]any{"accountId": self["accountId"]}, nil
+	default:
+		return map[string]any{"accountId": assignee}, nil
 	}
 }
 

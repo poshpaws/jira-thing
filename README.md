@@ -158,25 +158,78 @@ jira-thing template PROJ-42
 
 ### `create` — create a ticket from a template
 
-Loads a template file, prompts for a summary and description, then creates a new Jira ticket with the template's fields pre-filled.
+Loads a template file and creates a new Jira ticket with its fields pre-filled. If the template already carries `summary`/`description` (and optionally `parent`), the ticket is created with **zero prompts**. Anything still missing is prompted for interactively, unless `-non-interactive`/`-y` is set — then a missing summary is a fatal error instead of a blocking prompt. This non-interactive path is what scripts, CI, and agents should use.
 
 ```bash
-jira-thing create [-t template.json]
+jira-thing create [-t template.json] [-y] [-description-file body.md]
+jira-thing create -f tickets.json   # batch: create every entry in a JSON array
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `-t` | `ticket_template.json` | Path to the template file |
+| `-f` | — | Path to a JSON array of templates; creates all of them non-interactively and reports how many succeeded |
+| `-non-interactive`, `-y` | `false` | Fail with a clear error instead of prompting for a missing summary |
+| `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt |
 
 **Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
-**Example:**
+A template can set `"parent": "PROJ-10"` to link the new ticket to an epic/parent immediately after creation — same `parent`-then-`Epic Link` fallback as `epic add`, no separate call needed.
+
+**Example — interactive:**
 
 ```bash
 jira-thing create -t templates/bug.json
 # Enter ticket summary: Fix login redirect on mobile
 # Enter ticket description: Users are redirected to /home instead of the original URL after login on iOS Safari.
 # Created ticket: PROJ-99
+# URL: https://yourorg.atlassian.net/browse/PROJ-99
+```
+
+**Example — non-interactive, fully declarative:**
+
+```json
+{
+  "project": {"key": "PROJ"},
+  "issuetype": {"name": "Task"},
+  "summary": "Fix login redirect on mobile",
+  "description": "Users are redirected to /home instead of the original URL after login on iOS Safari.",
+  "parent": "PROJ-10"
+}
+```
+
+```bash
+jira-thing create -t templates/bug.json -y
+# Created ticket: PROJ-99
+# URL: https://yourorg.atlassian.net/browse/PROJ-99
+```
+
+---
+
+### `edit` — edit fields on an existing ticket
+
+Changes fields on an existing ticket non-interactively. Only the flags you pass are touched — everything else on the ticket is left alone. Unlike `update` (which only adds a comment), `edit` mutates the ticket itself via `PUT /rest/api/3/issue/{key}`.
+
+```bash
+jira-thing edit <TICKET-KEY> [flags]
+```
+
+| Flag | Description |
+|---|---|
+| `-summary` | New summary/title |
+| `-description-file` | Path to a markdown file for the new description (replaces the existing one) |
+| `-priority` | New priority name (e.g. High, Medium, Low) |
+| `-labels` | Comma-separated labels — replaces all existing labels |
+| `-assignee` | `me`, `unassign`, or a literal Jira account ID |
+| `-parent` | Epic/parent ticket key to link this ticket to |
+
+At least one flag is required.
+
+**Example:**
+
+```bash
+jira-thing edit PROJ-99 -priority High -labels bug,urgent -assignee me
+# Edited ticket: PROJ-99
 # URL: https://yourorg.atlassian.net/browse/PROJ-99
 ```
 
