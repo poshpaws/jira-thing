@@ -207,6 +207,9 @@ func createTicketTool() mcp.Tool {
 		mcp.WithString("labels",
 			mcp.Description("Comma-separated list of labels"),
 		),
+		mcp.WithString("parent",
+			mcp.Description("Epic/parent ticket key to link this ticket to on creation (e.g. PROJ-10)"),
+		),
 	)
 }
 
@@ -245,7 +248,15 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if k, ok := result["key"].(string); ok {
 			key = k
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("Created ticket: %s\nURL: %s/browse/%s", key, conn.BaseURL, key)), nil
+		msg := fmt.Sprintf("Created ticket: %s\nURL: %s/browse/%s", key, conn.BaseURL, key)
+		if parent := req.GetString("parent", ""); parent != "" {
+			if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
+				msg += fmt.Sprintf("\nWarning: created but failed to link to parent %s: %v", parent, err)
+			} else {
+				msg += fmt.Sprintf("\nLinked to parent: %s", parent)
+			}
+		}
+		return mcp.NewToolResultText(msg), nil
 	}
 }
 
@@ -276,6 +287,9 @@ func updateTicketTool() mcp.Tool {
 			mcp.Description("Who to assign the ticket to: \"me\" for the current user, \"unassign\" to clear the assignee, "+
 				"or a Jira account ID"),
 		),
+		mcp.WithString("parent",
+			mcp.Description("Epic/parent ticket key to link this ticket to (e.g. PROJ-10)"),
+		),
 	)
 }
 
@@ -289,11 +303,19 @@ func handleUpdateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if len(fields) == 0 {
+		parent := req.GetString("parent", "")
+		if len(fields) == 0 && parent == "" {
 			return mcp.NewToolResultError("no fields provided to update"), nil
 		}
-		if err := api.UpdateIssue(conn, key, fields); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("updating %s: %v", key, err)), nil
+		if len(fields) > 0 {
+			if err := api.UpdateIssue(conn, key, fields); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("updating %s: %v", key, err)), nil
+			}
+		}
+		if parent != "" {
+			if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("linking %s to parent %s: %v", key, parent, err)), nil
+			}
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("%s updated", key)), nil
 	}
