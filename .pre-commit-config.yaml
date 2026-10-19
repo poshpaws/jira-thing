@@ -15,7 +15,12 @@ repos:
 
       - id: gosec
         name: gosec security scan
-        entry: gosec -exclude-dir=.agents ./...
+        # gosec's go/packages loader can't yet decode the export-data format
+        # produced by this repo's pinned toolchain (go.mod "toolchain" line) —
+        # run it under the go.mod-minimum version instead so analysis isn't
+        # blocked by that mismatch (0 real findings either way); builds,
+        # tests, and govulncheck below keep using the pinned toolchain as-is.
+        entry: env GOTOOLCHAIN=go1.26.5 gosec -exclude-dir=.agents ./...
         language: system
         pass_filenames: false
         types: [go]
