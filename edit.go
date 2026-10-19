@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"jira-thing/internal/api"
 	"jira-thing/internal/template"
@@ -15,22 +14,6 @@ import (
 // the flags given are changed, everything else on the ticket is left alone.
 // This is the field-level counterpart to "update", which only adds comments.
 func runEdit(args []string) {
-	// Reorder args so flags (and their values) precede the positional
-	// TICKET-KEY — flag.Parse stops at the first non-flag argument, and the
-	// key is conventionally given first (e.g. "edit PROJ-1 -priority High").
-	var reordered, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			reordered = append(reordered, args[i], args[i+1])
-			i++
-		} else if strings.HasPrefix(args[i], "-") {
-			reordered = append(reordered, args[i])
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	reordered = append(reordered, positional...)
-
 	fs := flag.NewFlagSet("edit", flag.ExitOnError)
 	summary := fs.String("summary", "", "New summary/title")
 	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the new description")
@@ -38,8 +21,10 @@ func runEdit(args []string) {
 	labels := fs.String("labels", "", "Comma-separated labels (replaces all existing labels)")
 	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", or a Jira account ID`)
 	parent := fs.String("parent", "", "Epic/parent ticket key to link this ticket to")
-	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY]")
+	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without changing anything")
+	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
+	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY] [-dry-run] [-json]")
 	}
 	key := fs.Arg(0)
 
@@ -52,18 +37,44 @@ func runEdit(args []string) {
 		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent")
 	}
 
+	if *dryRun {
+		printEditDryRun(conn, key, fields, *parent)
+		return
+	}
+	submitEdit(conn, key, fields, *parent, *jsonOut)
+}
+
+// submitEdit sends the field-update PUT (if any fields were given) and the
+// parent-link call (if -parent was given), then reports success.
+func submitEdit(conn api.JiraConnection, key string, fields map[string]any, parent string, jsonOut bool) {
 	if len(fields) > 0 {
 		if err := api.UpdateIssue(conn, key, fields); err != nil {
 			fatal("editing %s: %v", key, err)
 		}
 	}
-	if *parent != "" {
-		if err := api.AddIssuesToEpic(conn, *parent, []string{key}); err != nil {
-			fatal("linking %s to parent %s: %v", key, *parent, err)
+	if parent != "" {
+		if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
+			fatal("linking %s to parent %s: %v", key, parent, err)
 		}
 	}
+	url := conn.BaseURL + "/browse/" + key
+	if jsonOut {
+		printJSONResult(jsonResult{Key: key, URL: url, Status: "edited"})
+		return
+	}
 	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Edited ticket:"), tui.KeyStyle.Render(key))
-	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
+	fmt.Printf("URL: %s\n", url)
+}
+
+// printEditDryRun shows what "edit" would send: the field-update PUT if any
+// fields were given, and the parent-link call if -parent was given.
+func printEditDryRun(conn api.JiraConnection, key string, fields map[string]any, parent string) {
+	if len(fields) > 0 {
+		printDryRun("PUT", conn.BaseURL+api.IssueEndpoint+"/"+key, fields)
+	}
+	if parent != "" {
+		fmt.Printf("Would also link %s to parent %s\n", key, parent)
+	}
 }
 
 // buildEditFields translates edit flags into a Jira fields payload for

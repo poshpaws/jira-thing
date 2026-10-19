@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"strings"
@@ -34,10 +35,8 @@ type listFilters struct {
 	reverse  bool
 }
 
-// runList searches tickets using a flag-built JQL query, mirroring jira-cli's
-// `issue list` flag set. Flags combine with AND; an explicit -jql clause is
-// AND-ed in as well for anything the flags don't cover.
-func runList(args []string) {
+// parseListFlags parses runList's flag set, exiting on a parse error.
+func parseListFlags(args []string) (listFilters, bool) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	f := listFilters{}
 	var labels stringList
@@ -53,10 +52,19 @@ func runList(args []string) {
 	fs.StringVar(&f.jql, "jql", "", "Raw JQL, AND-ed together with the other flags")
 	fs.StringVar(&f.orderBy, "order-by", "", `Sort field (default "created")`)
 	fs.BoolVar(&f.reverse, "reverse", false, "Reverse the sort order (ascending instead of descending)")
+	jsonOut := fs.Bool("json", false, "Print matching tickets as a JSON array instead of styled text")
 	if err := fs.Parse(args); err != nil {
 		fatal("parsing flags: %v", err)
 	}
 	f.labels = labels
+	return f, *jsonOut
+}
+
+// runList searches tickets using a flag-built JQL query, mirroring jira-cli's
+// `issue list` flag set. Flags combine with AND; an explicit -jql clause is
+// AND-ed in as well for anything the flags don't cover.
+func runList(args []string) {
+	f, jsonOut := parseListFlags(args)
 
 	jql := buildListJQL(f)
 	conn := mustConnect()
@@ -68,6 +76,10 @@ func runList(args []string) {
 	if err != nil {
 		fatal("searching: %v", err)
 	}
+	if jsonOut {
+		printTicketsJSON(conn, result.Issues)
+		return
+	}
 	if len(result.Issues) == 0 {
 		fmt.Println("No tickets found.")
 		return
@@ -75,6 +87,34 @@ func runList(args []string) {
 	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d ticket(s):", len(result.Issues))))
 	fmt.Println()
 	printTasks(result.Issues)
+}
+
+// listedTicket is the JSON shape -json prints for each matching ticket.
+type listedTicket struct {
+	Key      string `json:"key"`
+	URL      string `json:"url"`
+	Summary  string `json:"summary"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+	Updated  string `json:"updated"`
+}
+
+// printTicketsJSON prints issues as a JSON array, "[]" when there are none —
+// scripts can always parse the output as an array, with no prose fallback.
+func printTicketsJSON(conn api.JiraConnection, issues []map[string]any) {
+	tickets := issuesToTickets(issues)
+	listed := make([]listedTicket, len(tickets))
+	for i, t := range tickets {
+		listed[i] = listedTicket{
+			Key: t.Key, URL: conn.BaseURL + "/browse/" + t.Key,
+			Summary: t.Summary, Status: t.Status, Priority: t.Priority, Updated: t.Updated,
+		}
+	}
+	body, err := json.MarshalIndent(listed, "", "  ")
+	if err != nil {
+		fatal("rendering JSON result: %v", err)
+	}
+	fmt.Println(string(body))
 }
 
 // buildListJQL assembles a JQL query string from listFilters. Each populated

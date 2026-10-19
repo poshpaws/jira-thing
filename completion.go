@@ -9,7 +9,7 @@ import (
 // shell completion scripts. Kept in sync with the switch in main() by hand —
 // there's no cobra-style command registry to generate it from.
 var completionCommands = []string{
-	"template", "te", "create", "cr", "my-tasks", "mt", "list", "ls", "state", "sta",
+	"template", "te", "create", "cr", "my-tasks", "mt", "list", "ls", "state", "sta", "transition", "tr",
 	"menu", "m", "epic", "open", "o", "update", "up", "edit", "ed", "last-comment", "lc", "attach", "at",
 	"describe", "de", "toil-check", "tc", "toil", "point-check", "pc", "toil-sync", "ts",
 	"conf", "subtask", "st", "serve-mcp", "diagnose", "diag", "clear-auth",

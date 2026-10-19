@@ -195,7 +195,7 @@ func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket, fetch
 			printMenuErr("fetching %s: %v", res.Key, err)
 			return
 		}
-		renderDescribe(issue)
+		renderDescribe(issue, false, false)
 	case tui.ActionOpen:
 		target := conn.BaseURL + "/browse/" + res.Key
 		if err := openBrowser(target); err != nil {
@@ -260,7 +260,7 @@ func menuDescribe(conn api.JiraConnection) {
 		printMenuErr("fetching %s: %v", key, err)
 		return
 	}
-	renderDescribe(issue)
+	renderDescribe(issue, false, false)
 }
 
 func menuUpdateFields(conn api.JiraConnection) {

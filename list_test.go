@@ -1,9 +1,51 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestRunList_JSONOutputsArray(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"issues": []map[string]any{
+				{"key": "PROJ-1", "fields": map[string]any{"summary": "First", "status": map[string]any{"name": "Open"}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runList([]string{"-json"}) })
+	var got []listedTicket
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if len(got) != 1 || got[0].Key != "PROJ-1" || got[0].Summary != "First" {
+		t.Errorf("got %+v", got)
+	}
+	if got[0].URL != srv.URL+"/browse/PROJ-1" {
+		t.Errorf("url = %q", got[0].URL)
+	}
+}
+
+func TestRunList_JSONEmptyResultIsEmptyArray(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"issues": []map[string]any{}})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() { runList([]string{"-json"}) })
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("expected empty JSON array, got: %q", out)
+	}
+}
 
 func TestBuildListJQL_Empty(t *testing.T) {
 	got := buildListJQL(listFilters{})

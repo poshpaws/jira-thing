@@ -122,6 +122,44 @@ func TestRunEdit_ParentLinksWithoutFieldUpdate(t *testing.T) {
 	}
 }
 
+func TestRunEdit_JSONOutputsResult(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() {
+		runEdit([]string{"-priority", "High", "-json", "PROJ-12"})
+	})
+	var got jsonResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if got.Key != "PROJ-12" || got.Status != "edited" || got.URL != srv.URL+"/browse/PROJ-12" {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestRunEdit_DryRunMakesNoPutRequest(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request in dry-run mode: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	out := captureStdout(func() {
+		runEdit([]string{"-priority", "High", "-dry-run", "PROJ-11"})
+	})
+	if !strings.Contains(out, "Dry run") {
+		t.Errorf("expected dry-run notice, got: %s", out)
+	}
+	if !strings.Contains(out, "PUT") || !strings.Contains(out, "/rest/api/3/issue/PROJ-11") {
+		t.Errorf("expected method and target URL in output, got: %s", out)
+	}
+}
+
 func TestRunEdit_NothingToEditExits(t *testing.T) {
 	defer mockCreds("https://example.invalid")()
 	exited := captureExit(func() {

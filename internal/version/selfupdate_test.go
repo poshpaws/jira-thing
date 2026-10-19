@@ -13,6 +13,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -200,14 +202,12 @@ func TestSelfUpdate_Success(t *testing.T) {
 		assetURL:    []byte(binaryContents),
 	})
 
-	origApply := applyFn
-	defer func() { applyFn = origApply }()
-	var applied string
-	var appliedChecksum []byte
-	applyFn = func(r io.Reader, checksum []byte) error {
-		data, err := io.ReadAll(r)
-		applied = string(data)
-		appliedChecksum = checksum
+	origInstall := installFn
+	defer func() { installFn = origInstall }()
+	var installed string
+	installFn = func(tempPath string) error {
+		data, err := os.ReadFile(tempPath)
+		installed = string(data)
 		return err
 	}
 
@@ -215,14 +215,91 @@ func TestSelfUpdate_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if applied != binaryContents {
-		t.Errorf("expected apply to receive downloaded bytes, got: %q", applied)
-	}
-	if fmt.Sprintf("%x", appliedChecksum) != fmt.Sprintf("%x", sum) {
-		t.Errorf("expected checksum %x, got %x", sum, appliedChecksum)
+	if installed != binaryContents {
+		t.Errorf("expected install to receive downloaded bytes, got: %q", installed)
 	}
 	if !strings.Contains(msg, "v1.0.0 → v2.0.0") {
 		t.Errorf("expected version transition in message, got: %s", msg)
+	}
+}
+
+func TestDownloadToTemp_ChecksumMismatch(t *testing.T) {
+	orig := downloadFn
+	defer func() { downloadFn = orig }()
+	downloadFn = func(ctx context.Context, url string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("not the expected content")), nil
+	}
+
+	_, err := downloadToTemp(context.Background(), "https://example.com/asset", []byte("deadbeef"))
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum mismatch error, got: %v", err)
+	}
+}
+
+func TestInstallBinary_MovesFileIntoPlace(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "jira-thing")
+	if err := os.WriteFile(targetPath, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("seeding target binary: %v", err)
+	}
+
+	origExecutable := executableFn
+	defer func() { executableFn = origExecutable }()
+	executableFn = func() (string, error) { return targetPath, nil }
+
+	tempPath := filepath.Join(t.TempDir(), "downloaded")
+	if err := os.WriteFile(tempPath, []byte("new binary"), 0o644); err != nil {
+		t.Fatalf("seeding downloaded file: %v", err)
+	}
+
+	if err := installBinary(tempPath); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("reading installed binary: %v", err)
+	}
+	if string(got) != "new binary" {
+		t.Errorf("expected installed binary to be new content, got: %q", got)
+	}
+	if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+		t.Errorf("expected temp file to be removed, stat err: %v", err)
+	}
+	if _, err := os.Stat(targetPath + ".old"); !os.IsNotExist(err) {
+		t.Errorf("expected .old file to be cleaned up, stat err: %v", err)
+	}
+}
+
+// TestInstallBinary_UnwritableDirGivesActionableError reproduces the reported bug:
+// a user whose binary sits in a directory they don't own gets a bare, unexplained
+// failure. installBinary must instead name the directory and say why.
+func TestInstallBinary_UnwritableDirGivesActionableError(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "jira-thing")
+	if err := os.WriteFile(targetPath, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("seeding target binary: %v", err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("making dir read-only: %v", err)
+	}
+	defer os.Chmod(dir, 0o755) //nolint:errcheck // best-effort so t.TempDir() cleanup can remove it
+
+	origExecutable := executableFn
+	defer func() { executableFn = origExecutable }()
+	executableFn = func() (string, error) { return targetPath, nil }
+
+	tempPath := filepath.Join(t.TempDir(), "downloaded")
+	if err := os.WriteFile(tempPath, []byte("new binary"), 0o644); err != nil {
+		t.Fatalf("seeding downloaded file: %v", err)
+	}
+
+	err := installBinary(tempPath)
+	if err == nil {
+		t.Fatalf("expected a permission error, got none")
+	}
+	if !strings.Contains(err.Error(), "permission denied") || !strings.Contains(err.Error(), dir) {
+		t.Errorf("expected actionable permission error naming %s, got: %v", dir, err)
 	}
 }
 

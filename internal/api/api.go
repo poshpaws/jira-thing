@@ -211,7 +211,27 @@ func AddComment(conn JiraConnection, issueKey string, body map[string]any) error
 
 // AddAttachment uploads a local file as an attachment on an existing Jira issue.
 func AddAttachment(conn JiraConnection, issueKey, filePath string) ([]map[string]any, error) {
-	body, contentType, err := buildAttachmentBody(filePath)
+	file, err := os.Open(filePath) // #nosec G304 -- filePath is user-supplied CLI input
+	if err != nil {
+		return nil, fmt.Errorf("opening file: %w", err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() > maxAttachmentUpload {
+		return nil, fmt.Errorf("attachment %s exceeds %d MB upload limit", filepath.Base(filePath), maxAttachmentUpload/(1024*1024))
+	}
+	return AddAttachmentReader(conn, issueKey, filepath.Base(filePath), file)
+}
+
+// AddAttachmentReader uploads the contents of r as an attachment named name on
+// issueKey. Used both for file-path attachments and for streaming stdin in
+// under an explicit name; the upload is capped at maxAttachmentUpload.
+func AddAttachmentReader(conn JiraConnection, issueKey, name string, r io.Reader) ([]map[string]any, error) {
+	body, contentType, err := buildAttachmentBody(name, r)
 	if err != nil {
 		return nil, err
 	}
@@ -229,30 +249,21 @@ func AddAttachment(conn JiraConnection, issueKey, filePath string) ([]map[string
 	return result, executeRequest(req, &result)
 }
 
-// buildAttachmentBody reads filePath and returns a multipart/form-data body plus its Content-Type.
-func buildAttachmentBody(filePath string) (io.Reader, string, error) {
-	file, err := os.Open(filePath) // #nosec G304 -- filePath is user-supplied CLI input
-	if err != nil {
-		return nil, "", fmt.Errorf("opening file: %w", err)
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return nil, "", fmt.Errorf("stat file: %w", err)
-	}
-	if info.Size() > maxAttachmentUpload {
-		return nil, "", fmt.Errorf("attachment %s exceeds %d MB upload limit", filepath.Base(filePath), maxAttachmentUpload/(1024*1024))
-	}
-
+// buildAttachmentBody reads r (capped at maxAttachmentUpload) and returns a
+// multipart/form-data body, naming the part name, plus its Content-Type.
+func buildAttachmentBody(name string, r io.Reader) (io.Reader, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	part, err := writer.CreateFormFile("file", name)
 	if err != nil {
 		return nil, "", fmt.Errorf("building attachment form: %w", err)
 	}
-	if _, err := io.Copy(part, io.LimitReader(file, maxAttachmentUpload)); err != nil {
+	n, err := io.Copy(part, io.LimitReader(r, maxAttachmentUpload+1))
+	if err != nil {
 		return nil, "", fmt.Errorf("reading file: %w", err)
+	}
+	if n > maxAttachmentUpload {
+		return nil, "", fmt.Errorf("attachment %s exceeds %d MB upload limit", name, maxAttachmentUpload/(1024*1024))
 	}
 	if err := writer.Close(); err != nil {
 		return nil, "", fmt.Errorf("closing multipart writer: %w", err)

@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"jira-thing/internal/api"
+)
 
 func TestAdfToMarkdown_LinkMark(t *testing.T) {
 	doc := map[string]any{
@@ -173,6 +178,74 @@ func TestBuildDescribeMarkdown_MissingFields(t *testing.T) {
 		"_No description._\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// captureStdout's pipe isn't a terminal, so these exercise the auto-plain path
+// that "describe KEY | cat" relies on: no ANSI escape codes in the output.
+
+func TestRenderDescribe_PipedOutputHasNoEscapeCodes(t *testing.T) {
+	issue := map[string]any{
+		"key":    "PROJ-1",
+		"fields": map[string]any{"summary": "Fix the thing"},
+	}
+	out := captureStdout(func() { renderDescribe(issue, false, false) })
+	if strings.ContainsRune(out, '\x1b') {
+		t.Errorf("expected no ANSI escape codes in piped output, got: %q", out)
+	}
+	if !strings.Contains(out, "PROJ-1") || !strings.Contains(out, "Fix the thing") {
+		t.Errorf("expected plain markdown content, got: %q", out)
+	}
+}
+
+func TestRenderDescribe_RawPrintsIssueJSON(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"description": map[string]any{"type": "doc", "version": 1.0},
+		},
+	}
+	out := captureStdout(func() { renderDescribe(issue, false, true) })
+	if !strings.Contains(out, `"type": "doc"`) {
+		t.Errorf("expected raw ADF description in JSON output, got: %q", out)
+	}
+	if strings.Contains(out, "## Description") {
+		t.Errorf("expected raw mode to skip markdown rendering, got: %q", out)
+	}
+}
+
+func TestRenderLastComment_PipedOutputHasNoEscapeCodes(t *testing.T) {
+	comment := api.Comment{
+		Author:  map[string]any{"displayName": "Alice"},
+		Created: "2026-01-01T10:00:00.000+0000",
+		Body: map[string]any{
+			"type": "doc",
+			"content": []any{
+				map[string]any{
+					"type":    "paragraph",
+					"content": []any{map[string]any{"type": "text", "text": "hello"}},
+				},
+			},
+		},
+	}
+	out := captureStdout(func() { renderLastComment(comment, false, false) })
+	if strings.ContainsRune(out, '\x1b') {
+		t.Errorf("expected no ANSI escape codes in piped output, got: %q", out)
+	}
+	if !strings.Contains(out, "Alice") || !strings.Contains(out, "hello") {
+		t.Errorf("expected plain markdown content, got: %q", out)
+	}
+}
+
+func TestRenderLastComment_RawPrintsBodyJSON(t *testing.T) {
+	comment := api.Comment{
+		Author:  map[string]any{"displayName": "Alice"},
+		Created: "2026-01-01T10:00:00.000+0000",
+		Body:    map[string]any{"type": "doc", "version": 1.0},
+	}
+	out := captureStdout(func() { renderLastComment(comment, false, true) })
+	if !strings.Contains(out, `"type": "doc"`) {
+		t.Errorf("expected raw ADF body in JSON output, got: %q", out)
 	}
 }
 

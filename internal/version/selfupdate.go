@@ -41,11 +41,6 @@ var allowedDownloadHosts = map[string]bool{
 // downloadFn allows tests to stub out the asset download.
 var downloadFn = downloadAsset
 
-// applyFn allows tests to stub out the binary swap (it otherwise overwrites os.Executable()).
-var applyFn = func(r io.Reader, checksum []byte) error {
-	return update.Apply(r, update.Options{Checksum: checksum})
-}
-
 // downloadClient enforces a timeout and re-validates the host on every redirect hop.
 var downloadClient = &http.Client{
 	Timeout: downloadTimeout,
@@ -86,7 +81,7 @@ func SelfUpdate(ctx context.Context, current string) (string, error) {
 }
 
 // downloadAndApply picks the matching asset, verifies it against the signed checksums
-// manifest, and swaps it in for the running binary.
+// manifest, downloads it to a temp file, and swaps it in for the running binary.
 func downloadAndApply(ctx context.Context, release *ReleaseInfo) error {
 	asset, err := findAsset(release.Assets)
 	if err != nil {
@@ -97,17 +92,13 @@ func downloadAndApply(ctx context.Context, release *ReleaseInfo) error {
 		return err
 	}
 
-	body, err := downloadFn(ctx, asset.BrowserDownloadURL)
+	tempPath, err := downloadToTemp(ctx, asset.BrowserDownloadURL, expectedSum)
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", asset.Name, err)
 	}
-	defer body.Close()
 
-	if err := applyFn(body, expectedSum); err != nil {
-		if rerr := update.RollbackError(err); rerr != nil {
-			return fmt.Errorf("update failed and rollback failed: %w", rerr)
-		}
-		return fmt.Errorf("applying update: %w", err)
+	if err := installFn(tempPath); err != nil {
+		return fmt.Errorf("installing update: %w", err)
 	}
 	return nil
 }

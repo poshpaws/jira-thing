@@ -67,6 +67,8 @@ func main() {
 		runList(os.Args[2:])
 	case "state", "sta":
 		runState(os.Args[2:])
+	case "transition", "tr":
+		runTransition(os.Args[2:])
 	case "menu", "m":
 		runMenu()
 	case "epic":
@@ -133,12 +135,15 @@ func printUsage() {
 	commands := []struct{ cmd, desc string }{
 		{"template|te <TICKET-KEY> [-o file]", "Fetch a ticket and save as template"},
 		{"create|cr [-t template.json]", "Create a new ticket from a template (-y for non-interactive)"},
-		{"create|cr -f tickets.json", "Batch-create tickets from a JSON array, non-interactively"},
+		{"create|cr -type/-priority/-labels/-components/-assignee/-epic", "First-class field flags — override the template, no template needed"},
+		{"create|cr -f tickets.json [-dry-run]", "Batch-create tickets from a JSON array, non-interactively"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
 		{"edit|ed <TICKET-KEY> [flags]", "Edit fields on an existing ticket (summary/description/priority/labels/assignee/parent)"},
+		{"create|cr / edit|ed -json", "Print {key, url, status} as JSON instead of styled text"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
-		{"list|ls [flags]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
+		{"list|ls [flags] [-json]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
 		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
+		{"transition|tr <TICKET-KEY> [STATE] [flags]", "Move a ticket to a new state non-interactively (scriptable); omit STATE to list states"},
 		{"menu|m", "Interactive menu for all ticket operations"},
 		{"epic list [-p PROJECT]", "List every epic in a project"},
 		{"epic describe <EPIC-KEY>", "List issues under an epic"},
@@ -147,9 +152,9 @@ func printUsage() {
 		{"epic remove <KEY...>", "Remove issues from their epic"},
 		{"open|o [TICKET-KEY]", "Open a ticket (or Jira) in the browser"},
 		{"completion <bash|zsh>", "Print a shell completion script"},
-		{"last-comment|lc <TICKET-KEY>", "Show last comment as markdown"},
-		{"attach|at <TICKET-KEY> <file>", "Attach a file to a ticket"},
-		{"describe|de <TICKET-KEY>", "Dump full ticket as rendered markdown"},
+		{"last-comment|lc <TICKET-KEY> [-plain] [-raw]", "Show last comment as markdown"},
+		{"attach|at <TICKET-KEY> <file> | -f a -f b | --stdin --name x", "Attach one or more files, or piped stdin, to a ticket"},
+		{"describe|de <TICKET-KEY> [-plain] [-raw]", "Dump full ticket as rendered markdown"},
 		{"toil-check|tc", "List toil tickets from the last week"},
 		{"point-check|pc", "Check sprint tickets have story points"},
 		{"toil-sync|ts", "Sync TOIL tickets to Confluence"},
@@ -529,47 +534,33 @@ func hasStoryPoints(issue map[string]any) bool {
 // runLastComment fetches and renders the last comment on a Jira ticket.
 func runLastComment(args []string) {
 	fs := flag.NewFlagSet("last-comment", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing last-comment <TICKET-KEY>")
+	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
+	raw := fs.Bool("raw", false, "Print the stored comment body as raw ADF JSON")
+	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing last-comment <TICKET-KEY> [-plain] [-raw]")
 	}
 	conn := mustConnect()
 	comment, err := api.FetchLastComment(conn, fs.Arg(0))
 	if err != nil {
 		fatal("fetching comment: %v", err)
 	}
-	renderLastComment(comment)
+	renderLastComment(comment, *plain, *raw)
 }
 
 // runDescribe fetches a Jira ticket and prints its full contents as rendered markdown.
 func runDescribe(args []string) {
 	fs := flag.NewFlagSet("describe", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing describe <TICKET-KEY>")
+	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
+	raw := fs.Bool("raw", false, "Print the stored issue fields as raw JSON (incl. ADF description)")
+	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing describe <TICKET-KEY> [-plain] [-raw]")
 	}
 	conn := mustConnect()
 	issue, err := api.FetchIssue(conn, fs.Arg(0))
 	if err != nil {
 		fatal("fetching issue: %v", err)
 	}
-	renderDescribe(issue)
-}
-
-// runAttach uploads a local file as an attachment on an existing Jira ticket.
-func runAttach(args []string) {
-	fs := flag.NewFlagSet("attach", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil || fs.NArg() < 2 {
-		fatal("usage: jira-thing attach <TICKET-KEY> <file-path>")
-	}
-	key := fs.Arg(0)
-	path := fs.Arg(1)
-
-	conn := mustConnect()
-	if _, err := api.AddAttachment(conn, key, path); err != nil {
-		fatal("attaching file: %v", err)
-	}
-	fmt.Printf("%s %s %s %s\n",
-		tui.SuccessStyle.Render("Attached"), path, tui.SuccessStyle.Render("to"), tui.KeyStyle.Render(key))
-	fmt.Printf("URL: %s/browse/%s\n", conn.BaseURL, key)
+	renderDescribe(issue, *plain, *raw)
 }
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.

@@ -1,23 +1,30 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/mattn/go-isatty"
 	"jira-thing/internal/api"
 )
 
-// renderLastComment prints header and glamour-rendered body of a Jira comment.
-func renderLastComment(comment api.Comment) {
-	author := getString(comment.Author, "displayName")
-	date := comment.Created
-	if len(date) >= 10 {
-		date = date[:10]
-	}
-	fmt.Printf("Last comment by %s on %s:\n\n", author, date)
+// shouldRenderPlain reports whether output should skip ANSI styling entirely —
+// either because -plain/-raw was given, or because stdout isn't a terminal, so
+// piping (e.g. "describe KEY | cat") never embeds escape codes.
+func shouldRenderPlain(plain bool) bool {
+	return plain || !isatty.IsTerminal(os.Stdout.Fd())
+}
 
-	md := adfToMarkdown(comment.Body)
+// renderMarkdown prints md glamour-rendered when writing to a terminal, or as
+// plain text otherwise (piped output, or -plain).
+func renderMarkdown(md string, plain bool) {
+	if shouldRenderPlain(plain) {
+		fmt.Print(md)
+		return
+	}
 	rendered, err := glamour.Render(md, "dark")
 	if err != nil {
 		fmt.Print(md)
@@ -26,16 +33,42 @@ func renderLastComment(comment api.Comment) {
 	fmt.Print(rendered)
 }
 
-// renderDescribe prints a full markdown dump of a Jira issue: key, summary,
-// core fields, and the rendered description.
-func renderDescribe(issue map[string]any) {
-	md := buildDescribeMarkdown(issue)
-	rendered, err := glamour.Render(md, "dark")
-	if err != nil {
-		fmt.Print(md)
+// renderLastComment prints header and body of a Jira comment: rendered
+// markdown by default, or the stored ADF body verbatim with -raw.
+func renderLastComment(comment api.Comment, plain, raw bool) {
+	author := getString(comment.Author, "displayName")
+	date := comment.Created
+	if len(date) >= 10 {
+		date = date[:10]
+	}
+	fmt.Printf("Last comment by %s on %s:\n\n", author, date)
+
+	if raw {
+		printRawJSON(comment.Body)
 		return
 	}
-	fmt.Print(rendered)
+	renderMarkdown(adfToMarkdown(comment.Body), plain)
+}
+
+// renderDescribe prints a Jira issue: rendered markdown by default (key,
+// summary, core fields, description), or the raw issue JSON with -raw.
+func renderDescribe(issue map[string]any, plain, raw bool) {
+	if raw {
+		printRawJSON(issue)
+		return
+	}
+	renderMarkdown(buildDescribeMarkdown(issue), plain)
+}
+
+// printRawJSON pretty-prints v as JSON, falling back to a plain error note if
+// it somehow doesn't marshal.
+func printRawJSON(v any) {
+	body, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		fmt.Printf("<failed to render raw JSON: %v>\n", err)
+		return
+	}
+	fmt.Println(string(body))
 }
 
 // buildDescribeMarkdown renders a Jira issue's key fields and description as markdown.

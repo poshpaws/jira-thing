@@ -207,6 +207,13 @@ func createTicketTool() mcp.Tool {
 		mcp.WithString("labels",
 			mcp.Description("Comma-separated list of labels"),
 		),
+		mcp.WithString("components",
+			mcp.Description("Comma-separated list of component names"),
+		),
+		mcp.WithString("assignee",
+			mcp.Description("Who to assign the ticket to: \"me\" for the current user, \"unassign\" to leave unassigned, "+
+				"or a Jira account ID"),
+		),
 		mcp.WithString("parent",
 			mcp.Description("Epic/parent ticket key to link this ticket to on creation (e.g. PROJ-10)"),
 		),
@@ -215,31 +222,10 @@ func createTicketTool() mcp.Tool {
 
 func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		project, err := req.RequireString("project")
+		fields, err := buildCreateFields(conn, req)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		summary, err := req.RequireString("summary")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		fields := map[string]any{
-			"project":   map[string]any{"key": project},
-			"summary":   summary,
-			"issuetype": map[string]any{"name": req.GetString("issue_type", "Task")},
-		}
-
-		if priority := req.GetString("priority", ""); priority != "" {
-			fields["priority"] = map[string]any{"name": priority}
-		}
-		if desc := req.GetString("description", ""); desc != "" {
-			fields["description"] = markdownToADFBody(desc)
-		}
-		if labelsStr := req.GetString("labels", ""); labelsStr != "" {
-			fields["labels"] = splitLabels(labelsStr)
-		}
-
 		result, err := api.CreateIssue(conn, fields)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("creating ticket: %v", err)), nil
@@ -258,6 +244,62 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(msg), nil
 	}
+}
+
+// buildCreateFields translates the create_ticket request arguments into a Jira fields payload.
+func buildCreateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[string]any, error) {
+	fields, err := requiredCreateFields(req)
+	if err != nil {
+		return nil, err
+	}
+	if priority := req.GetString("priority", ""); priority != "" {
+		fields["priority"] = map[string]any{"name": priority}
+	}
+	if desc := req.GetString("description", ""); desc != "" {
+		fields["description"] = markdownToADFBody(desc)
+	}
+	if labelsStr := req.GetString("labels", ""); labelsStr != "" {
+		fields["labels"] = splitLabels(labelsStr)
+	}
+	if componentsStr := req.GetString("components", ""); componentsStr != "" {
+		fields["components"] = buildComponents(componentsStr)
+	}
+	if assignee := req.GetString("assignee", ""); assignee != "" {
+		resolved, err := resolveAssignee(conn, assignee)
+		if err != nil {
+			return nil, err
+		}
+		fields["assignee"] = resolved
+	}
+	return fields, nil
+}
+
+// requiredCreateFields builds the fields map from create_ticket's required arguments.
+func requiredCreateFields(req mcp.CallToolRequest) (map[string]any, error) {
+	project, err := req.RequireString("project")
+	if err != nil {
+		return nil, err
+	}
+	summary, err := req.RequireString("summary")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"project":   map[string]any{"key": project},
+		"summary":   summary,
+		"issuetype": map[string]any{"name": req.GetString("issue_type", "Task")},
+	}, nil
+}
+
+// buildComponents turns a comma-separated component name list into the Jira
+// API's expected component object shape.
+func buildComponents(namesStr string) []map[string]any {
+	names := splitLabels(namesStr)
+	components := make([]map[string]any, len(names))
+	for i, name := range names {
+		components[i] = map[string]any{"name": name}
+	}
+	return components
 }
 
 // --- update_ticket ---
@@ -400,7 +442,7 @@ func handleListTransitions(conn api.JiraConnection) server.ToolHandlerFunc {
 		if len(transitions) == 0 {
 			return mcp.NewToolResultText(fmt.Sprintf("No transitions available for %s.", key)), nil
 		}
-		return mcp.NewToolResultText(formatTransitions(key, transitions)), nil
+		return mcp.NewToolResultText(FormatTransitions(key, transitions)), nil
 	}
 }
 
@@ -444,9 +486,9 @@ func handleTransitionTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
 		}
-		transition, err := findTransition(transitions, targetStatus)
+		transition, err := FindTransition(transitions, targetStatus)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, formatTransitions(key, transitions))), nil
+			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, FormatTransitions(key, transitions))), nil
 		}
 		opts, err := buildTransitionOptions(conn, req)
 		if err != nil {
@@ -480,8 +522,8 @@ func buildTransitionOptions(conn api.JiraConnection, req mcp.CallToolRequest) (a
 	return opts, nil
 }
 
-// findTransition matches targetStatus against a transition's name (case-insensitive).
-func findTransition(transitions []api.Transition, targetStatus string) (api.Transition, error) {
+// FindTransition matches targetStatus against a transition's name (case-insensitive).
+func FindTransition(transitions []api.Transition, targetStatus string) (api.Transition, error) {
 	for _, t := range transitions {
 		if strings.EqualFold(t.Name, targetStatus) {
 			return t, nil
@@ -490,7 +532,8 @@ func findTransition(transitions []api.Transition, targetStatus string) (api.Tran
 	return api.Transition{}, fmt.Errorf("no transition to %q is available from the current state", targetStatus)
 }
 
-func formatTransitions(key string, transitions []api.Transition) string {
+// FormatTransitions renders the available workflow states for key as a bullet list.
+func FormatTransitions(key string, transitions []api.Transition) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Available states for %s:\n\n", key)
 	for _, t := range transitions {

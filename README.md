@@ -161,8 +161,8 @@ jira-thing template PROJ-42
 Loads a template file and creates a new Jira ticket with its fields pre-filled. If the template already carries `summary`/`description` (and optionally `parent`), the ticket is created with **zero prompts**. Anything still missing is prompted for interactively, unless `-non-interactive`/`-y` is set — then a missing summary is a fatal error instead of a blocking prompt. This non-interactive path is what scripts, CI, and agents should use.
 
 ```bash
-jira-thing create [-t template.json] [-y] [-description-file body.md]
-jira-thing create -f tickets.json   # batch: create every entry in a JSON array
+jira-thing create [-t template.json] [-y] [-description-file body.md] [flags]
+jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a JSON array
 ```
 
 | Flag | Default | Description |
@@ -171,10 +171,22 @@ jira-thing create -f tickets.json   # batch: create every entry in a JSON array
 | `-f` | — | Path to a JSON array of templates; creates all of them non-interactively and reports how many succeeded |
 | `-non-interactive`, `-y` | `false` | Fail with a clear error instead of prompting for a missing summary |
 | `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt |
+| `-type` | — | Issue type name (e.g. `Task`, `Bug`, `Story`) — overrides the template |
+| `-priority` | — | Priority name (e.g. `High`, `Medium`, `Low`) — overrides the template |
+| `-labels` | — | Comma-separated labels — overrides the template |
+| `-components` | — | Comma-separated component names — overrides the template |
+| `-assignee` | — | `me`, `unassign`, or a literal Jira account ID |
+| `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
+| `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body) and exit — no ticket is created. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
+| `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
+
+These first-class flags mean a ticket can be created end-to-end with no template file at all — `-t`/`-f` and flags can also be combined, where the flags always win over whatever the template holds.
+
+> **Markdown in, not Jira wiki markup.** `-description-file` and a template's `description` field are both parsed as GitHub-flavoured markdown and converted to Atlassian Document Format (ADF) before posting — same rule as `update`'s comment body (see below). Old Jira wiki markup (`h1.`, `*bold*`, `{code}`) is **not** understood and will post as literal text.
 
 **Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
-A template can set `"parent": "PROJ-10"` to link the new ticket to an epic/parent immediately after creation — same `parent`-then-`Epic Link` fallback as `epic add`, no separate call needed.
+A template can set `"parent": "PROJ-10"` to link the new ticket to an epic/parent immediately after creation — same `parent`-then-`Epic Link` fallback as `epic add`, no separate call needed. `-epic` does the same from the command line.
 
 **Example — interactive:**
 
@@ -204,6 +216,20 @@ jira-thing create -t templates/bug.json -y
 # URL: https://yourorg.atlassian.net/browse/PROJ-99
 ```
 
+**Example — no template, all flags:**
+
+```bash
+jira-thing create -y -type Bug -priority High -labels backend,urgent -assignee me -epic PROJ-10 \
+  -description-file body.md
+```
+
+**Example — dry run / scripted:**
+
+```bash
+jira-thing create -t templates/bug.json -y -dry-run    # preview the payload, create nothing
+jira-thing create -t templates/bug.json -y -json       # {"key":"PROJ-99","url":"https://...","status":"created"}
+```
+
 ---
 
 ### `edit` — edit fields on an existing ticket
@@ -222,8 +248,10 @@ jira-thing edit <TICKET-KEY> [flags]
 | `-labels` | Comma-separated labels — replaces all existing labels |
 | `-assignee` | `me`, `unassign`, or a literal Jira account ID |
 | `-parent` | Epic/parent ticket key to link this ticket to |
+| `-dry-run` | Print the resolved payload (method, URL, JSON body) and exit — nothing is changed |
+| `-json` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 
-At least one flag is required.
+At least one flag is required. `-description-file` is parsed as markdown (not Jira wiki markup) — see the note under `update` below.
 
 **Example:**
 
@@ -231,6 +259,9 @@ At least one flag is required.
 jira-thing edit PROJ-99 -priority High -labels bug,urgent -assignee me
 # Edited ticket: PROJ-99
 # URL: https://yourorg.atlassian.net/browse/PROJ-99
+
+jira-thing edit PROJ-99 -priority High -dry-run   # preview, change nothing
+jira-thing edit PROJ-99 -priority High -json      # {"key":"PROJ-99","url":"https://...","status":"edited"}
 ```
 
 ---
@@ -291,6 +322,39 @@ If a ticket has no available transitions (e.g. already in a terminal state with 
 
 ---
 
+### `transition` — move a ticket to a new state, non-interactively
+
+The scriptable complement to `state`: no TUI, so it works from scripts, CI, and agents. Available states are read live from the ticket, same as `state`.
+
+```bash
+jira-thing transition <TICKET-KEY> [STATE] [flags]
+```
+
+Omit `STATE` to list the states available from the ticket's current status instead of moving it.
+
+| Flag | Description |
+|---|---|
+| `-comment` | Optional comment (markdown) to add as part of the transition |
+| `-resolution` | Optional resolution name (e.g. `Fixed`, `Won't Do`) |
+| `-assignee` | Optional assignee to set during the transition: `me`, `unassign`, or a Jira account ID |
+| `-dry-run` | Print the resolved payload and exit — nothing is changed |
+
+State names match case-insensitively. An unrecognised state prints the available list instead of a bare error.
+
+**Example:**
+
+```bash
+jira-thing transition PROJ-101          # no STATE given — lists available states
+#   In Review
+#   Done
+#   Blocked
+
+jira-thing tr PROJ-101 done -resolution Fixed
+# Moved PROJ-101 to Done
+```
+
+---
+
 ### `menu` — interactive menu for everything else
 
 Opens a persistent home-screen TUI covering the full set of ticket operations jira-thing supports: search, describe, edit fields, comment, worklog, attach, subtasks, link/unlink, clone, delete, boards/sprints, projects/releases, and whoami. This is the jira-cli-parity surface — one place to reach every operation without memorising a flag for each.
@@ -346,6 +410,7 @@ jira-thing list [flags]
 | `-jql` | Raw JQL, AND-ed in alongside the flags above |
 | `--order-by` | Sort field (default `created`) |
 | `--reverse` | Sort ascending instead of descending |
+| `-json` | Print matching tickets as a JSON array instead of styled text — `[]` on no matches, never prose, so scripts don't need a special case |
 
 **Examples:**
 
@@ -358,6 +423,9 @@ jira-thing list --created week -a x
 
 # Tickets I'm watching in project PROJ, oldest first
 jira-thing list -w -p PROJ --reverse
+
+# Scripted: JSON array of key/url/summary/status/priority/updated
+jira-thing list -a me -s"In Progress" -json
 ```
 
 ---
@@ -457,8 +525,13 @@ echo "Deployed to staging." | jira-thing update PROJ-42 -stdin
 Fetches the most recent comment on a Jira ticket and renders it as formatted markdown in the terminal.
 
 ```bash
-jira-thing last-comment <TICKET-KEY>
+jira-thing last-comment <TICKET-KEY> [-plain] [-raw]
 ```
+
+| Flag | Description |
+|---|---|
+| `-plain` | Force plain text output even on a terminal (auto-detected anyway when piping to another command — no ANSI escape codes end up in the output either way) |
+| `-raw` | Print the stored comment body as raw ADF JSON instead of converting it to markdown |
 
 ---
 
@@ -467,24 +540,39 @@ jira-thing last-comment <TICKET-KEY>
 Fetches a Jira ticket and renders its key, summary, status, priority, assignee, and description as formatted markdown in the terminal.
 
 ```bash
-jira-thing describe <TICKET-KEY>
+jira-thing describe <TICKET-KEY> [-plain] [-raw]
 ```
+
+| Flag | Description |
+|---|---|
+| `-plain` | Force plain text output even on a terminal (auto-detected anyway when piped) |
+| `-raw` | Print the stored issue fields as raw JSON, including the ADF description, instead of rendering markdown |
 
 **Example:**
 
 ```bash
 jira-thing de PROJ-42
+jira-thing de PROJ-42 | cat     # auto-plain — no escape codes to strip
+jira-thing de PROJ-42 -raw      # raw JSON fields, e.g. to inspect the stored ADF
 ```
 
 ---
 
-### `attach` — attach a file to a ticket
+### `attach` — attach files to a ticket
 
-Uploads a local file as an attachment on an existing Jira ticket.
+Uploads one or more local files, or piped stdin content under an explicit name, as attachments on an existing Jira ticket.
 
 ```bash
 jira-thing attach <TICKET-KEY> <file-path>
+jira-thing attach <TICKET-KEY> -f file1 -f file2    # multiple files in one call
+jira-thing attach <TICKET-KEY> -stdin -name notes.md
 ```
+
+| Flag | Description |
+|---|---|
+| `-f` | File to attach (repeatable: `-f a.png -f b.png`) |
+| `-stdin` | Read attachment content from stdin |
+| `-name` | Attachment filename when using `-stdin` (required with `-stdin`) |
 
 **Example:**
 
@@ -492,6 +580,9 @@ jira-thing attach <TICKET-KEY> <file-path>
 jira-thing at PROJ-42 screenshot.png
 # Attached screenshot.png to PROJ-42
 # URL: https://yourorg.atlassian.net/browse/PROJ-42
+
+jira-thing at PROJ-42 -f before.png -f after.png
+echo "build log excerpt" | jira-thing at PROJ-42 -stdin -name build.log
 ```
 
 ---
@@ -824,6 +915,18 @@ jira-thing check-update
 
 ---
 
+### `self-update` — download and install the latest release
+
+Downloads the latest GitHub release matching your OS/arch, verifies it against a signed checksums manifest, and replaces the running binary. Refuses to downgrade and refuses a `dev` build (nothing to compare against — download a tagged release instead).
+
+```bash
+jira-thing self-update
+```
+
+The download is verified fully in a temp file before anything touches the install location, so a bad download never risks the binary you're running. If the final install step fails — most commonly because you don't own the directory the binary lives in (e.g. installed by a different user, or into a system path) — the error says so explicitly and suggests installing somewhere you own, or re-running with elevated privileges; the original binary is left untouched either way.
+
+---
+
 ### `clear-auth` — remove stored credentials
 
 Deletes all stored Jira credentials from the OS keychain.
@@ -930,8 +1033,10 @@ Most commands have short aliases for quick typing:
 |---|---|
 | `template` | `te` |
 | `create` | `cr` |
+| `edit` | `ed` |
 | `my-tasks` | `mt` |
 | `state` | `sta` |
+| `transition` | `tr` |
 | `menu` | `m` |
 | `list` | `ls` |
 | `open` | `o` |
@@ -947,6 +1052,7 @@ Most commands have short aliases for quick typing:
 | `subtask` | `st` |
 | `diagnose` | `diag` |
 | `check-update` | `cu` |
+| `self-update` | `su` |
 
 ## Typical workflow
 
