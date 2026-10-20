@@ -14,6 +14,7 @@ Go CLI tool for Jira and Confluence. Credentials stored in OS keyring (same cred
 - Fetch, search, create, edit, or describe Jira tickets
 - Create tickets non-interactively (`-y`/`-non-interactive`) or in a batch from a JSON array — the right path for agents/CI, since plain `create` can block on a prompt
 - Edit fields (summary, description, priority, labels, assignee, parent) on an existing ticket without the interactive TUI
+- **Move a ticket to a new workflow state** — use `transition`, not `state`: `state` is a TUI picker and will hang/fail non-interactively. `transition <KEY>` with no state name lists what's available; states are entirely custom per board/instance, so always list first rather than guessing a name like "Done" or "In Review" exists
 - Add markdown comments to tickets (converted to ADF automatically)
 - Show the last comment on a ticket
 - List open tasks or find stale ones
@@ -72,6 +73,12 @@ Template fields an agent can set directly to avoid every prompt:
 (same fallback logic as `epic add`: tries the `parent` field, falls back to
 the classic Epic Link field) — no separate `epic add` call needed.
 
+First-class flags do the same as template fields, no template file needed:
+`-type`, `-priority`, `-labels`, `-components` (comma-separated), `-assignee`
+(`me`/`unassign`/account ID), `-epic` (same as `parent`) — all override the
+template when both are given. `-dry-run` prints the payload without creating
+anything; `-json` prints `{key,url,status}` instead of styled text.
+
 **Batch create** with `-f`: a JSON array of the same template shape, created
 non-interactively, continuing past per-ticket failures:
 
@@ -107,7 +114,36 @@ jira-thing edit PROJ-123 -parent PROJ-10
 Flags: `-summary`, `-description-file` (markdown file, converted to ADF),
 `-priority`, `-labels` (comma-separated, replaces all existing labels),
 `-assignee` (`me`, `unassign`, or a literal Jira account ID), `-parent`
-(epic/parent key to link to). At least one flag is required.
+(epic/parent key to link to), `-dry-run` (print the payload, change nothing),
+`-json` (print `{key,url,status}` instead of styled text — parse this, not
+the styled output, when scripting). At least one flag is required.
+
+---
+
+### `transition <TICKET-KEY> [STATE] [flags]` (alias: `tr`)
+
+**The agent path for moving a ticket through its workflow.** `state` is a TUI
+picker and blocks on stdin — don't use it non-interactively. `transition` is
+the scriptable equivalent.
+
+```bash
+jira-thing transition PROJ-123                       # no STATE: lists available states
+jira-thing transition PROJ-123 "In Review"            # move it (case-insensitive match)
+jira-thing transition PROJ-123 Done -resolution Fixed  # with a resolution
+jira-thing transition PROJ-123 Done -dry-run           # preview, change nothing
+```
+
+**Workflow states are entirely custom per board/project/instance** — never
+assume a name like "Done," "In Review," or "Ready for Release" exists. Always
+run `transition <KEY>` with no state first to get the live, current list for
+*that specific ticket* (it only shows states reachable from where the ticket
+is right now), then transition by the exact name it printed. An unrecognised
+name reprints the available list instead of a bare error, so a failed guess
+still tells you what to try next.
+
+Flags: `-comment` (markdown, added as part of the transition), `-resolution`
+(e.g. `Fixed`, `Won't Do`), `-assignee` (`me`/`unassign`/account ID, set as
+part of the transition), `-dry-run`.
 
 ---
 
@@ -124,9 +160,12 @@ GFM markdown is converted to ADF — headings, lists, code blocks, tables, strik
 
 ---
 
-### `last-comment <TICKET-KEY>` (alias: `lc`)
+### `last-comment <TICKET-KEY> [-plain] [-raw]` (alias: `lc`)
 
-Fetch and render the most recent comment as terminal markdown.
+Fetch and render the most recent comment as terminal markdown. `-plain`
+forces plain text (auto-detected anyway when the output is piped, so an
+agent capturing stdout gets clean text with no ANSI either way). `-raw`
+prints the stored ADF JSON instead of the markdown conversion.
 
 ```bash
 jira-thing last-comment PROJ-123
@@ -134,13 +173,36 @@ jira-thing last-comment PROJ-123
 
 ---
 
-### `describe <TICKET-KEY>` (alias: `de`)
+### `describe <TICKET-KEY> [-plain] [-raw]` (alias: `de`)
 
-Dump a ticket's full details (key, summary, status, priority, assignee, description) as rendered markdown.
+Dump a ticket's full details (key, summary, status, priority, assignee,
+description) as rendered markdown. `-raw` prints the stored issue fields as
+JSON (including the ADF description) instead — useful for an agent that
+needs the structured value, not prose.
 
 ```bash
 jira-thing describe PROJ-123
 ```
+
+---
+
+### `list [flags] [-json]` (alias: `ls`)
+
+Search tickets via flag-built JQL — the non-interactive way to find tickets,
+as opposed to the `my-tasks`/`state` TUIs. `-json` prints a JSON array
+(`key,url,summary,status,priority,updated` per ticket) — **always** an array,
+`[]` on no matches, never the "No tickets found." text, so an agent never
+needs a special case for empty results.
+
+```bash
+jira-thing list -a me -s "In Progress" -json   # tickets assigned to me, in progress
+jira-thing list -p PROJ -l urgent -json        # project PROJ, labelled "urgent"
+```
+
+Common flags: `-a` assignee (`me`, `x`=unassigned, `~x`=assigned to someone,
+a name, `~name`=not them), `-r` reporter (same shorthand), `-y` priority,
+`-s` status, `-p` project key, `-l` label (repeatable), `-jql` raw JQL
+AND-ed in alongside the rest.
 
 ---
 
@@ -157,10 +219,12 @@ jira-thing my-tasks -notupdated
 
 ### `attach <TICKET-KEY> <file>` (alias: `at`)
 
-Upload a local file as an attachment on a ticket.
+Upload one or more local files, or piped stdin content, as attachments on a ticket.
 
 ```bash
 jira-thing attach PROJ-123 screenshot.png
+jira-thing attach PROJ-123 -f a.png -f b.png          # multiple files
+echo "build log" | jira-thing attach PROJ-123 -stdin -name build.log
 ```
 
 ---
@@ -262,7 +326,7 @@ Start an MCP (Model Context Protocol) server on stdio for AI agent integration. 
 jira-thing serve-mcp
 ```
 
-Not run directly — configured in your AI agent's MCP settings. Tools available include: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket` (accepts `parent` to link on creation), `update_ticket` (field-level edit — summary/description/priority/labels/assignee/parent; the MCP equivalent of the CLI's `edit` command), `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`, and more — see the full table in `README.md` (generated from source, always current).
+Not run directly — configured in your AI agent's MCP settings. Tools available include: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket` (accepts `parent` to link on creation), `update_ticket` (field-level edit — summary/description/priority/labels/assignee/parent; the MCP equivalent of the CLI's `edit` command), `list_transitions` (lists the states reachable from a ticket's current status — call this before `transition_ticket`, never assume a state name exists), `transition_ticket` (the MCP equivalent of the CLI's `transition` command — `target_status` matches case-insensitively against what `list_transitions` printed), `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`, and more — see the full table in `README.md` (generated from source, always current).
 
 ---
 
@@ -358,7 +422,10 @@ jira-thing cr -t templates/task.json -y        # create a ticket, non-interactiv
 jira-thing mt                                  # check your tasks
 jira-thing up PROJ-42                          # add a progress comment
 jira-thing ed PROJ-42 -priority High           # edit a field without the TUI
+jira-thing tr PROJ-42                          # no STATE: list what's available for this ticket
+jira-thing tr PROJ-42 "In Review"               # move it (never guess a state name exists)
 jira-thing mt -notupdated                      # find stale tasks
+jira-thing ls -a me -s "In Progress" -json      # search non-interactively, JSON for scripting
 jira-thing conf up docs/design.md              # publish to Confluence
 jira-thing conf br                             # browse Confluence pages
 jira-thing st PROJ-42 -f plan.md --heading "^Task \d+:" --dry-run  # preview subtasks
