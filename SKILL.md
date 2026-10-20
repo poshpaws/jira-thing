@@ -271,16 +271,29 @@ TUI controls: `↑/↓` navigate, `enter/→` drill in, `backspace/←` go up, `
 
 ---
 
-### `conf upload <file.md> [-title "Title"]` (alias: `conf up`)
+### `conf upload <file.md> [-title "Title"] [-page-id ID | -parent-id ID]` (alias: `conf up`)
 
-Convert a markdown file to Confluence storage format and publish it. Launches a space browser TUI to choose the parent page.
+Convert a markdown file to Confluence storage format and publish it.
+
+**By default this launches an interactive TUI** to pick the parent page — it
+needs a TTY and will hang/fail in a non-interactive environment. For an
+agent, or any run without a TTY, use `-page-id` or `-parent-id` instead,
+which skip the picker entirely:
 
 ```bash
-jira-thing conf upload docs/architecture.md -title "Architecture Overview"
+jira-thing conf upload docs/architecture.md -title "Architecture Overview"      # interactive (TTY required)
+jira-thing conf upload docs/architecture.md -page-id 1514045707                 # update this exact page, no TUI
+jira-thing conf upload docs/architecture.md -parent-id 12345678                 # create under this exact parent, no TUI
 ```
 
+`-page-id` is the safe, unambiguous path when you already know which page to
+update: no title lookup, no parent picker, so it can't land under the wrong
+parent or create a duplicate. It keeps the page's current title unless
+`-title` is also given. `-parent-id` is for creating a new page under a
+known parent without the picker.
+
 Key behaviours:
-- **Create or update:** If a page with the same title already exists under the chosen parent, it is updated in place (version bumped). No duplicates.
+- **Create or update (interactive path, no `-page-id`):** If a page with the same title already exists under the chosen/given parent, it is updated in place (version bumped). No duplicates.
 - **Attachments:** Local files referenced via `![](path)` or `[text](path)` are uploaded automatically. Duplicate filenames are deduplicated.
 - **Draw.io support:** `.drawio` files (or `.svg`/`.png` with a `.drawio` sibling) are embedded with Confluence's native draw.io macro.
 - **SVG handling:** SVGs without a `.drawio` sibling are converted to PNG via `rsvg-convert` if available.

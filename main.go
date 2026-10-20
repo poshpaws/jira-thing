@@ -936,10 +936,16 @@ func runConfBrowse() {
 	}
 }
 
-// runConfUpload reads a markdown file, converts it to Confluence storage format,
-// launches the space browser to pick a parent page, creates the page, and uploads
-// any referenced images as attachments.
-func runConfUpload(args []string) {
+// confUploadFlags holds runConfUpload's parsed flags.
+type confUploadFlags struct {
+	mdPath   string
+	title    string
+	pageID   string
+	parentID string
+}
+
+// parseConfUploadFlags parses runConfUpload's flag set, exiting on a parse error.
+func parseConfUploadFlags(args []string) confUploadFlags {
 	var reordered, positional []string
 	for i := 0; i < len(args); i++ {
 		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
@@ -955,11 +961,50 @@ func runConfUpload(args []string) {
 
 	fs := flag.NewFlagSet("conf-upload", flag.ContinueOnError)
 	title := fs.String("title", "", "Page title (defaults to markdown filename without extension)")
+	pageID := fs.String("page-id", "", "Update this exact page by ID — skips title lookup and the parent picker")
+	parentID := fs.String("parent-id", "", "Create under this exact parent page ID — skips the parent picker (ignored with -page-id)")
 	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing conf upload <file.md> [-title \"Page Title\"]")
+		fatal("usage: jira-thing conf upload <file.md> [-title \"Page Title\"] [-page-id ID | -parent-id ID]")
 	}
-	mdPath := fs.Arg(0)
+	return confUploadFlags{fs.Arg(0), *title, *pageID, *parentID}
+}
 
+// runConfUpload reads a markdown file, converts it to Confluence storage format,
+// resolves where it goes (an exact page/parent ID, or the interactive space
+// browser), creates or updates the page, and uploads any referenced images as
+// attachments.
+func runConfUpload(args []string) {
+	flags := parseConfUploadFlags(args)
+	cfg := loadConfluenceConfig()
+	mdBytes, err := os.ReadFile(flags.mdPath) // #nosec G304 -- user-supplied CLI input
+	if err != nil {
+		fatal("reading markdown file: %v", err)
+	}
+	baseDir := resolveBaseDir(flags.mdPath)
+
+	result := markdownToConfluence(string(mdBytes), baseDir)
+	attachments, tempFiles := convertSVGAttachments(result.AttachmentPaths)
+	defer cleanupTempFiles(tempFiles)
+	storage := rewriteSVGReferences(result.Storage, result.AttachmentPaths, attachments)
+
+	fmt.Printf("Converted %s → %d bytes of storage XHTML, %d attachment(s) found\n",
+		flags.mdPath, len(storage), len(attachments))
+
+	conn := mustConnect()
+	page := resolveUploadTarget(conn, cfg, flags, storage)
+	uploadConfluenceAttachments(conn, page.ID, attachments)
+	printConfUploadDone(cfg, page.ID)
+}
+
+// printConfUploadDone prints the final page URL.
+func printConfUploadDone(cfg config.Config, pageID string) {
+	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
+	fmt.Printf("\n%s %s/spaces/%s/pages/%s\n",
+		tui.SuccessStyle.Render("Done:"), confluenceURL, cfg.ConfluenceSpace, pageID)
+}
+
+// loadConfluenceConfig loads config and validates the fields conf upload needs.
+func loadConfluenceConfig() config.Config {
 	cfg, err := config.Load()
 	if err != nil {
 		fatal("loading config: %v", err)
@@ -973,52 +1018,68 @@ func runConfUpload(args []string) {
 	if cfg.ConfluenceBasePageID == "" {
 		fatal("confluence_base_page_id must be set in ~/.config/jira-thing/jira-thing.json")
 	}
+	return cfg
+}
 
-	mdBytes, err := os.ReadFile(mdPath) // #nosec G304 -- user-supplied CLI input
-	if err != nil {
-		fatal("reading markdown file: %v", err)
-	}
+// resolveBaseDir returns mdPath's directory as an absolute path, so attachment
+// references resolve correctly regardless of the current working directory.
+func resolveBaseDir(mdPath string) string {
 	baseDir := filepath.Dir(mdPath)
-	if !filepath.IsAbs(baseDir) {
-		wd, wdErr := os.Getwd()
-		if wdErr != nil {
-			fatal("resolving working directory: %v", wdErr)
-		}
-		baseDir = filepath.Join(wd, baseDir)
+	if filepath.IsAbs(baseDir) {
+		return baseDir
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		fatal("resolving working directory: %v", err)
+	}
+	return filepath.Join(wd, baseDir)
+}
+
+// resolveUploadTarget decides where storage is published: -page-id updates that
+// exact page directly (keeping its existing title unless -title overrides it),
+// -parent-id creates under that exact parent, and otherwise the interactive
+// space browser picks a parent as before. The first two need no TTY.
+func resolveUploadTarget(conn api.JiraConnection, cfg config.Config, flags confUploadFlags, storage string) api.ConfluencePage {
+	if flags.pageID != "" {
+		return updatePageByID(conn, flags.pageID, flags.title, storage)
 	}
 
-	pageTitle := *title
+	pageTitle := flags.title
 	if pageTitle == "" {
-		base := filepath.Base(mdPath)
+		base := filepath.Base(flags.mdPath)
 		pageTitle = strings.TrimSuffix(base, filepath.Ext(base))
 	}
 
-	result := markdownToConfluence(string(mdBytes), baseDir)
-
-	// Convert SVG files to PNG for reliable Confluence rendering.
-	attachments, tempFiles := convertSVGAttachments(result.AttachmentPaths)
-	defer cleanupTempFiles(tempFiles)
-	storage := rewriteSVGReferences(result.Storage, result.AttachmentPaths, attachments)
-
-	fmt.Printf("Converted %s → %d bytes of storage XHTML, %d attachment(s) found\n",
-		mdPath, len(storage), len(attachments))
-
-	conn := mustConnect()
-	parentPage := browseForParent(conn, cfg)
-
-	page := createOrUpdatePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage, storage)
-
-	// Brief pause after page create/update — Confluence Cloud needs a moment to
-	// finish indexing before attachment uploads succeed reliably.
-	if len(attachments) > 0 {
-		time.Sleep(2 * time.Second)
+	var parentPage tui.PageEntry
+	if flags.parentID != "" {
+		parent, err := api.FetchConfluencePageByID(conn, flags.parentID)
+		if err != nil {
+			fatal("fetching parent page %s: %v", flags.parentID, err)
+		}
+		parentPage = tui.PageEntry{ID: parent.ID, Title: parent.Title}
+	} else {
+		parentPage = browseForParent(conn, cfg)
 	}
+	return createOrUpdatePage(conn, cfg.ConfluenceSpace, pageTitle, parentPage, storage)
+}
 
-	uploadConfluenceAttachments(conn, page.ID, attachments)
-
-	confluenceURL := strings.TrimRight(cfg.ConfluenceURL, "/")
-	fmt.Printf("\n%s %s/spaces/%s/pages/%s\n",
-		tui.SuccessStyle.Render("Done:"), confluenceURL, cfg.ConfluenceSpace, page.ID)
+// updatePageByID updates the exact page pageID points at, unconditionally — no
+// title lookup, no parent picker, so it can't create a duplicate under the
+// wrong parent. Keeps the page's existing title unless title is given.
+func updatePageByID(conn api.JiraConnection, pageID, title, storage string) api.ConfluencePage {
+	page, err := api.FetchConfluencePageByID(conn, pageID)
+	if err != nil {
+		fatal("fetching page %s: %v", pageID, err)
+	}
+	if title == "" {
+		title = page.Title
+	}
+	if err := api.UpdateConfluencePage(conn, page.ID, page.Version, title, storage); err != nil {
+		fatal("updating Confluence page: %v", err)
+	}
+	fmt.Printf("%s %s (ID: %s, version %d → %d)\n",
+		tui.SuccessStyle.Render("Updated page:"), tui.KeyStyle.Render(title), page.ID, page.Version, page.Version+1)
+	return api.ConfluencePage{ID: page.ID, Title: title, Version: page.Version + 1}
 }
 
 // confluenceExportAttachDir is the subdirectory name (relative to the export
@@ -1202,6 +1263,9 @@ func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths [
 	if len(paths) == 0 {
 		return
 	}
+	// Confluence Cloud needs a moment after a page create/update to finish
+	// indexing before attachment uploads succeed reliably.
+	time.Sleep(2 * time.Second)
 	unique := deduplicateByFilename(paths)
 
 	// Build a map of existing attachments so we can update rather than fail on duplicates.
@@ -1209,25 +1273,31 @@ func uploadConfluenceAttachments(conn api.JiraConnection, pageID string, paths [
 
 	fmt.Printf("Uploading %d attachment(s)...\n", len(unique))
 	for _, filePath := range unique {
-		if filePath == "" {
-			continue
-		}
-		clean := filepath.Clean(filePath)
-		if strings.Contains(clean, "..") {
-			fmt.Fprintf(os.Stderr, "  %s skipping %q — path traversal detected\n", tui.ErrorStyle.Render("Warning:"), filePath)
-			continue
-		}
-		filename := filepath.Base(clean)
-		if existing, ok := existingMap[filename]; ok {
-			uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
-				return api.UpdateConfluenceAttachment(conn, pageID, existing.ID, clean)
-			}, "Updated")
-			continue
-		}
-		uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
-			return api.AddConfluenceAttachment(conn, pageID, clean)
-		}, "Attached")
+		uploadOneAttachment(conn, pageID, filePath, existingMap)
 	}
+}
+
+// uploadOneAttachment uploads or updates a single attachment, skipping an
+// empty path or one that would traverse outside its intended directory.
+func uploadOneAttachment(conn api.JiraConnection, pageID, filePath string, existingMap map[string]api.ConfluenceAttachment) {
+	if filePath == "" {
+		return
+	}
+	clean := filepath.Clean(filePath)
+	if strings.Contains(clean, "..") {
+		fmt.Fprintf(os.Stderr, "  %s skipping %q — path traversal detected\n", tui.ErrorStyle.Render("Warning:"), filePath)
+		return
+	}
+	filename := filepath.Base(clean)
+	if existing, ok := existingMap[filename]; ok {
+		uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
+			return api.UpdateConfluenceAttachment(conn, pageID, existing.ID, clean)
+		}, "Updated")
+		return
+	}
+	uploadWithRetry(filename, func() (api.ConfluenceAttachment, error) {
+		return api.AddConfluenceAttachment(conn, pageID, clean)
+	}, "Attached")
 }
 
 // uploadWithRetry attempts an attachment upload/update, retrying on server errors.

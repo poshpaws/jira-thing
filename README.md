@@ -649,15 +649,19 @@ A breadcrumb trail at the top shows your current position in the hierarchy. On e
 
 ### `conf upload` — upload markdown to Confluence
 
-Converts a local markdown file to Confluence storage format, launches the space browser TUI to choose a parent page, creates (or updates) the page, and uploads any referenced local files as attachments.
+Converts a local markdown file to Confluence storage format and publishes it. By default launches the space browser TUI to choose a parent page — `-page-id`/`-parent-id` skip that entirely for non-interactive use (scripts, agents, anywhere without a TTY).
 
 ```bash
 jira-thing conf upload <file.md> [-title "Page Title"]
+jira-thing conf upload <file.md> -page-id 1514045707        # update this exact page, no TUI
+jira-thing conf upload <file.md> -parent-id 12345678         # create under this exact parent, no TUI
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `-title` | Filename without extension | Title for the Confluence page |
+| `-page-id` | — | Update this exact page by ID. Skips the title lookup and the parent picker entirely — can't create a duplicate under the wrong parent. Keeps the page's existing title unless `-title` is also given |
+| `-parent-id` | — | Create under this exact parent page ID, skipping the picker. Ignored if `-page-id` is also given |
 
 **Requires config:** `confluence_space`, `confluence_url`, `confluence_base_page_id`.
 
