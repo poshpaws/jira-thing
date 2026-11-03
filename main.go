@@ -85,6 +85,14 @@ func main() {
 		runAttach(os.Args[2:])
 	case "describe", "de":
 		runDescribe(os.Args[2:])
+	case "link-types", "lt":
+		runLinkTypes(os.Args[2:])
+	case "link", "ln":
+		runLink(os.Args[2:])
+	case "unlink", "ul":
+		runUnlink(os.Args[2:])
+	case "remote-link", "rl":
+		runRemoteLink(os.Args[2:])
 	case "clear-auth":
 		if err := auth.ClearCredentials(); err != nil {
 			fatal("clearing credentials: %v", err)
@@ -155,6 +163,10 @@ func printUsage() {
 		{"last-comment|lc <TICKET-KEY> [-plain] [-raw]", "Show last comment as markdown"},
 		{"attach|at <TICKET-KEY> <file> | -f a -f b | --stdin --name x", "Attach one or more files, or piped stdin, to a ticket"},
 		{"describe|de <TICKET-KEY> [-plain] [-raw]", "Dump full ticket as rendered markdown"},
+		{"link-types|lt [-json]", "List the issue link types configured on this Jira instance"},
+		{"link|ln <OUTWARD-KEY> <INWARD-KEY> -type T", "Link two tickets (OUTWARD-KEY <type's outward text> INWARD-KEY, e.g. A blocks B)"},
+		{"unlink|ul <KEY> <OTHER-KEY>", "Remove the link between two tickets"},
+		{"remote-link|rl <KEY> -url U [-title T]", "Attach a remote web link to a ticket"},
 		{"toil-check|tc", "List toil tickets from the last week"},
 		{"point-check|pc", "Check sprint tickets have story points"},
 		{"toil-sync|ts", "Sync TOIL tickets to Confluence"},

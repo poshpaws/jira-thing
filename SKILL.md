@@ -187,6 +187,32 @@ jira-thing describe PROJ-123
 
 ---
 
+### `link <OUTWARD-KEY> <INWARD-KEY> -type <name>` (alias: `ln`)
+
+**Creates a formal Jira issue link** — not a parent/epic relationship (use
+`edit -parent` for that) and not a key mention in a comment. Works with the
+same keychain credentials as every other command; no MCP needed.
+
+```bash
+jira-thing link-types                                 # live list of type names + inward/outward text
+jira-thing link PROJ-101 PROJ-42 -type Relates        # PROJ-101 relates to PROJ-42
+jira-thing link PROJ-100 PROJ-200 -type Blocks        # PROJ-100 blocks PROJ-200
+jira-thing link PROJ-100 PROJ-200 -type Blocks -dry-run   # preview, change nothing
+jira-thing unlink PROJ-100 PROJ-200                   # remove whichever link connects them
+jira-thing remote-link PROJ-100 -url https://example.com/doc -title "Design doc"
+```
+
+**Link types are custom per instance** — `Blocks` isn't guaranteed to
+exist. Run `link-types` (alias `lt`, `-json` available) first, or just try:
+an omitted or unknown `-type` exits non-zero and prints the live list.
+**Direction matters** for asymmetric types: the type's outward text reads
+from the first key to the second. Confirm with `describe` afterwards.
+
+Flags: `-type` (case-insensitive), `-dry-run`, `-json` (prints
+`{outward, inward, type, status}`). Put flags **after** the two keys.
+
+---
+
 ### `list [flags] [-json]` (alias: `ls`)
 
 Search tickets via flag-built JQL — the non-interactive way to find tickets,
@@ -340,7 +366,7 @@ Start an MCP (Model Context Protocol) server on stdio for AI agent integration. 
 jira-thing serve-mcp
 ```
 
-Not run directly — configured in your AI agent's MCP settings. Tools available include: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket` (accepts `parent` to link on creation), `update_ticket` (field-level edit — summary/description/priority/labels/assignee/parent; the MCP equivalent of the CLI's `edit` command), `list_transitions` (lists the states reachable from a ticket's current status — call this before `transition_ticket`, never assume a state name exists), `transition_ticket` (the MCP equivalent of the CLI's `transition` command — `target_status` matches case-insensitively against what `list_transitions` printed), `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`, and more — see the full table in `README.md` (generated from source, always current).
+Not run directly — configured in your AI agent's MCP settings. Tools available include: `describe_ticket`, `search_tickets`, `my_tasks`, `last_comment`, `add_comment`, `create_ticket` (accepts `parent` to link on creation), `update_ticket` (field-level edit — summary/description/priority/labels/assignee/parent; the MCP equivalent of the CLI's `edit` command), `list_transitions` (lists the states reachable from a ticket's current status — call this before `transition_ticket`, never assume a state name exists), `transition_ticket` (the MCP equivalent of the CLI's `transition` command — `target_status` matches case-insensitively against what `list_transitions` printed), `list_link_types` / `link_tickets` / `unlink_tickets` / `add_remote_link` (MCP equivalents of `link-types` / `link` / `unlink` / `remote-link`), `confluence_browse`, `confluence_get_page`, `confluence_create_page`, `confluence_update_page`, and more — see the full table in `README.md` (generated from source, always current).
 
 ---
 

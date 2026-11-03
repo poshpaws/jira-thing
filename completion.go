@@ -11,7 +11,8 @@ import (
 var completionCommands = []string{
 	"template", "te", "create", "cr", "my-tasks", "mt", "list", "ls", "state", "sta", "transition", "tr",
 	"menu", "m", "epic", "open", "o", "update", "up", "edit", "ed", "last-comment", "lc", "attach", "at",
-	"describe", "de", "toil-check", "tc", "toil", "point-check", "pc", "toil-sync", "ts",
+	"describe", "de", "link-types", "lt", "link", "ln", "unlink", "ul", "remote-link", "rl",
+	"toil-check", "tc", "toil", "point-check", "pc", "toil-sync", "ts",
 	"conf", "subtask", "st", "serve-mcp", "diagnose", "diag", "clear-auth",
 	"check-update", "cu", "self-update", "su", "version", "completion", "help",
 }

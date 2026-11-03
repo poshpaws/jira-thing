@@ -107,6 +107,11 @@ flowchart TD
 | `last-comment <KEY>` | Fetch and render the most recent comment as markdown |
 | `my-tasks [-notupdated]` | List open tickets assigned to `currentUser()`; `-notupdated` filters to tickets idle for 3+ business days |
 | `state [KEY]` | TUI to move a ticket to a new workflow state; transitions are read live via `FetchTransitions` since workflows are customised per board |
+| `describe <KEY>` | Render a ticket's fields, linked tickets (`api.ParseIssueLinks`) and description as markdown |
+| `link-types [-json]` | List the instance's issue link types, read live via `FetchIssueLinkTypes` |
+| `link <OUTWARD> <INWARD> -type T` | Create an issue link; `-type` is matched against the live link types (`mcpserver.FindLinkType`) and a missing/unknown type exits with that list |
+| `unlink <KEY> <OTHER>` | Remove the link between two tickets, whichever type connects them |
+| `remote-link <KEY> -url U [-title T]` | Attach a remote web link to a ticket |
 | `clear-auth` | Delete all stored credentials from the OS keyring |
 
 ## Key Design Decisions

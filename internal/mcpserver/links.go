@@ -34,11 +34,23 @@ func handleListLinkTypes(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("fetching link types: %v", err)), nil
 		}
-		return mcp.NewToolResultText(formatLinkTypes(types)), nil
+		return mcp.NewToolResultText(FormatLinkTypes(types)), nil
 	}
 }
 
-func formatLinkTypes(types []api.IssueLinkType) string {
+// FindLinkType returns the link type whose name matches name case-insensitively.
+func FindLinkType(types []api.IssueLinkType, name string) (api.IssueLinkType, error) {
+	for _, t := range types {
+		if strings.EqualFold(t.Name, name) {
+			return t, nil
+		}
+	}
+	return api.IssueLinkType{}, fmt.Errorf("no link type named %q on this Jira instance", name)
+}
+
+// FormatLinkTypes renders the instance's link types, with their outward/inward
+// descriptions, as a bullet list.
+func FormatLinkTypes(types []api.IssueLinkType) string {
 	var sb strings.Builder
 	sb.WriteString("Available link types:\n\n")
 	for _, t := range types {

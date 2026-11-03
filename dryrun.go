@@ -28,7 +28,12 @@ type jsonResult struct {
 
 // printJSONResult prints result as a single line of JSON, for scripts to parse.
 func printJSONResult(result jsonResult) {
-	body, err := json.Marshal(result)
+	printJSONLine(result)
+}
+
+// printJSONLine prints v as a single line of JSON, exiting if it won't marshal.
+func printJSONLine(v any) {
+	body, err := json.Marshal(v)
 	if err != nil {
 		fatal("rendering JSON result: %v", err)
 	}

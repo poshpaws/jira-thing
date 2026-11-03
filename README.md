@@ -558,6 +558,66 @@ jira-thing de PROJ-42 -raw      # raw JSON fields, e.g. to inspect the stored AD
 
 ---
 
+### `link-types` — list the instance's issue link types
+
+Link types are configured per Jira instance (`Blocks` isn't guaranteed to exist everywhere), so they are always read live.
+
+```bash
+jira-thing link-types [-json]
+```
+
+| Flag | Description |
+|---|---|
+| `-json` | Print the types as a JSON array of `{id, name, inward, outward}` |
+
+---
+
+### `link` — link two tickets
+
+Creates a formal Jira issue link. Argument order sets the direction: the link type's **outward** text reads from `OUTWARD-KEY` to `INWARD-KEY`, so `jira-thing link PROJ-100 PROJ-200 -type Blocks` means *PROJ-100 blocks PROJ-200*.
+
+```bash
+jira-thing link <OUTWARD-KEY> <INWARD-KEY> -type <name> [-dry-run] [-json]
+```
+
+| Flag | Description |
+|---|---|
+| `-type` | Link type name, matched case-insensitively against `link-types`. If omitted or unknown, the command exits non-zero and prints the live list |
+| `-dry-run` | Show the request payload without creating the link |
+| `-json` | Print `{outward, inward, type, status}` as JSON instead of styled text |
+
+**Example:**
+
+```bash
+jira-thing link PROJ-101 PROJ-42 -type Relates
+jira-thing ln PROJ-100 PROJ-200 -type blocks -json
+```
+
+---
+
+### `unlink` — remove a link between two tickets
+
+Removes the link connecting the two tickets, whichever link type it is.
+
+```bash
+jira-thing unlink <KEY> <OTHER-KEY>
+```
+
+---
+
+### `remote-link` — attach a web link to a ticket
+
+```bash
+jira-thing remote-link <KEY> -url <url> [-title <title>]
+```
+
+| Flag | Description |
+|---|---|
+| `-url` | The URL to link (required) |
+| `-title` | Display text for the link. Default: the URL |
+
+---
+
 ### `attach` — attach files to a ticket
 
 Uploads one or more local files, or piped stdin content under an explicit name, as attachments on an existing Jira ticket.
@@ -1048,6 +1108,10 @@ Most commands have short aliases for quick typing:
 | `last-comment` | `lc` |
 | `attach` | `at` |
 | `describe` | `de` |
+| `link-types` | `lt` |
+| `link` | `ln` |
+| `unlink` | `ul` |
+| `remote-link` | `rl` |
 | `toil-check` | `tc`, `toil` |
 | `toil-sync` | `ts` |
 | `point-check` | `pc` |
