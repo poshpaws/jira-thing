@@ -537,7 +537,7 @@ jira-thing last-comment <TICKET-KEY> [-plain] [-raw]
 
 ### `describe` — dump full ticket as rendered markdown
 
-Fetches a Jira ticket and renders its key, summary, status, priority, assignee, and description as formatted markdown in the terminal.
+Fetches a Jira ticket and renders its key, summary, status, priority, assignee, linked tickets, and description as formatted markdown in the terminal. Linked tickets appear under a **Linked Tickets** heading as `<relation> <KEY>: <summary> (<status>)` — e.g. `is blocked by PROJ-9: Upstream (Done)` — and the section is omitted when the ticket has no links.
 
 ```bash
 jira-thing describe <TICKET-KEY> [-plain] [-raw]
@@ -975,7 +975,7 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
 | `create_ticket` | Create a new Jira ticket with the specified fields |
 | `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone — use with care. |
-| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, and description |
+| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description |
 | `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
 | `link_tickets` | Link two Jira tickets together (e.g. mark one as blocking another). The link_type must match one of the types returned by list_link_types — call that tool first if unsure. |
 | `list_boards` | List Agile (Scrum/Kanban) boards visible to the current user, optionally filtered to a project. |

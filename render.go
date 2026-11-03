@@ -85,6 +85,7 @@ func buildDescribeMarkdown(issue map[string]any) string {
 	fmt.Fprintf(&sb, "- **Reporter:** %s\n", describePersonOr(f, "reporter", "Unknown"))
 	fmt.Fprintf(&sb, "- **Created:** %s\n", shortDate(getString(f, "created")))
 	fmt.Fprintf(&sb, "- **Updated:** %s\n\n", shortDate(getString(f, "updated")))
+	writeLinkedIssues(&sb, api.ParseIssueLinks(issue))
 	sb.WriteString("## Description\n\n")
 	if desc, ok := f["description"].(map[string]any); ok {
 		sb.WriteString(adfToMarkdown(desc))
@@ -92,6 +93,18 @@ func buildDescribeMarkdown(issue map[string]any) string {
 		sb.WriteString("_No description._\n")
 	}
 	return sb.String()
+}
+
+// writeLinkedIssues appends a "Linked Tickets" section, or nothing if there are no links.
+func writeLinkedIssues(sb *strings.Builder, links []api.LinkedIssue) {
+	if len(links) == 0 {
+		return
+	}
+	sb.WriteString("## Linked Tickets\n\n")
+	for _, link := range links {
+		fmt.Fprintf(sb, "- %s\n", link)
+	}
+	sb.WriteString("\n")
 }
 
 // describePersonOr returns the displayName of a nested person field, or fallback if absent.

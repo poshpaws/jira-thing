@@ -278,3 +278,25 @@ func TestAdfToMarkdown_NestedOrderedListIndented(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestBuildDescribeMarkdown_ListsLinkedTickets(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"issuelinks": []any{
+				map[string]any{
+					"type": map[string]any{"inward": "is blocked by", "outward": "blocks"},
+					"inwardIssue": map[string]any{
+						"key":    "PROJ-9",
+						"fields": map[string]any{"summary": "Upstream", "status": map[string]any{"name": "Done"}},
+					},
+				},
+			},
+		},
+	}
+	got := buildDescribeMarkdown(issue)
+	want := "## Linked Tickets\n\n- is blocked by PROJ-9: Upstream (Done)\n\n## Description"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing linked tickets section before description:\n%s", got)
+	}
+}

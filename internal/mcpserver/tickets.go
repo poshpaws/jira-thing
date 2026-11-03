@@ -27,7 +27,7 @@ func registerTicketTools(s *server.MCPServer, conn api.JiraConnection) {
 
 func describeTicketTool() mcp.Tool {
 	return mcp.NewTool("describe_ticket",
-		mcp.WithDescription("Fetch a Jira ticket's full details including summary, status, priority, assignee, and description"),
+		mcp.WithDescription("Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description"),
 		mcp.WithString("ticket_key",
 			mcp.Required(),
 			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
@@ -578,6 +578,14 @@ func formatIssue(issue map[string]any) string {
 	}
 
 	sb.WriteString("\n")
+
+	if links := api.ParseIssueLinks(issue); len(links) > 0 {
+		sb.WriteString("## Linked Tickets\n\n")
+		for _, link := range links {
+			fmt.Fprintf(&sb, "- %s\n", link)
+		}
+		sb.WriteString("\n")
+	}
 
 	if desc, ok := fields["description"].(map[string]any); ok {
 		sb.WriteString("## Description\n\n")

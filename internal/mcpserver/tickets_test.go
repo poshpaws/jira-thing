@@ -88,3 +88,33 @@ func TestHandleCreateTicket_MissingSummaryIsToolError(t *testing.T) {
 		t.Error("expected a tool error result for missing summary")
 	}
 }
+
+func TestFormatIssue_ListsLinkedTickets(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"summary": "Fix the thing",
+			"issuelinks": []any{
+				map[string]any{
+					"type": map[string]any{"inward": "is blocked by", "outward": "blocks"},
+					"outwardIssue": map[string]any{
+						"key":    "PROJ-2",
+						"fields": map[string]any{"summary": "Downstream", "status": map[string]any{"name": "To Do"}},
+					},
+				},
+			},
+		},
+	}
+	got := formatIssue(issue)
+	want := "## Linked Tickets\n\n- blocks PROJ-2: Downstream (To Do)\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing linked tickets section:\n%s", got)
+	}
+}
+
+func TestFormatIssue_NoLinksOmitsSection(t *testing.T) {
+	got := formatIssue(map[string]any{"key": "PROJ-1", "fields": map[string]any{"summary": "x"}})
+	if strings.Contains(got, "Linked Tickets") {
+		t.Errorf("unexpected linked tickets section:\n%s", got)
+	}
+}

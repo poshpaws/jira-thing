@@ -163,3 +163,62 @@ func TestLinkIssues_400(t *testing.T) {
 		t.Fatal("expected error for 400, got nil")
 	}
 }
+
+// linkedIssueFixture returns a GET-issue payload with one outward and one inward link.
+func linkedIssueFixture() map[string]any {
+	return map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"issuelinks": []any{
+				map[string]any{
+					"id":   "1",
+					"type": map[string]any{"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+					"outwardIssue": map[string]any{
+						"key":    "PROJ-2",
+						"fields": map[string]any{"summary": "Downstream", "status": map[string]any{"name": "To Do"}},
+					},
+				},
+				map[string]any{
+					"id":   "2",
+					"type": map[string]any{"name": "Relates", "inward": "relates to", "outward": "relates to"},
+					"inwardIssue": map[string]any{
+						"key":    "PROJ-3",
+						"fields": map[string]any{"summary": "Sibling", "status": map[string]any{"name": "Done"}},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestParseIssueLinks_BothDirections(t *testing.T) {
+	got := api.ParseIssueLinks(linkedIssueFixture())
+	want := []api.LinkedIssue{
+		{Relation: "blocks", Key: "PROJ-2", Summary: "Downstream", Status: "To Do"},
+		{Relation: "relates to", Key: "PROJ-3", Summary: "Sibling", Status: "Done"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d links, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("link %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestParseIssueLinks_NoLinks(t *testing.T) {
+	cases := map[string]map[string]any{
+		"no fields":     {"key": "PROJ-1"},
+		"no issuelinks": {"fields": map[string]any{}},
+		"empty list":    {"fields": map[string]any{"issuelinks": []any{}}},
+		"wrong type":    {"fields": map[string]any{"issuelinks": "nope"}},
+	}
+	for name, issue := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := api.ParseIssueLinks(issue); len(got) != 0 {
+				t.Errorf("expected no links, got %+v", got)
+			}
+		})
+	}
+}

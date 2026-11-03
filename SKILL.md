@@ -176,7 +176,8 @@ jira-thing last-comment PROJ-123
 ### `describe <TICKET-KEY> [-plain] [-raw]` (alias: `de`)
 
 Dump a ticket's full details (key, summary, status, priority, assignee,
-description) as rendered markdown. `-raw` prints the stored issue fields as
+linked tickets, description) as rendered markdown. Linked tickets are listed
+as `<relation> <KEY>: <summary> (<status>)`, e.g. `is blocked by PROJ-9: Upstream (Done)`. `-raw` prints the stored issue fields as
 JSON (including the ADF description) instead — useful for an agent that
 needs the structured value, not prose.
 
