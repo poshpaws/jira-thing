@@ -143,7 +143,7 @@ func printUsage() {
 	commands := []struct{ cmd, desc string }{
 		{"template|te <TICKET-KEY> [-o file]", "Fetch a ticket and save as template"},
 		{"create|cr [-t template.json]", "Create a new ticket from a template (-y for non-interactive)"},
-		{"create|cr -type/-priority/-labels/-components/-assignee/-epic", "First-class field flags — override the template, no template needed"},
+		{"create|cr -project/-summary/-type/-priority/-labels/-components/-assignee/-epic", "First-class field flags — override the template, no template needed"},
 		{"create|cr -f tickets.json [-dry-run]", "Batch-create tickets from a JSON array, non-interactively"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
 		{"edit|ed <TICKET-KEY> [flags]", "Edit fields on an existing ticket (summary/description/priority/labels/assignee/parent)"},

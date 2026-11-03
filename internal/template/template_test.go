@@ -3,6 +3,7 @@ package template_test
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -519,5 +520,41 @@ func TestResolveAssigneeArg_LiteralAccountID(t *testing.T) {
 	m, ok := got.(map[string]any)
 	if !ok || m["accountId"] != "acc-999" {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestNormaliseRefFields_WrapsBareStrings(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		in    any
+		want  map[string]any
+	}{
+		{"project key", "project", "CRSS", map[string]any{"key": "CRSS"}},
+		{"project numeric id", "project", "10315", map[string]any{"id": "10315"}},
+		{"issuetype name", "issuetype", "Bug", map[string]any{"name": "Bug"}},
+		{"priority name", "priority", "High", map[string]any{"name": "High"}},
+		{"object left alone", "project", map[string]any{"key": "PROJ", "name": "Proj"}, map[string]any{"key": "PROJ", "name": "Proj"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl := map[string]any{tc.field: tc.in}
+			template.NormaliseRefFields(tmpl)
+			got, _ := json.Marshal(tmpl[tc.field])
+			want, _ := json.Marshal(tc.want)
+			if string(got) != string(want) {
+				t.Errorf("%s = %s, want %s", tc.field, got, want)
+			}
+		})
+	}
+}
+
+func TestLoad_NoTemplateFoundIsErrTemplateNotFound(t *testing.T) {
+	original := template.CandidatePathsFunc
+	template.CandidatePathsFunc = func() []string { return []string{filepath.Join(t.TempDir(), "missing.json")} }
+	defer func() { template.CandidatePathsFunc = original }()
+
+	if _, err := template.Load(""); !errors.Is(err, template.ErrTemplateNotFound) {
+		t.Errorf("expected ErrTemplateNotFound, got %v", err)
 	}
 }

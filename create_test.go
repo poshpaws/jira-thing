@@ -347,3 +347,98 @@ func TestRunCreate_BatchEmptyArrayExits(t *testing.T) {
 		t.Error("expected exit on empty batch file")
 	}
 }
+
+// --- runCreate: field shapes and flag-only create ---
+
+// captureCreateFields starts a fake Jira that records the fields of the
+// create request, answering any epic-link lookups the run may make.
+func captureCreateFields(t *testing.T, captured *map[string]any) func() {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/issue") {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		*captured, _ = body["fields"].(map[string]any)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"key": "CRSS-1"})
+	}))
+	restore := mockCreds(srv.URL)
+	return func() { restore(); srv.Close() }
+}
+
+func TestRunCreate_BareStringProjectSentAsKeyObject(t *testing.T) {
+	var fields map[string]any
+	defer captureCreateFields(t, &fields)()
+
+	tmplPath := filepath.Join(t.TempDir(), "tpl.json")
+	os.WriteFile(tmplPath, []byte(`{"project":"CRSS","issuetype":"Bug","summary":"S"}`), 0o644)
+
+	captureStdout(func() { runCreate([]string{"-t", tmplPath, "-y"}) })
+	project, _ := fields["project"].(map[string]any)
+	issueType, _ := fields["issuetype"].(map[string]any)
+	if project["key"] != "CRSS" || issueType["name"] != "Bug" {
+		t.Errorf("expected project/issuetype wrapped as objects, got %v", fields)
+	}
+}
+
+func TestRunCreate_BatchBareStringProjectSentAsKeyObject(t *testing.T) {
+	var fields map[string]any
+	defer captureCreateFields(t, &fields)()
+
+	batchPath := filepath.Join(t.TempDir(), "batch.json")
+	os.WriteFile(batchPath, []byte(`[{"project":"CRSS","issuetype":{"name":"Bug"},"summary":"S"}]`), 0o644)
+
+	captureStdout(func() { runCreate([]string{"-f", batchPath}) })
+	if project, _ := fields["project"].(map[string]any); project["key"] != "CRSS" {
+		t.Errorf("expected project {key: CRSS}, got %v", fields["project"])
+	}
+}
+
+func TestRunCreate_FlagsOnlyWithoutTemplate(t *testing.T) {
+	var fields map[string]any
+	defer captureCreateFields(t, &fields)()
+	defer withNoTemplateOnSearchPath(t)()
+
+	captureStdout(func() {
+		runCreate([]string{"-project", "CRSS", "-type", "Bug", "-summary", "Flag only", "-y"})
+	})
+	project, _ := fields["project"].(map[string]any)
+	if project["key"] != "CRSS" || fields["summary"] != "Flag only" {
+		t.Errorf("expected project and summary from flags, got %v", fields)
+	}
+}
+
+func TestRunCreate_NoTemplateNoProjectStillPointsAtTemplate(t *testing.T) {
+	defer withNoTemplateOnSearchPath(t)()
+
+	out := captureStderr(func() {
+		if !captureExit(func() { runCreate([]string{"-summary", "S", "-y"}) }) {
+			t.Error("expected exit when there is neither a template nor -project")
+		}
+	})
+	if !strings.Contains(out, "no template found") {
+		t.Errorf("expected template guidance, got: %s", out)
+	}
+}
+
+func TestRunCreate_DryRunShowsEpicLinkStep(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request in dry-run mode: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+
+	tmplPath := filepath.Join(t.TempDir(), "tpl.json")
+	os.WriteFile(tmplPath, []byte(`{"project":"CRSS","summary":"S"}`), 0o644)
+
+	out := captureStdout(func() { runCreate([]string{"-t", tmplPath, "-y", "-epic", "CRSS-12351", "-dry-run"}) })
+	if !strings.Contains(out, `"key": "CRSS"`) {
+		t.Errorf("expected nested project object in payload, got: %s", out)
+	}
+	if !strings.Contains(out, "CRSS-12351") {
+		t.Errorf("expected the follow-up epic link step, got: %s", out)
+	}
+}

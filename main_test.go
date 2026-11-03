@@ -1480,3 +1480,12 @@ func TestGetPointsDisplay(t *testing.T) {
 		})
 	}
 }
+
+// withNoTemplateOnSearchPath points the template search path at an empty
+// directory so runCreate sees no default template.
+func withNoTemplateOnSearchPath(t *testing.T) func() {
+	original := template.CandidatePathsFunc
+	dir := t.TempDir()
+	template.CandidatePathsFunc = func() []string { return []string{filepath.Join(dir, "ticket_template.json")} }
+	return func() { template.CandidatePathsFunc = original }
+}

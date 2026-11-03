@@ -53,6 +53,7 @@ jira-thing create                                              # interactive, us
 jira-thing create -t /path/to/template.json
 jira-thing create -t template.json -y                          # fail fast instead of prompting
 jira-thing create -t template.json -y -description-file body.md # description from a markdown file, not the prompt
+jira-thing create -y -project PROJ -summary "Fix it" -type Bug -epic PROJ-10 # no template file at all
 ```
 
 Template search path: current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
@@ -69,15 +70,19 @@ Template fields an agent can set directly to avoid every prompt:
 }
 ```
 
+`project`, `issuetype` and `priority` may also be bare strings
+(`"project": "PROJ"`, `"issuetype": "Bug"`) — they are wrapped into Jira's
+object shape before posting.
+
 `parent` links the new ticket to an epic/parent immediately after creation
 (same fallback logic as `epic add`: tries the `parent` field, falls back to
 the classic Epic Link field) — no separate `epic add` call needed.
 
 First-class flags do the same as template fields, no template file needed:
-`-type`, `-priority`, `-labels`, `-components` (comma-separated), `-assignee`
+`-project`, `-summary`, `-type`, `-priority`, `-labels`, `-components` (comma-separated), `-assignee`
 (`me`/`unassign`/account ID), `-epic` (same as `parent`) — all override the
-template when both are given. `-dry-run` prints the payload without creating
-anything; `-json` prints `{key,url,status}` instead of styled text.
+template when both are given. `-dry-run` prints the exact JSON body without creating
+anything (plus the epic link step, if `-epic`/`parent` is set); `-json` prints `{key,url,status}` instead of styled text.
 
 **Batch create** with `-f`: a JSON array of the same template shape, created
 non-interactively, continuing past per-ticket failures:

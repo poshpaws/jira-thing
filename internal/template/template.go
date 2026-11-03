@@ -2,6 +2,7 @@ package template
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,13 @@ import (
 )
 
 const defaultTemplateFile = "ticket_template.json"
+
+// ErrTemplateNotFound is returned by Load when no path was given and no
+// default template exists anywhere on the search path.
+var ErrTemplateNotFound = errors.New("template not found")
+
+// nameRefFields are create fields Jira expects as {"name": ...} objects.
+var nameRefFields = []string{"issuetype", "priority"}
 
 // AssigneeSelf is a placeholder value in templates meaning "assign to the current user".
 const AssigneeSelf = "__SELF__"
@@ -77,6 +85,30 @@ func ResolveAssigneeArg(conn api.JiraConnection, assignee string) (any, error) {
 	default:
 		return map[string]any{"accountId": assignee}, nil
 	}
+}
+
+// NormaliseRefFields wraps bare-string reference fields in the object shape
+// the Jira create API requires, so hand-written templates and batch entries
+// can say "project": "CRSS" or "issuetype": "Bug". A numeric project string
+// is treated as a project ID, anything else as a key. Values that are
+// already objects are left untouched.
+func NormaliseRefFields(tmpl map[string]any) {
+	if s, ok := tmpl["project"].(string); ok && s != "" {
+		tmpl["project"] = projectRef(s)
+	}
+	for _, field := range nameRefFields {
+		if s, ok := tmpl[field].(string); ok && s != "" {
+			tmpl[field] = map[string]any{"name": s}
+		}
+	}
+}
+
+// projectRef returns {"id": s} for an all-digit project string, else {"key": s}.
+func projectRef(s string) map[string]any {
+	if strings.Trim(s, "0123456789") == "" {
+		return map[string]any{"id": s}
+	}
+	return map[string]any{"key": s}
 }
 
 // StripExcludedFields removes all custom fields and other non-updatable fields from a template map.
@@ -153,7 +185,7 @@ func Load(path string) (map[string]any, error) {
 			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("template not found; tried: %s", strings.Join(candidates, ", "))
+	return nil, fmt.Errorf("%w; tried: %s", ErrTemplateNotFound, strings.Join(candidates, ", "))
 }
 
 // loadAndStrip reads a template file and strips excluded fields.

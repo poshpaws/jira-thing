@@ -171,18 +171,22 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-f` | — | Path to a JSON array of templates; creates all of them non-interactively and reports how many succeeded |
 | `-non-interactive`, `-y` | `false` | Fail with a clear error instead of prompting for a missing summary |
 | `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt |
+| `-project` | — | Project key (e.g. `PROJ`) or numeric ID — overrides the template. With no `-t` and no default template on the search path, the ticket is built from flags alone |
+| `-summary` | — | Ticket summary — overrides the template and skips the prompt |
 | `-type` | — | Issue type name (e.g. `Task`, `Bug`, `Story`) — overrides the template |
 | `-priority` | — | Priority name (e.g. `High`, `Medium`, `Low`) — overrides the template |
 | `-labels` | — | Comma-separated labels — overrides the template |
 | `-components` | — | Comma-separated component names — overrides the template |
 | `-assignee` | — | `me`, `unassign`, or a literal Jira account ID |
 | `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
-| `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body) and exit — no ticket is created. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
+| `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. If an epic/parent is set, also prints the link step that runs right after the create. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
 | `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 
-These first-class flags mean a ticket can be created end-to-end with no template file at all — `-t`/`-f` and flags can also be combined, where the flags always win over whatever the template holds.
+These first-class flags mean a ticket can be created end-to-end with no template file at all (`-project` and `-summary` are the minimum) — `-t`/`-f` and flags can also be combined, where the flags always win over whatever the template holds.
 
 > **Markdown in, not Jira wiki markup.** `-description-file` and a template's `description` field are both parsed as GitHub-flavoured markdown and converted to Atlassian Document Format (ADF) before posting — same rule as `update`'s comment body (see below). Old Jira wiki markup (`h1.`, `*bold*`, `{code}`) is **not** understood and will post as literal text.
+
+**Reference fields accept bare strings.** `project`, `issuetype` and `priority` can be written as plain strings in a template or batch entry — `"project": "PROJ"` is sent as `{"key": "PROJ"}` (an all-digit value such as `"10315"` as `{"id": "10315"}`), `"issuetype": "Bug"` as `{"name": "Bug"}`. The full object form still works unchanged.
 
 **Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
@@ -219,8 +223,8 @@ jira-thing create -t templates/bug.json -y
 **Example — no template, all flags:**
 
 ```bash
-jira-thing create -y -type Bug -priority High -labels backend,urgent -assignee me -epic PROJ-10 \
-  -description-file body.md
+jira-thing create -y -project PROJ -summary "Fix login redirect" -type Bug -priority High \
+  -labels backend,urgent -assignee me -epic PROJ-10 -description-file body.md
 ```
 
 **Example — dry run / scripted:**
