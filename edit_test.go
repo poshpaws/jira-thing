@@ -48,7 +48,7 @@ func TestRunEdit_UpdatesOnlyGivenFields(t *testing.T) {
 // TestRunEdit_KeyFirstOrdering guards against a flag.Parse footgun: the
 // stdlib flag package stops parsing at the first non-flag argument, so
 // "edit PROJ-7 -priority High" (key before flags — the form documented in
-// SKILL.md/README.md) would silently drop every flag after the key without
+// skills.md/README.md) would silently drop every flag after the key without
 // the reorder step in runEdit.
 func TestRunEdit_KeyFirstOrdering(t *testing.T) {
 	var capturedFields map[string]any
