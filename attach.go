@@ -18,24 +18,6 @@ func (s *stringSlice) Set(v string) error { *s = append(*s, v); return nil }
 
 const attachUsage = "usage: jira-thing attach <TICKET-KEY> [<file-path> | -f file ...] | [--stdin --name x.md]"
 
-// reorderFlagsBeforeKey moves flags (and their values) ahead of positional
-// arguments so flag.Parse doesn't stop at the first non-flag argument when
-// the ticket key is given before its flags (e.g. "attach PROJ-1 -f a.txt").
-func reorderFlagsBeforeKey(args []string) []string {
-	var reordered, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			reordered = append(reordered, args[i], args[i+1])
-			i++
-		} else if strings.HasPrefix(args[i], "-") {
-			reordered = append(reordered, args[i])
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	return append(reordered, positional...)
-}
-
 // runAttach uploads one or more local files, or piped stdin content under an
 // explicit name, as attachments on an existing Jira ticket.
 func runAttach(args []string) {
@@ -44,7 +26,7 @@ func runAttach(args []string) {
 	fs.Var(&files, "f", "File to attach (repeatable: -f a -f b)")
 	stdin := fs.Bool("stdin", false, "Read attachment content from stdin")
 	name := fs.String("name", "", "Attachment filename when using -stdin")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal(attachUsage)
 	}
 	key := fs.Arg(0)

@@ -42,7 +42,7 @@ func parseLinkFlags(args []string) linkFlags {
 	linkType := fs.String("type", "", `Link type name (e.g. "Blocks", "Relates"); see link-types`)
 	dryRun := fs.Bool("dry-run", false, "Show the link request without creating it")
 	jsonOut := fs.Bool("json", false, "Print {outward, inward, type, status} as JSON instead of styled text")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 2 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 2 {
 		fatal(linkUsage)
 	}
 	return linkFlags{fs.Arg(0), fs.Arg(1), *linkType, *dryRun, *jsonOut}
@@ -118,7 +118,7 @@ func runRemoteLink(args []string) {
 	fs := flag.NewFlagSet("remote-link", flag.ExitOnError)
 	linkURL := fs.String("url", "", "The URL to link (required)")
 	title := fs.String("title", "", "Display text for the link (default: the URL)")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 || *linkURL == "" {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 || *linkURL == "" {
 		fatal(remoteLinkUsage)
 	}
 	if *title == "" {

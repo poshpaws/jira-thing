@@ -227,23 +227,9 @@ func fatal(format string, args ...any) {
 
 // runTemplate fetches a Jira ticket and saves it as a local JSON template.
 func runTemplate(args []string) {
-	// Reorder args so flags precede positional arguments for flag.Parse.
-	var reordered, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			reordered = append(reordered, args[i], args[i+1])
-			i++
-		} else if strings.HasPrefix(args[i], "-") {
-			reordered = append(reordered, args[i])
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	reordered = append(reordered, positional...)
-
 	fs := flag.NewFlagSet("template", flag.ContinueOnError)
 	output := fs.String("o", "", "Output file path")
-	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing template <TICKET-KEY> [-o output.json]")
 	}
 	conn := mustConnect()
@@ -548,7 +534,7 @@ func runLastComment(args []string) {
 	fs := flag.NewFlagSet("last-comment", flag.ExitOnError)
 	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
 	raw := fs.Bool("raw", false, "Print the stored comment body as raw ADF JSON")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing last-comment <TICKET-KEY> [-plain] [-raw]")
 	}
 	conn := mustConnect()
@@ -564,7 +550,7 @@ func runDescribe(args []string) {
 	fs := flag.NewFlagSet("describe", flag.ExitOnError)
 	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
 	raw := fs.Bool("raw", false, "Print the stored issue fields as raw JSON (incl. ADF description)")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing describe <TICKET-KEY> [-plain] [-raw]")
 	}
 	conn := mustConnect()
@@ -577,19 +563,9 @@ func runDescribe(args []string) {
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.
 func runUpdate(args []string) {
-	var reordered, positional []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			reordered = append(reordered, a)
-		} else {
-			positional = append(positional, a)
-		}
-	}
-	reordered = append(reordered, positional...)
-
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	fromStdin := fs.Bool("stdin", false, "Read comment from stdin instead of opening $EDITOR")
-	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing update <TICKET-KEY> [-stdin]")
 	}
 
@@ -958,24 +934,11 @@ type confUploadFlags struct {
 
 // parseConfUploadFlags parses runConfUpload's flag set, exiting on a parse error.
 func parseConfUploadFlags(args []string) confUploadFlags {
-	var reordered, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			reordered = append(reordered, args[i], args[i+1])
-			i++
-		} else if strings.HasPrefix(args[i], "-") {
-			reordered = append(reordered, args[i])
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	reordered = append(reordered, positional...)
-
 	fs := flag.NewFlagSet("conf-upload", flag.ContinueOnError)
 	title := fs.String("title", "", "Page title (defaults to markdown filename without extension)")
 	pageID := fs.String("page-id", "", "Update this exact page by ID — skips title lookup and the parent picker")
 	parentID := fs.String("parent-id", "", "Create under this exact parent page ID — skips the parent picker (ignored with -page-id)")
-	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing conf upload <file.md> [-title \"Page Title\"] [-page-id ID | -parent-id ID]")
 	}
 	return confUploadFlags{fs.Arg(0), *title, *pageID, *parentID}
@@ -1099,18 +1062,24 @@ func updatePageByID(conn api.JiraConnection, pageID, title, storage string) api.
 // written to, and that exported markdown image/link paths point at.
 const confluenceExportAttachDir = "attachments"
 
+// parseConfExportFlags parses runConfExport's flag set, returning the page ID
+// and output directory, and exiting on a parse error.
+func parseConfExportFlags(args []string) (pageID, outDir string) {
+	fs := flag.NewFlagSet("conf-export", flag.ContinueOnError)
+	out := fs.String("o", "", "Output directory (default: page title, slugified)")
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
+		fatal("usage: jira-thing conf export <page-id> [-o output-dir]")
+	}
+	return fs.Arg(0), *out
+}
+
 // runConfExport fetches a Confluence page by numeric ID, converts its
 // storage-format body to markdown, and downloads every attachment or
 // embedded document (images, attached files, view-file/multimedia macro
 // embeds, draw.io sources) it references so the markdown's local links
 // resolve without needing further API access.
 func runConfExport(args []string) {
-	fs := flag.NewFlagSet("conf-export", flag.ContinueOnError)
-	outDir := fs.String("o", "", "Output directory (default: page title, slugified)")
-	if err := fs.Parse(args); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing conf export <page-id> [-o output-dir]")
-	}
-	pageID := fs.Arg(0)
+	pageID, outDir := parseConfExportFlags(args)
 
 	conn := mustConnect()
 	page, err := api.FetchConfluencePageBody(conn, pageID)
@@ -1118,7 +1087,7 @@ func runConfExport(args []string) {
 		fatal("fetching page %s: %v", pageID, err)
 	}
 
-	dir := *outDir
+	dir := outDir
 	if dir == "" {
 		dir = slugify(page.Title)
 	}
@@ -1383,25 +1352,12 @@ var subtaskInheritFields = []string{"project", "priority", "labels", "components
 
 // runSubtask creates Jira subtasks under a parent ticket from a markdown task list.
 func runSubtask(args []string) {
-	var reordered, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			reordered = append(reordered, args[i], args[i+1])
-			i++
-		} else if strings.HasPrefix(args[i], "-") {
-			reordered = append(reordered, args[i])
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	reordered = append(reordered, positional...)
-
 	fs := flag.NewFlagSet("subtask", flag.ContinueOnError)
 	filePath := fs.String("f", "", "Markdown file containing task list")
 	dryRun := fs.Bool("dry-run", false, "Show what would be created without making API calls")
 	headingPattern := fs.String("heading", "", "Extract tasks from headings matching this regex (e.g. \"^Task \\d+:\")")
 	section := fs.String("section", "", "Extract list items only from this section heading (e.g. \"Initial Task List\")")
-	if err := fs.Parse(reordered); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing subtask <PARENT-KEY> -f tasks.md [--heading regex | --section name] [--dry-run]")
 	}
 	parentKey := fs.Arg(0)

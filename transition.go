@@ -30,7 +30,7 @@ func parseTransitionFlags(args []string) transitionFlags {
 	resolution := fs.String("resolution", "", `Optional resolution name (e.g. "Fixed", "Won't Do")`)
 	assignee := fs.String("assignee", "", `Optional assignee to set: "me", "unassign", or a Jira account ID`)
 	dryRun := fs.Bool("dry-run", false, "Show the resolved transition without applying it")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal(transitionUsage)
 	}
 	var state string

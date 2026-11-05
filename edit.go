@@ -23,7 +23,7 @@ func runEdit(args []string) {
 	parent := fs.String("parent", "", "Epic/parent ticket key to link this ticket to")
 	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without changing anything")
 	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
-	if err := fs.Parse(reorderFlagsBeforeKey(args)); err != nil || fs.NArg() < 1 {
+	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY] [-dry-run] [-json]")
 	}
 	key := fs.Arg(0)

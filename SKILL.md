@@ -214,7 +214,7 @@ an omitted or unknown `-type` exits non-zero and prints the live list.
 from the first key to the second. Confirm with `describe` afterwards.
 
 Flags: `-type` (case-insensitive), `-dry-run`, `-json` (prints
-`{outward, inward, type, status}`). Put flags **after** the two keys.
+`{outward, inward, type, status}`).
 
 ---
 
