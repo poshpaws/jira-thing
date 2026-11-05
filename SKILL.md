@@ -84,6 +84,13 @@ First-class flags do the same as template fields, no template file needed:
 template when both are given. `-dry-run` prints the exact JSON body without creating
 anything (plus the epic link step, if `-epic`/`parent` is set); `-json` prints `{key,url,status}` instead of styled text.
 
+**Retrying a create?** Add `-dedupe-by-summary` (also with `-f`): if an open
+ticket in the project has the same summary, nothing is created and it reports
+that ticket (`"status": "exists"` with `-json`, exit 0). If the check itself
+fails, nothing is created and it exits non-zero. **Wait several seconds before
+retrying:** Jira search lags a new ticket by about 3 seconds, and a retry inside
+that window still creates a duplicate.
+
 **Batch create** with `-f`: a JSON array of the same template shape, created
 non-interactively, continuing past per-ticket failures:
 

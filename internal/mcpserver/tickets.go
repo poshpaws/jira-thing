@@ -217,6 +217,9 @@ func createTicketTool() mcp.Tool {
 		mcp.WithString("parent",
 			mcp.Description("Epic/parent ticket key to link this ticket to on creation (e.g. PROJ-10)"),
 		),
+		mcp.WithBoolean("dedupe_by_summary",
+			mcp.Description("If true, skip creating when an open ticket in the project has the same summary, and report that ticket instead. Use when retrying a create that may already have succeeded, and wait several seconds first: Jira search lags new tickets by about 3 seconds, and a retry inside that window still creates a duplicate."),
+		),
 	)
 }
 
@@ -225,6 +228,9 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		fields, err := buildCreateFields(conn, req)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if blocked := checkDuplicate(conn, req); blocked != nil {
+			return blocked, nil
 		}
 		result, err := api.CreateIssue(conn, fields)
 		if err != nil {
@@ -244,6 +250,24 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(msg), nil
 	}
+}
+
+// checkDuplicate runs the dedupe_by_summary check when requested, returning
+// the tool result that stops the create, or nil if it should go ahead. A
+// failed check stops it too, since the create would then be unguarded.
+func checkDuplicate(conn api.JiraConnection, req mcp.CallToolRequest) *mcp.CallToolResult {
+	if !req.GetBool("dedupe_by_summary", false) {
+		return nil
+	}
+	existing, err := api.FindOpenIssueBySummary(conn, req.GetString("project", ""), req.GetString("summary", ""))
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("%v; nothing created", err))
+	}
+	if existing == "" {
+		return nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Skipped: %s already has this summary and is still open; nothing created\nURL: %s/browse/%s",
+		existing, conn.BaseURL, existing))
 }
 
 // buildCreateFields translates the create_ticket request arguments into a Jira fields payload.

@@ -29,6 +29,7 @@ type createFlags struct {
 	nonInteractive  bool
 	dryRun          bool
 	json            bool
+	dedupe          bool
 }
 
 // parseCreateFlags parses runCreate's flag set, exiting on a parse error.
@@ -49,12 +50,13 @@ func parseCreateFlags(args []string) createFlags {
 	fs.BoolVar(nonInteractive, "y", false, "Alias for -non-interactive")
 	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without creating anything")
 	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
+	dedupe := fs.Bool("dedupe-by-summary", false, "Skip creating if an open ticket in the project has the same summary")
 	if err := fs.Parse(args); err != nil {
 		fatal("parsing flags: %v", err)
 	}
 	return createFlags{
 		*templatePath, *batchPath, *descriptionFile, *project, *summary, *issueType, *priority,
-		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut,
+		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut, *dedupe,
 	}
 }
 
@@ -66,11 +68,12 @@ func parseCreateFlags(args []string) createFlags {
 // -assignee, -epic) always override whatever the template holds, so a ticket
 // can be created end-to-end from flags with no template at all. With -f,
 // every entry in the JSON array is created non-interactively and the command
-// reports how many succeeded.
+// reports how many succeeded. -dedupe-by-summary skips any ticket that would
+// duplicate an open one.
 func runCreate(args []string) {
 	flags := parseCreateFlags(args)
 	if flags.batchPath != "" {
-		runBatchCreate(flags.batchPath, flags.dryRun)
+		runBatchCreate(flags.batchPath, flags.dryRun, flags.dedupe)
 		return
 	}
 
@@ -85,6 +88,10 @@ func runCreate(args []string) {
 	conn := mustConnect()
 	if err := applyCreateFieldFlags(conn, tmpl, flags); err != nil {
 		fatal("%v", err)
+	}
+
+	if skipIfDuplicate(conn, tmpl, flags) {
+		return
 	}
 
 	if flags.dryRun {

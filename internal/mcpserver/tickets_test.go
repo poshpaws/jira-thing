@@ -118,3 +118,63 @@ func TestFormatIssue_NoLinksOmitsSection(t *testing.T) {
 		t.Errorf("unexpected linked tickets section:\n%s", got)
 	}
 }
+
+// dedupeServer fakes search and create, counting creates. searchStatus 200
+// answers with one open ticket summarised "Fix the thing".
+func dedupeServer(t *testing.T, searchStatus int, creates *int) *httptest.Server {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, api.SearchEndpoint) {
+			w.WriteHeader(searchStatus)
+			json.NewEncoder(w).Encode(map[string]any{"issues": []map[string]any{
+				{"key": "PROJ-7", "fields": map[string]any{"summary": "Fix the thing"}},
+			}})
+			return
+		}
+		*creates++
+		json.NewEncoder(w).Encode(map[string]any{"key": "PROJ-8"})
+	}))
+}
+
+func callCreateTicket(t *testing.T, srvURL string, dedupe bool) *mcp.CallToolResult {
+	t.Helper()
+	result, err := handleCreateTicket(api.JiraConnection{BaseURL: srvURL})(context.Background(), newCallToolRequest(map[string]any{
+		"project": "PROJ", "summary": "Fix the thing", "dedupe_by_summary": dedupe,
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return result
+}
+
+func TestHandleCreateTicket_DedupeSkipsDuplicate(t *testing.T) {
+	creates := 0
+	srv := dedupeServer(t, http.StatusOK, &creates)
+	defer srv.Close()
+
+	result := callCreateTicket(t, srv.URL, true)
+	text, _ := result.Content[0].(mcp.TextContent)
+	if result.IsError || creates != 0 || !strings.Contains(text.Text, "PROJ-7") {
+		t.Errorf("creates=%d result=%+v", creates, result)
+	}
+}
+
+func TestHandleCreateTicket_DedupeSearchFailureCreatesNothing(t *testing.T) {
+	creates := 0
+	srv := dedupeServer(t, http.StatusInternalServerError, &creates)
+	defer srv.Close()
+
+	if result := callCreateTicket(t, srv.URL, true); !result.IsError || creates != 0 {
+		t.Errorf("creates=%d result=%+v", creates, result)
+	}
+}
+
+func TestHandleCreateTicket_NoDedupeCreatesDespiteDuplicate(t *testing.T) {
+	creates := 0
+	srv := dedupeServer(t, http.StatusOK, &creates)
+	defer srv.Close()
+
+	if result := callCreateTicket(t, srv.URL, false); result.IsError || creates != 1 {
+		t.Errorf("creates=%d result=%+v", creates, result)
+	}
+}

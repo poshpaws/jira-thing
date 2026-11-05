@@ -181,6 +181,7 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
 | `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. If an epic/parent is set, also prints the link step that runs right after the create. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
 | `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
+| `-dedupe-by-summary` | `false` | Skip creating if an open ticket in the same project has the same summary (see below). Also works with `-f` |
 
 These first-class flags mean a ticket can be created end-to-end with no template file at all (`-project` and `-summary` are the minimum) — `-t`/`-f` and flags can also be combined, where the flags always win over whatever the template holds.
 
@@ -191,6 +192,15 @@ These first-class flags mean a ticket can be created end-to-end with no template
 **Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
 
 A template can set `"parent": "PROJ-10"` to link the new ticket to an epic/parent immediately after creation — same `parent`-then-`Epic Link` fallback as `epic add`, no separate call needed. `-epic` does the same from the command line.
+
+**Duplicate guard.** Re-running a create that may already have succeeded can leave duplicates. With `-dedupe-by-summary`, jira-thing first looks for a ticket in the same project with the same summary (ignoring case and surrounding whitespace) that isn't in a Done status. If it finds one, nothing is created and the command exits 0 naming that ticket, with `"status": "exists"` under `-json`.
+
+- If the check can't complete (search failure, more than 100 similar open tickets), nothing is created and the command exits non-zero. In a batch, that entry is reported as an error and the batch continues.
+- With `-f`, repeated entries in the same file are caught too, and the closing tally counts what was skipped.
+- With `-dry-run`, the check still runs, since it only reads. A duplicate is reported instead of the payload.
+- **Immediate retries are not protected.** Jira's search doesn't show a new ticket straight away (about 3 seconds when measured, and it can vary), so a retry from a separate run inside that window still creates a duplicate. Wait several seconds before retrying. Repeats within one `-f` batch aren't affected.
+- It's a best-effort check, not a lock: two simultaneous runs can both create.
+- A skipped create doesn't apply `-epic`/`parent` to the existing ticket. If an earlier run created the ticket but failed to link it, use `epic add`.
 
 **Example — interactive:**
 

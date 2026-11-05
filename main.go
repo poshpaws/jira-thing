@@ -147,6 +147,7 @@ func printUsage() {
 		{"create|cr -f tickets.json [-dry-run]", "Batch-create tickets from a JSON array, non-interactively"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
 		{"edit|ed <TICKET-KEY> [flags]", "Edit fields on an existing ticket (summary/description/priority/labels/assignee/parent)"},
+		{"create|cr -dedupe-by-summary", "Skip creating if an open ticket in the project has the same summary"},
 		{"create|cr / edit|ed -json", "Print {key, url, status} as JSON instead of styled text"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
 		{"list|ls [flags] [-json]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
