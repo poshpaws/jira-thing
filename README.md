@@ -1156,7 +1156,7 @@ jira-thing st PROJ-42 -f docs/shapeup.md
 
 ## Agent Skill
 
-skills.md provided but not had a lot of testing — please feedback via issues.
+SKILL.md provided but not had a lot of testing — please feedback via issues.
 
 ## Template file format
 

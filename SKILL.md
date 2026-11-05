@@ -7,7 +7,7 @@ description: CLI tool for Jira and Confluence — tickets, comments, attachments
 
 Go CLI tool for Jira and Confluence. Credentials stored in OS keyring (same creds for both Jira and Confluence).
 
-> **Why this file exists:** Some corporate environments disable local MCP servers by policy. When that happens, this skills.md gives AI agents (Kiro, Codex, etc.) full knowledge of jira-thing's capabilities so they can shell out to the CLI directly instead of calling MCP tools. The effect is the same — the agent can read tickets, add comments, create subtasks, and publish to Confluence — it just uses `jira-thing <command>` instead of an MCP tool call.
+> **Why this file exists:** Some corporate environments disable local MCP servers by policy. When that happens, this SKILL.md gives AI agents (Kiro, Codex, etc.) full knowledge of jira-thing's capabilities so they can shell out to the CLI directly instead of calling MCP tools. The effect is the same — the agent can read tickets, add comments, create subtasks, and publish to Confluence — it just uses `jira-thing <command>` instead of an MCP tool call.
 
 ## When to use
 
