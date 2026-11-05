@@ -1,6 +1,6 @@
 ---
 name: jira-thing
-description: CLI tool for Jira and Confluence — tickets, comments, attachments, subtasks, Confluence publishing, and space browsing. Also available as an MCP server.
+description: Manages Jira tickets and Confluence pages through the jira-thing CLI, including creating, editing, transitioning, linking, commenting, attaching files and publishing markdown. Use when the user mentions Jira, Confluence, a ticket key such as PROJ-123, sprints or epics, especially where MCP servers are disabled.
 ---
 
 # jira-thing
