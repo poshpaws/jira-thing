@@ -1,6 +1,7 @@
 package adf
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -151,5 +152,23 @@ func TestAdfToMarkdown_NestedOrderedListIndented(t *testing.T) {
 	want := "1. first\n   1. sub\n2. second\n\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestToMarkdown_StripsTerminalControlCharacters(t *testing.T) {
+	doc := map[string]any{"type": "doc", "content": []any{
+		map[string]any{"type": "paragraph", "content": []any{
+			map[string]any{"type": "text", "text": "safe\x1b[2J\x1b]0;pwned\x07 text\u009b31m\tend",
+				"marks": []any{map[string]any{"type": "link", "attrs": map[string]any{"href": "https://x\x1b[8m.io"}}}},
+		}},
+	}}
+	got := ToMarkdown(doc)
+	for _, bad := range []string{"\x1b", "\x07", "\u009b"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("control character %q survived: %q", bad, got)
+		}
+	}
+	if !strings.Contains(got, "\tend") || !strings.Contains(got, "https://x") {
+		t.Errorf("printable text and tabs must survive: %q", got)
 	}
 }

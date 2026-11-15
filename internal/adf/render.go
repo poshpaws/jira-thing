@@ -3,6 +3,7 @@ package adf
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // ToMarkdown converts an Atlassian Document Format node tree to markdown.
@@ -177,9 +178,23 @@ func adfMention(node map[string]any) string {
 }
 
 // getString returns m[key] as a string, or "" if absent or not a string.
+// Every string the renderer reads from ADF comes through here, so it strips
+// terminal control characters: ticket text is written by other Jira users
+// and must not be able to drive the reader's terminal with escape sequences.
 func getString(m map[string]any, key string) string {
 	v, _ := m[key].(string)
-	return v
+	return stripControl(v)
+}
+
+// stripControl removes C0 and C1 control characters (ESC, BEL, CSI, ...)
+// except tab and newline, which neutralises ANSI and OSC escape sequences.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 // nestedString returns m[key1][key2] as a string, or "" if any level is missing.
