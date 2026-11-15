@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"jira-thing/internal/api"
 )
 
 const defaultTemplateFile = "ticket_template.json"
@@ -66,25 +64,6 @@ func SplitLabels(s string) []string {
 		}
 	}
 	return labels
-}
-
-// ResolveAssigneeArg turns an assignee argument into the Jira API's expected
-// assignee field value: "me" resolves to the current user's account ID,
-// "unassign" clears the assignee, and anything else is treated as a literal
-// Jira account ID.
-func ResolveAssigneeArg(conn api.JiraConnection, assignee string) (any, error) {
-	switch assignee {
-	case "unassign":
-		return nil, nil
-	case "me":
-		self, err := api.FetchMyself(conn)
-		if err != nil {
-			return nil, fmt.Errorf("resolving current user: %w", err)
-		}
-		return map[string]any{"accountId": self["accountId"]}, nil
-	default:
-		return map[string]any{"accountId": assignee}, nil
-	}
 }
 
 // NormaliseRefFields wraps bare-string reference fields in the object shape

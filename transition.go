@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	"jira-thing/internal/api"
-	mcpsrv "jira-thing/internal/mcpserver"
-	"jira-thing/internal/template"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/tui"
 )
 
@@ -48,38 +47,31 @@ func runTransition(args []string) {
 	flags := parseTransitionFlags(args)
 
 	conn := mustConnect()
-	transitions, err := api.FetchTransitions(conn, flags.key)
-	if err != nil {
-		fatal("fetching transitions for %s: %v", flags.key, err)
-	}
 	if flags.state == "" {
+		transitions, err := ops.ListTransitions(conn, flags.key)
+		if err != nil {
+			fatal("%v", err)
+		}
 		listTransitions(flags.key, transitions)
 		return
 	}
 
-	transition, err := mcpsrv.FindTransition(transitions, flags.state)
-	if err != nil {
-		fatal("%v\n\n%s", err, mcpsrv.FormatTransitions(flags.key, transitions))
-	}
-	opts, err := buildTransitionOptions(conn, flags)
+	res, err := ops.TransitionTicket(conn, ops.TransitionRequest{
+		Key:        flags.key,
+		State:      flags.state,
+		Comment:    flags.comment,
+		Resolution: flags.resolution,
+		Assignee:   flags.assignee,
+	}, flags.dryRun)
 	if err != nil {
 		fatal("%v", err)
 	}
-
-	if flags.dryRun {
-		printTransitionDryRun(conn, flags.key, transition, opts)
+	if res.Status == ops.StatusDryRun {
+		printDryRun("POST", conn.BaseURL+api.IssueEndpoint+"/"+res.Key+"/transitions", res.Payload)
 		return
 	}
-	applyTransition(conn, flags.key, transition, opts)
-}
-
-// applyTransition executes the transition and reports success.
-func applyTransition(conn api.JiraConnection, key string, transition api.Transition, opts api.TransitionOptions) {
-	if err := api.TransitionIssueWithOptions(conn, key, transition.ID, opts); err != nil {
-		fatal("transitioning %s: %v", key, err)
-	}
 	fmt.Printf("%s %s %s %s\n",
-		tui.SuccessStyle.Render("Moved"), tui.KeyStyle.Render(key), tui.SuccessStyle.Render("to"), transition.Name)
+		tui.SuccessStyle.Render("Moved"), tui.KeyStyle.Render(res.Key), tui.SuccessStyle.Render("to"), res.Transition.Name)
 }
 
 // listTransitions prints the states available from the ticket's current status.
@@ -88,37 +80,5 @@ func listTransitions(key string, transitions []api.Transition) {
 		fmt.Printf("No transitions available for %s.\n", key)
 		return
 	}
-	fmt.Print(mcpsrv.FormatTransitions(key, transitions))
-}
-
-// buildTransitionOptions translates transition flags into a TransitionOptions value.
-func buildTransitionOptions(conn api.JiraConnection, flags transitionFlags) (api.TransitionOptions, error) {
-	fields := map[string]any{}
-	if flags.resolution != "" {
-		fields["resolution"] = map[string]any{"name": flags.resolution}
-	}
-	if flags.assignee != "" {
-		resolved, err := template.ResolveAssigneeArg(conn, flags.assignee)
-		if err != nil {
-			return api.TransitionOptions{}, err
-		}
-		fields["assignee"] = resolved
-	}
-	opts := api.TransitionOptions{Fields: fields}
-	if flags.comment != "" {
-		opts.Comment = markdownToADF(flags.comment)
-	}
-	return opts, nil
-}
-
-// printTransitionDryRun shows the transition request payload without applying it.
-func printTransitionDryRun(conn api.JiraConnection, key string, transition api.Transition, opts api.TransitionOptions) {
-	payload := map[string]any{"transition": map[string]any{"id": transition.ID, "name": transition.Name}}
-	if len(opts.Fields) > 0 {
-		payload["fields"] = opts.Fields
-	}
-	if opts.Comment != nil {
-		payload["update"] = map[string]any{"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}}}
-	}
-	printDryRun("POST", conn.BaseURL+api.IssueEndpoint+"/"+key+"/transitions", payload)
+	fmt.Print(ops.FormatTransitions(key, transitions))
 }

@@ -91,24 +91,3 @@ func TestRunDiagnose_UserID(t *testing.T) {
 		t.Errorf("expected accountId only, got: %q", out)
 	}
 }
-
-func TestFormatDiagError_401(t *testing.T) {
-	msg := formatDiagError(fmt.Errorf("HTTP 401: Unauthorized"))
-	if !strings.Contains(msg, "invalid or expired") {
-		t.Errorf("expected token hint, got: %s", msg)
-	}
-}
-
-func TestFormatDiagError_403(t *testing.T) {
-	msg := formatDiagError(fmt.Errorf("HTTP 403: Forbidden"))
-	if !strings.Contains(msg, "email matches") {
-		t.Errorf("expected email hint, got: %s", msg)
-	}
-}
-
-func TestFormatDiagError_Other(t *testing.T) {
-	msg := formatDiagError(fmt.Errorf("connection refused"))
-	if msg != "connection refused" {
-		t.Errorf("expected unchanged message, got: %s", msg)
-	}
-}

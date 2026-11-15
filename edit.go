@@ -1,19 +1,28 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
 )
 
-// runEdit mutates fields on an existing Jira ticket non-interactively: only
-// the flags given are changed, everything else on the ticket is left alone.
-// This is the field-level counterpart to "update", which only adds comments.
-func runEdit(args []string) {
+// editFlags holds runEdit's parsed flags and ticket key.
+type editFlags struct {
+	key             string
+	req             ops.UpdateRequest
+	descriptionFile string
+	dryRun          bool
+	json            bool
+}
+
+// parseEditFlags parses runEdit's flag set, exiting on a parse error or a missing key.
+func parseEditFlags(args []string) editFlags {
 	fs := flag.NewFlagSet("edit", flag.ExitOnError)
 	summary := fs.String("summary", "", "New summary/title")
 	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the new description")
@@ -26,83 +35,68 @@ func runEdit(args []string) {
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY] [-dry-run] [-json]")
 	}
-	key := fs.Arg(0)
+	req := ops.UpdateRequest{
+		Key: fs.Arg(0), Summary: *summary, Priority: *priority,
+		Labels: template.SplitLabels(*labels), Assignee: *assignee, Parent: *parent,
+	}
+	return editFlags{key: fs.Arg(0), req: req, descriptionFile: *descriptionFile, dryRun: *dryRun, json: *jsonOut}
+}
 
-	conn := mustConnect()
-	fields, err := buildEditFields(conn, *summary, *descriptionFile, *priority, *labels, *assignee)
+// runEdit mutates fields on an existing Jira ticket non-interactively: only
+// the flags given are changed, everything else on the ticket is left alone.
+// This is the field-level counterpart to "update", which only adds comments.
+func runEdit(args []string) {
+	flags := parseEditFlags(args)
+	description, err := readDescriptionFile(flags.descriptionFile)
 	if err != nil {
 		fatal("%v", err)
 	}
-	if len(fields) == 0 && *parent == "" {
+	flags.req.Description = description
+
+	conn := mustConnect()
+	res, err := ops.UpdateTicket(conn, flags.req, flags.dryRun)
+	if errors.Is(err, ops.ErrNothingToUpdate) {
 		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent")
 	}
-
-	if *dryRun {
-		printEditDryRun(conn, key, fields, *parent)
-		return
+	if err != nil {
+		fatal("%v", err)
 	}
-	submitEdit(conn, key, fields, *parent, *jsonOut)
+	reportEditResult(conn, res, flags.json)
 }
 
-// submitEdit sends the field-update PUT (if any fields were given) and the
-// parent-link call (if -parent was given), then reports success.
-func submitEdit(conn api.JiraConnection, key string, fields map[string]any, parent string, jsonOut bool) {
-	if len(fields) > 0 {
-		if err := api.UpdateIssue(conn, key, fields); err != nil {
-			fatal("editing %s: %v", key, err)
-		}
-	}
-	if parent != "" {
-		if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
-			fatal("linking %s to parent %s: %v", key, parent, err)
-		}
-	}
-	url := conn.BaseURL + "/browse/" + key
-	if jsonOut {
-		printJSONResult(jsonResult{Key: key, URL: url, Status: "edited"})
+// reportEditResult prints the dry-run requests, or the edited ticket.
+func reportEditResult(conn api.JiraConnection, res ops.UpdateResult, jsonOut bool) {
+	if res.Status == ops.StatusDryRun {
+		printEditDryRun(conn, res)
 		return
 	}
-	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Edited ticket:"), tui.KeyStyle.Render(key))
-	fmt.Printf("URL: %s\n", url)
+	if jsonOut {
+		printJSONResult(jsonResult{Key: res.Key, URL: res.URL, Status: res.Status})
+		return
+	}
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Edited ticket:"), tui.KeyStyle.Render(res.Key))
+	fmt.Printf("URL: %s\n", res.URL)
 }
 
 // printEditDryRun shows what "edit" would send: the field-update PUT if any
 // fields were given, and the parent-link call if -parent was given.
-func printEditDryRun(conn api.JiraConnection, key string, fields map[string]any, parent string) {
-	if len(fields) > 0 {
-		printDryRun("PUT", conn.BaseURL+api.IssueEndpoint+"/"+key, fields)
+func printEditDryRun(conn api.JiraConnection, res ops.UpdateResult) {
+	if len(res.Fields) > 0 {
+		printDryRun("PUT", conn.BaseURL+api.IssueEndpoint+"/"+res.Key, res.Fields)
 	}
-	if parent != "" {
-		fmt.Printf("Would also link %s to parent %s\n", key, parent)
+	if res.Parent != "" {
+		fmt.Printf("Would also link %s to parent %s\n", res.Key, res.Parent)
 	}
 }
 
-// buildEditFields translates edit flags into a Jira fields payload for
-// UpdateIssue. Only flags that were actually given produce an entry.
-func buildEditFields(conn api.JiraConnection, summary, descriptionFile, priority, labels, assignee string) (map[string]any, error) {
-	fields := map[string]any{}
-	if summary != "" {
-		fields["summary"] = summary
+// readDescriptionFile returns the markdown in path, or "" when no path is given.
+func readDescriptionFile(path string) (string, error) {
+	if path == "" {
+		return "", nil
 	}
-	if descriptionFile != "" {
-		data, err := os.ReadFile(descriptionFile) // #nosec G304 -- user-supplied CLI input
-		if err != nil {
-			return nil, fmt.Errorf("reading description file: %w", err)
-		}
-		fields["description"] = buildDescription(string(data))
+	data, err := os.ReadFile(path) // #nosec G304 -- user-supplied CLI input
+	if err != nil {
+		return "", fmt.Errorf("reading description file: %w", err)
 	}
-	if priority != "" {
-		fields["priority"] = map[string]any{"name": priority}
-	}
-	if labels != "" {
-		fields["labels"] = template.SplitLabels(labels)
-	}
-	if assignee != "" {
-		resolved, err := template.ResolveAssigneeArg(conn, assignee)
-		if err != nil {
-			return nil, err
-		}
-		fields["assignee"] = resolved
-	}
-	return fields, nil
+	return string(data), nil
 }

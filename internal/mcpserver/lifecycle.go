@@ -5,14 +5,11 @@ import (
 	"fmt"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
-
-// cloneInheritFields are the fields copied from the source ticket when cloning,
-// before any overrides supplied by the caller are applied.
-var cloneInheritFields = []string{"project", "issuetype", "priority", "labels", "components", "description"}
 
 func registerLifecycleTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(whoamiTool(), handleWhoami(conn))
@@ -31,12 +28,12 @@ func whoamiTool() mcp.Tool {
 
 func handleWhoami(conn api.JiraConnection) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		self, err := api.FetchMyself(conn)
+		me, err := ops.WhoAmI(conn)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching current user: %v", err)), nil
+			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("Account ID: %v\nDisplay name: %v\nEmail: %v",
-			self["accountId"], self["displayName"], self["emailAddress"])), nil
+		return mcp.NewToolResultText(fmt.Sprintf("Account ID: %s\nDisplay name: %s\nEmail: %s",
+			me.AccountID, me.DisplayName, me.Email)), nil
 	}
 }
 
@@ -62,8 +59,8 @@ func handleDeleteTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		cascade := req.GetBool("cascade", false)
-		if err := api.DeleteIssue(conn, key, cascade); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("deleting %s: %v", key, err)), nil
+		if err := ops.DeleteTicket(conn, key, cascade); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted %s", key)), nil
 	}
@@ -96,57 +93,17 @@ func handleCloneTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		fields, err := buildCloneFields(conn, sourceKey, req)
+		res, err := ops.CloneTicket(conn, ops.CloneRequest{
+			SourceKey: sourceKey,
+			Summary:   req.GetString("summary", ""),
+			Priority:  req.GetString("priority", ""),
+			Assignee:  req.GetString("assignee", ""),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		result, err := api.CreateIssue(conn, fields)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("cloning %s: %v", sourceKey, err)), nil
-		}
-		key, _ := result["key"].(string)
-		return mcp.NewToolResultText(fmt.Sprintf("Cloned %s -> %s", sourceKey, key)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("Cloned %s -> %s", res.SourceKey, res.Key)), nil
 	}
-}
-
-// buildCloneFields fetches the source ticket and assembles the fields for the clone,
-// applying any caller-supplied overrides.
-func buildCloneFields(conn api.JiraConnection, sourceKey string, req mcp.CallToolRequest) (map[string]any, error) {
-	issue, err := api.FetchIssue(conn, sourceKey)
-	if err != nil {
-		return nil, fmt.Errorf("fetching %s: %w", sourceKey, err)
-	}
-	source, ok := issue["fields"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("ticket %s has no fields", sourceKey)
-	}
-
-	fields := make(map[string]any, len(cloneInheritFields)+3)
-	for _, k := range cloneInheritFields {
-		if v, ok := source[k]; ok && v != nil {
-			fields[k] = v
-		}
-	}
-
-	summary := req.GetString("summary", "")
-	if summary == "" {
-		if s, ok := source["summary"].(string); ok {
-			summary = "CLONE - " + s
-		}
-	}
-	fields["summary"] = summary
-
-	if priority := req.GetString("priority", ""); priority != "" {
-		fields["priority"] = map[string]any{"name": priority}
-	}
-	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := resolveAssignee(conn, assignee)
-		if err != nil {
-			return nil, err
-		}
-		fields["assignee"] = resolved
-	}
-	return fields, nil
 }
 
 // --- add_worklog ---
@@ -178,12 +135,9 @@ func handleAddWorklog(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		var comment map[string]any
-		if c := req.GetString("comment", ""); c != "" {
-			comment = markdownToADFBody(c)
-		}
-		if err := api.AddWorklog(conn, key, timeSpent, comment); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("logging work on %s: %v", key, err)), nil
+		err = ops.LogWork(conn, ops.WorklogRequest{Key: key, TimeSpent: timeSpent, Comment: req.GetString("comment", "")})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Logged %s on %s", timeSpent, key)), nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -94,7 +95,7 @@ func buildSubtaskFields(parentKey string, inherited map[string]any, summary, des
 	fields["issuetype"] = map[string]any{"name": "Sub-task"}
 	fields["parent"] = map[string]any{"key": parentKey}
 	if description != "" {
-		fields["description"] = markdownToADFBody(description)
+		fields["description"] = adf.FromMarkdown(description)
 	}
 	return fields
 }

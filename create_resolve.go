@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -11,19 +10,19 @@ import (
 // template value is used; anything still missing is prompted for unless
 // nonInteractive is set.
 func resolveCreateFields(tmpl map[string]any, descriptionFile string, nonInteractive bool) error {
-	if descriptionFile != "" {
-		data, err := os.ReadFile(descriptionFile) // #nosec G304 -- user-supplied CLI input
-		if err != nil {
-			return fmt.Errorf("reading description file: %w", err)
-		}
-		tmpl["description"] = string(data)
+	description, err := readDescriptionFile(descriptionFile)
+	if err != nil {
+		return err
+	}
+	if description != "" {
+		tmpl["description"] = description
 	}
 
 	summary, err := resolveSummary(tmpl, nonInteractive)
 	if err != nil {
 		return err
 	}
-	description := resolveDescription(tmpl, nonInteractive)
+	description = resolveDescription(tmpl, nonInteractive)
 
 	tmpl["summary"] = summary
 	if description != "" {

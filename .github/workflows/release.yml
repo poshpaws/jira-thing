@@ -204,3 +204,51 @@ jobs:
             echo "Release ${TAG_NAME} already exists, uploading assets."
             gh release upload "${TAG_NAME}" dist/* --clobber
           fi
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: [release]
+    # Tag pushes only: a manual workflow_dispatch run on another ref must
+    # never reach the tap token.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Push formula to poshpaws/homebrew-tap
+        env:
+          # Fine-grained PAT: Contents read/write on poshpaws/homebrew-tap only.
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew tap update."
+            exit 0
+          fi
+          version="${TAG_NAME#v}"
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Tag ${TAG_NAME} is not a semver release tag."
+            exit 1
+          fi
+          gh release download "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern checksums.txt --pattern checksums.txt.sig --dir "${RUNNER_TEMP}"
+          # Verify the manifest against the same public key self-update uses.
+          awk '/BEGIN PUBLIC KEY/{f=1} f{sub(/^.*`/,""); print} /END PUBLIC KEY/{exit}' \
+            internal/version/pubkey.go > "${RUNNER_TEMP}/release-pubkey.pem"
+          openssl dgst -sha256 -verify "${RUNNER_TEMP}/release-pubkey.pem" \
+            -signature "${RUNNER_TEMP}/checksums.txt.sig" "${RUNNER_TEMP}/checksums.txt"
+          gh auth setup-git
+          gh repo clone poshpaws/homebrew-tap "${RUNNER_TEMP}/tap"
+          scripts/homebrew-formula.sh "${version}" "${RUNNER_TEMP}/checksums.txt" > "${RUNNER_TEMP}/tap/Formula/jira-thing.rb"
+          cd "${RUNNER_TEMP}/tap"
+          if git diff --quiet; then
+            echo "Formula already at ${version}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "jira-thing ${version}"
+          git push

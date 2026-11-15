@@ -7,126 +7,6 @@ import (
 	"jira-thing/internal/api"
 )
 
-func TestAdfToMarkdown_LinkMark(t *testing.T) {
-	doc := map[string]any{
-		"type": "doc",
-		"content": []any{
-			map[string]any{
-				"type": "paragraph",
-				"content": []any{
-					map[string]any{"type": "text", "text": "a "},
-					map[string]any{
-						"type": "text",
-						"text": "site",
-						"marks": []any{map[string]any{
-							"type":  "link",
-							"attrs": map[string]any{"href": "https://example.com"},
-						}},
-					},
-				},
-			},
-		},
-	}
-	got := adfToMarkdown(doc)
-	want := "a [site](https://example.com)\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestAdfToMarkdown_Rule(t *testing.T) {
-	doc := map[string]any{
-		"type":    "doc",
-		"content": []any{map[string]any{"type": "rule"}},
-	}
-	got := adfToMarkdown(doc)
-	want := "---\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestAdfToMarkdown_Table(t *testing.T) {
-	cell := func(typ, txt string) map[string]any {
-		return map[string]any{
-			"type": typ,
-			"content": []any{map[string]any{
-				"type":    "paragraph",
-				"content": []any{map[string]any{"type": "text", "text": txt}},
-			}},
-		}
-	}
-	row := func(cells ...any) map[string]any {
-		return map[string]any{"type": "tableRow", "content": cells}
-	}
-	doc := map[string]any{
-		"type": "doc",
-		"content": []any{map[string]any{
-			"type": "table",
-			"content": []any{
-				row(cell("tableHeader", "Col A"), cell("tableHeader", "Col B")),
-				row(cell("tableCell", "1"), cell("tableCell", "2")),
-			},
-		}},
-	}
-	got := adfToMarkdown(doc)
-	want := "| Col A | Col B |\n| --- | --- |\n| 1 | 2 |\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestAdfToMarkdown_BlockquoteSeparatedFromNextBlock(t *testing.T) {
-	para := func(txt string) map[string]any {
-		return map[string]any{
-			"type":    "paragraph",
-			"content": []any{map[string]any{"type": "text", "text": txt}},
-		}
-	}
-	doc := map[string]any{
-		"type": "doc",
-		"content": []any{
-			map[string]any{"type": "blockquote", "content": []any{para("quoted")}},
-			para("after"),
-		},
-	}
-	got := adfToMarkdown(doc)
-	want := "> quoted\n\nafter\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestAdfToMarkdown_NestedBulletListIndented(t *testing.T) {
-	para := func(txt string) map[string]any {
-		return map[string]any{
-			"type":    "paragraph",
-			"content": []any{map[string]any{"type": "text", "text": txt}},
-		}
-	}
-	item := func(children ...any) map[string]any {
-		return map[string]any{"type": "listItem", "content": children}
-	}
-	doc := map[string]any{
-		"type": "doc",
-		"content": []any{map[string]any{
-			"type": "bulletList",
-			"content": []any{
-				item(para("one")),
-				item(para("two"), map[string]any{
-					"type":    "bulletList",
-					"content": []any{item(para("inner"))},
-				}),
-			},
-		}},
-	}
-	got := adfToMarkdown(doc)
-	want := "- one\n- two\n  - inner\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
 func TestBuildDescribeMarkdown_FullIssue(t *testing.T) {
 	issue := map[string]any{
 		"key": "PROJ-1",
@@ -249,36 +129,6 @@ func TestRenderLastComment_RawPrintsBodyJSON(t *testing.T) {
 	}
 }
 
-func TestAdfToMarkdown_NestedOrderedListIndented(t *testing.T) {
-	para := func(txt string) map[string]any {
-		return map[string]any{
-			"type":    "paragraph",
-			"content": []any{map[string]any{"type": "text", "text": txt}},
-		}
-	}
-	item := func(children ...any) map[string]any {
-		return map[string]any{"type": "listItem", "content": children}
-	}
-	doc := map[string]any{
-		"type": "doc",
-		"content": []any{map[string]any{
-			"type": "orderedList",
-			"content": []any{
-				item(para("first"), map[string]any{
-					"type":    "orderedList",
-					"content": []any{item(para("sub"))},
-				}),
-				item(para("second")),
-			},
-		}},
-	}
-	got := adfToMarkdown(doc)
-	want := "1. first\n   1. sub\n2. second\n\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
 func TestBuildDescribeMarkdown_ListsLinkedTickets(t *testing.T) {
 	issue := map[string]any{
 		"key": "PROJ-1",
@@ -298,5 +148,32 @@ func TestBuildDescribeMarkdown_ListsLinkedTickets(t *testing.T) {
 	want := "## Linked Tickets\n\n- is blocked by PROJ-9: Upstream (Done)\n\n## Description"
 	if !strings.Contains(got, want) {
 		t.Errorf("missing linked tickets section before description:\n%s", got)
+	}
+}
+
+func TestRenderDescribe_StripsEscapesFromJiraText(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"summary":  "Fix\x1b]0;pwned\x07 it‮",
+			"status":   map[string]any{"name": "Open\x1b[2J"},
+			"assignee": map[string]any{"displayName": "Eve\x1b[8m"},
+		},
+	}
+	out := captureStdout(func() { renderDescribe(issue, true, false) })
+	for _, bad := range []rune{'\x1b', '\x07', '‮'} {
+		if strings.ContainsRune(out, bad) {
+			t.Errorf("control character %q survived: %q", bad, out)
+		}
+	}
+	if !strings.Contains(out, "Fix]0;pwned it") {
+		t.Errorf("expected visible text kept, got: %q", out)
+	}
+}
+
+func TestIssuesToTickets_StripsEscapes(t *testing.T) {
+	issues := []map[string]any{{"key": "PROJ-1", "fields": map[string]any{"summary": "a\x1b[31mb"}}}
+	if got := issuesToTickets(issues)[0].Summary; got != "a[31mb" {
+		t.Errorf("got %q", got)
 	}
 }

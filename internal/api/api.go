@@ -141,6 +141,9 @@ func executeRequest(req *http.Request, out any) error {
 
 // FetchIssue retrieves a single Jira issue by key.
 func FetchIssue(conn JiraConnection, issueKey string) (map[string]any, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return nil, err
+	}
 	req, err := newAuthRequest(conn, APIRequest{
 		Method:   http.MethodGet,
 		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "?fields=*all",
@@ -174,6 +177,9 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 // UpdateIssue edits fields on an existing Jira issue (e.g. summary, description,
 // priority, labels, assignee). Only the fields present in the map are changed.
 func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) error {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return err
+	}
 	body, err := json.Marshal(map[string]any{"fields": fields})
 	if err != nil {
 		return err
@@ -192,6 +198,9 @@ func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) er
 
 // AddComment posts a comment on an existing Jira issue.
 func AddComment(conn JiraConnection, issueKey string, body map[string]any) error {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{"body": body})
 	if err != nil {
 		return err
@@ -231,6 +240,9 @@ func AddAttachment(conn JiraConnection, issueKey, filePath string) ([]map[string
 // issueKey. Used both for file-path attachments and for streaming stdin in
 // under an explicit name; the upload is capped at maxAttachmentUpload.
 func AddAttachmentReader(conn JiraConnection, issueKey, name string, r io.Reader) ([]map[string]any, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return nil, err
+	}
 	body, contentType, err := buildAttachmentBody(name, r)
 	if err != nil {
 		return nil, err
@@ -295,6 +307,9 @@ func FetchLastComment(conn JiraConnection, issueKey string) (Comment, error) {
 
 // fetchCommentPage retrieves a page of comments from a Jira issue.
 func fetchCommentPage(conn JiraConnection, issueKey string, startAt, maxResults int) (CommentResult, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return CommentResult{}, err
+	}
 	endpoint := fmt.Sprintf("%s%s/%s/comment?startAt=%d&maxResults=%d",
 		conn.BaseURL, IssueEndpoint, issueKey, startAt, maxResults)
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
@@ -348,6 +363,9 @@ type transitionsResponse struct {
 // Boards customise workflows heavily, so this list (and the target states it names)
 // must always be read live rather than assumed.
 func FetchTransitions(conn JiraConnection, issueKey string) ([]Transition, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return nil, err
+	}
 	req, err := newAuthRequest(conn, APIRequest{
 		Method:   http.MethodGet,
 		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "/transitions",
@@ -379,16 +397,10 @@ func TransitionIssue(conn JiraConnection, issueKey, transitionID string) error {
 // TransitionIssueWithOptions is TransitionIssue with optional field changes and/or
 // a comment applied atomically as part of the transition.
 func TransitionIssueWithOptions(conn JiraConnection, issueKey, transitionID string, opts TransitionOptions) error {
-	payload := map[string]any{"transition": map[string]any{"id": transitionID}}
-	if len(opts.Fields) > 0 {
-		payload["fields"] = opts.Fields
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return err
 	}
-	if opts.Comment != nil {
-		payload["update"] = map[string]any{
-			"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}},
-		}
-	}
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(TransitionPayload(transitionID, opts))
 	if err != nil {
 		return err
 	}
@@ -402,6 +414,20 @@ func TransitionIssueWithOptions(conn JiraConnection, issueKey, transitionID stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return executeRequest(req, nil)
+}
+
+// TransitionPayload builds the request body TransitionIssueWithOptions sends.
+func TransitionPayload(transitionID string, opts TransitionOptions) map[string]any {
+	payload := map[string]any{"transition": map[string]any{"id": transitionID}}
+	if len(opts.Fields) > 0 {
+		payload["fields"] = opts.Fields
+	}
+	if opts.Comment != nil {
+		payload["update"] = map[string]any{
+			"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}},
+		}
+	}
+	return payload
 }
 
 // Field describes a Jira field as returned by GET /rest/api/3/field.

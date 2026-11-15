@@ -1,4 +1,4 @@
-package main
+package adf
 
 import (
 	"encoding/json"
@@ -47,7 +47,7 @@ func eText(s string, marks ...any) map[string]any {
 func eMark(typ string) map[string]any { return map[string]any{"type": typ} }
 
 func TestMarkdownToADF_Paragraphs(t *testing.T) {
-	got := markdownToADF("first para\n\nsecond para")
+	got := FromMarkdown("first para\n\nsecond para")
 	want := eDoc(
 		eNode("paragraph", eText("first para")),
 		eNode("paragraph", eText("second para")),
@@ -56,7 +56,7 @@ func TestMarkdownToADF_Paragraphs(t *testing.T) {
 }
 
 func TestMarkdownToADF_HeadingLevels(t *testing.T) {
-	got := markdownToADF("# One\n\n## Two\n\n### Three")
+	got := FromMarkdown("# One\n\n## Two\n\n### Three")
 	h := func(level int, txt string) map[string]any {
 		return map[string]any{
 			"type":    "heading",
@@ -68,7 +68,7 @@ func TestMarkdownToADF_HeadingLevels(t *testing.T) {
 }
 
 func TestMarkdownToADF_InlineMarks(t *testing.T) {
-	got := markdownToADF("**bold** *italic* `code` ~~gone~~")
+	got := FromMarkdown("**bold** *italic* `code` ~~gone~~")
 	want := eDoc(eNode("paragraph",
 		eText("bold", eMark("strong")),
 		eText(" "),
@@ -86,7 +86,7 @@ func TestMarkdownToADF_InlineMarks(t *testing.T) {
 // as not valid ADF, because the code mark excludes every other mark. A
 // CodeSpan inside bold/italic/strikethrough must emit only the code mark.
 func TestMarkdownToADF_CodeSpanDropsEnclosingMarks(t *testing.T) {
-	got := markdownToADF("**bold `code` text**")
+	got := FromMarkdown("**bold `code` text**")
 	want := eDoc(eNode("paragraph",
 		eText("bold ", eMark("strong")),
 		eText("code", eMark("code")),
@@ -96,7 +96,7 @@ func TestMarkdownToADF_CodeSpanDropsEnclosingMarks(t *testing.T) {
 }
 
 func TestMarkdownToADF_Link(t *testing.T) {
-	got := markdownToADF("a [site](https://example.com) here")
+	got := FromMarkdown("a [site](https://example.com) here")
 	linkMark := map[string]any{
 		"type":  "link",
 		"attrs": map[string]any{"href": "https://example.com"},
@@ -110,7 +110,7 @@ func TestMarkdownToADF_Link(t *testing.T) {
 }
 
 func TestMarkdownToADF_BulletListNested(t *testing.T) {
-	got := markdownToADF("- one\n- two\n  - inner")
+	got := FromMarkdown("- one\n- two\n  - inner")
 	want := eDoc(eNode("bulletList",
 		eNode("listItem", eNode("paragraph", eText("one"))),
 		eNode("listItem",
@@ -124,7 +124,7 @@ func TestMarkdownToADF_BulletListNested(t *testing.T) {
 }
 
 func TestMarkdownToADF_OrderedList(t *testing.T) {
-	got := markdownToADF("1. first\n2. second")
+	got := FromMarkdown("1. first\n2. second")
 	want := eDoc(map[string]any{
 		"type":  "orderedList",
 		"attrs": map[string]any{"order": 1},
@@ -137,7 +137,7 @@ func TestMarkdownToADF_OrderedList(t *testing.T) {
 }
 
 func TestMarkdownToADF_FencedCodeBlock(t *testing.T) {
-	got := markdownToADF("```go\nfunc main() {}\n```")
+	got := FromMarkdown("```go\nfunc main() {}\n```")
 	want := eDoc(map[string]any{
 		"type":    "codeBlock",
 		"attrs":   map[string]any{"language": "go"},
@@ -147,13 +147,13 @@ func TestMarkdownToADF_FencedCodeBlock(t *testing.T) {
 }
 
 func TestMarkdownToADF_CodeBlockNoLanguage(t *testing.T) {
-	got := markdownToADF("```\nplain\n```")
+	got := FromMarkdown("```\nplain\n```")
 	want := eDoc(eNode("codeBlock", eText("plain\n")))
 	jsonEq(t, want, got)
 }
 
 func TestMarkdownToADF_Blockquote(t *testing.T) {
-	got := markdownToADF("> quoted text")
+	got := FromMarkdown("> quoted text")
 	want := eDoc(eNode("blockquote",
 		eNode("paragraph", eText("quoted text")),
 	))
@@ -161,7 +161,7 @@ func TestMarkdownToADF_Blockquote(t *testing.T) {
 }
 
 func TestMarkdownToADF_ThematicBreak(t *testing.T) {
-	got := markdownToADF("above\n\n---\n\nbelow")
+	got := FromMarkdown("above\n\n---\n\nbelow")
 	want := eDoc(
 		eNode("paragraph", eText("above")),
 		map[string]any{"type": "rule"},
@@ -171,7 +171,7 @@ func TestMarkdownToADF_ThematicBreak(t *testing.T) {
 }
 
 func TestMarkdownToADF_Table(t *testing.T) {
-	got := markdownToADF("| Col A | Col B |\n|-------|-------|\n| 1 | 2 |")
+	got := FromMarkdown("| Col A | Col B |\n|-------|-------|\n| 1 | 2 |")
 	want := eDoc(map[string]any{
 		"type":  "table",
 		"attrs": map[string]any{"isNumberColumnEnabled": false, "layout": "default"},
@@ -190,7 +190,7 @@ func TestMarkdownToADF_Table(t *testing.T) {
 }
 
 func TestMarkdownToADF_HardBreak(t *testing.T) {
-	got := markdownToADF("line one  \nline two")
+	got := FromMarkdown("line one  \nline two")
 	want := eDoc(eNode("paragraph",
 		eText("line one"),
 		map[string]any{"type": "hardBreak"},
@@ -200,7 +200,7 @@ func TestMarkdownToADF_HardBreak(t *testing.T) {
 }
 
 func TestMarkdownToADF_SoftBreakBecomesSpace(t *testing.T) {
-	got := markdownToADF("line one\nline two")
+	got := FromMarkdown("line one\nline two")
 	want := eDoc(eNode("paragraph",
 		eText("line one"),
 		eText(" "),
@@ -210,11 +210,11 @@ func TestMarkdownToADF_SoftBreakBecomesSpace(t *testing.T) {
 }
 
 func TestMarkdownToADF_PlainTextNoMarkdown(t *testing.T) {
-	got := markdownToADF("just a plain comment")
+	got := FromMarkdown("just a plain comment")
 	want := eDoc(eNode("paragraph", eText("just a plain comment")))
 	jsonEq(t, want, got)
 }
 
 func TestMarkdownToADF_EmptyInput(t *testing.T) {
-	jsonEq(t, eDoc(), markdownToADF(""))
+	jsonEq(t, eDoc(), FromMarkdown(""))
 }

@@ -8,6 +8,15 @@ A CLI tool for Jira and Confluence. Clone tickets from reusable templates, manag
 
 ## Installation
 
+### Homebrew (macOS and Linux)
+
+```bash
+brew install poshpaws/tap/jira-thing
+brew upgrade jira-thing        # later releases
+```
+
+The formula installs the same signed, notarised release binaries as below. `jira-thing self-update` refuses to replace a Homebrew-managed binary and points you at `brew upgrade` instead.
+
 ### Pre-built binaries
 
 Download the latest release for your platform from the [Releases](../../releases) page:
@@ -1048,8 +1057,11 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `create_epic` | Create an epic. Jira has two incompatible epic models depending on how the project is configured (team-managed vs company-managed); this tool sets the classic "Epic Name" field when the instance has one, and is a no-op on team-managed projects where it doesn't exist. |
 | `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
 | `create_ticket` | Create a new Jira ticket with the specified fields |
+| `create_tickets_batch` | Create several Jira tickets in one call. Each entry is a ticket object, e.g. {"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. Entries are created independently: one failing does not stop the rest, and the result reports each one. |
 | `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone — use with care. |
 | `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description |
+| `diagnose_connection` | Check jira-thing's Jira connection: the configured URL and email, the API token's format (no part of the token is returned), and an authenticated API call. Use when other tools fail with auth or connection errors; the result suggests a fix for 401/403 failures. |
+| `fetch_template` | Fetch a Jira ticket's reusable fields (project, issue type, priority, labels, components, description, assignee) as a JSON template, for use as the base of create_tickets_batch entries. By default the assignee becomes a marker meaning "whoever creates from this template". Saving a template as the CLI's default is left to the user (jira-thing template KEY), so an agent can't change what later creates use. |
 | `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
 | `link_tickets` | Link two Jira tickets together (e.g. mark one as blocking another). The link_type must match one of the types returned by list_link_types — call that tool first if unsure. |
 | `list_boards` | List Agile (Scrum/Kanban) boards visible to the current user, optionally filtered to a project. |
@@ -1066,6 +1078,7 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `my_tasks` | List open Jira tasks assigned to the current user |
 | `remove_from_epic` | Remove issues from their epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
 | `search_tickets` | Search Jira tickets using JQL. Returns key, summary, status, priority, and updated date for each match. |
+| `sync_toil` | Sync open toil tickets to Confluence: one child page per ticket under the configured ticket_hanger page (keeping any notes already written on it), then rewrite the hanger page's index. Needs the toil settings plus confluence_space and ticket_hanger in ~/.config/jira-thing/jira-thing.json. |
 | `transition_ticket` | Move a Jira ticket to a new workflow state. The target_status must match one of the states returned by list_transitions for this ticket — call that tool first if unsure what states are available. |
 | `unlink_tickets` | Remove the link between two Jira tickets, whichever link type currently connects them. |
 | `update_ticket` | Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee). Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use transition_ticket instead. |

@@ -101,6 +101,9 @@ func UnlinkIssues(conn JiraConnection, issueKey, otherKey string) error {
 
 // findIssueLinkID looks up the link ID connecting issueKey to otherKey.
 func findIssueLinkID(conn JiraConnection, issueKey, otherKey string) (string, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return "", err
+	}
 	req, err := newAuthRequest(conn, APIRequest{
 		Method:   http.MethodGet,
 		Endpoint: conn.BaseURL + IssueEndpoint + "/" + issueKey + "?fields=issuelinks",
@@ -125,6 +128,9 @@ func findIssueLinkID(conn JiraConnection, issueKey, otherKey string) (string, er
 
 // AddRemoteLink attaches a remote web link (e.g. a URL to external documentation) to an issue.
 func AddRemoteLink(conn JiraConnection, issueKey, url, title string) error {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"object": map[string]any{"url": url, "title": title},
 	})

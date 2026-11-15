@@ -2,24 +2,46 @@
 
 ## Overview
 
-`jira-thing` is a CLI tool for templating and creating Jira tickets. It is structured in three internal packages consumed by a single `main` package.
+`jira-thing` is a Jira and Confluence tool for agents and humans alike. It is **MCP-first**: every feature exists as an MCP tool (`serve-mcp`), and the CLI and TUI are thin front ends that call the same code. All feature logic lives once in `internal/ops`; the front ends only parse input and format results.
 
+```mermaid
+flowchart LR
+    Agent["AI agent"] -->|MCP stdio| MCP["internal/mcpserver\nparse tool args, format text"]
+    Human["Human"] --> CLI["main\nparse flags, render, -json"]
+    Human --> TUI["internal/tui + menu\ninteractive pickers"]
+
+    MCP --> Ops["internal/ops\none function per feature\ntyped request -> typed result"]
+    CLI --> Ops
+    TUI --> Ops
+
+    Ops --> API["internal/api\nJira / Confluence REST"]
+    Ops --> ADF["internal/adf\nmarkdown <-> ADF"]
+    Ops --> Tmpl["internal/template"]
+    CLI --> Safe["internal/termsafe\nstrip escapes before printing"]
+
+    API -->|HTTPS| Jira[(Jira Cloud / Confluence)]
 ```
-CLI (main) ──► internal/api      ──► Jira REST API (HTTPS)
-           ──► internal/auth     ──► OS Keyring
-           ──► internal/template ──► Local JSON files
-```
+
+### Rules
+
+- A new feature is built in this order: `internal/ops` function with tests, then the MCP tool, then the CLI command, then the TUI/menu entry where one applies.
+- MCP handlers and CLI `run*` functions do not call `internal/api` to change anything; they call `internal/ops`.
+- `parity_test.go` parses the CLI dispatch switches and fails if a command has no mapped MCP tool, unless it is listed as local-only (`version`, `completion`, `menu`, `state`, `open`, ...).
 
 ## Package Responsibilities
 
 | Package | Responsibility |
 |---|---|
-| `main` | Subcommand routing, user I/O, flag parsing |
-| `main` (`render.go`) | ADF→markdown conversion; glamour terminal rendering |
-| `main` (`markdown.go`) | Markdown→ADF conversion (goldmark) for comments and descriptions |
-| `internal/api` | HTTP requests to the Jira REST API |
+| `main` | Subcommand routing, flag parsing, prompts, styled output; calls `internal/ops` |
+| `internal/mcpserver` | MCP tool schemas and handlers; calls `internal/ops`; generates the README tool table |
+| `internal/ops` | Feature logic shared by every front end: create/update/batch, dedupe, clone, transitions, delete, worklog, whoami, templates, toil sync, diagnose |
+| `internal/adf` | Markdown→ADF (goldmark) and ADF→markdown conversion |
+| `internal/termsafe` | Strips terminal control and bidi characters from Jira-authored text before it is printed |
+| `internal/api` | HTTP requests to the Jira and Confluence REST APIs; validates issue keys before they enter a URL |
 | `internal/auth` | Credential load/store via the OS keyring |
 | `internal/template` | Build, save, and load JSON ticket templates |
+| `internal/tui` | Bubble Tea pickers, tables and menus |
+| `internal/config` | `~/.config/jira-thing/jira-thing.json` settings |
 
 ## Class Diagram
 
@@ -118,9 +140,11 @@ flowchart TD
 
 - **No database** — templates are standalone JSON files on disk.
 - **`Keyring` interface** — allows unit tests to inject an in-memory mock without touching the OS keyring.
-- **`executeRequest` helper** — eliminates duplicated HTTP status-check + JSON-decode logic across all three API functions.
+- **`executeRequest` helper** — eliminates duplicated HTTP status-check + JSON-decode logic across all API functions.
 - **`SearchQuery` struct** — groups the four search parameters to keep `SearchIssues` within the single-responsibility / argument-count guidelines.
-- **ADF→markdown conversion** (`render.go`) — Jira Cloud API v3 returns comment bodies as Atlassian Document Format (ADF), not raw markdown. `adfToMarkdown` recursively walks the ADF node tree to produce standard markdown, which is then rendered to styled terminal output via [glamour](https://github.com/charmbracelet/glamour).
-- **Markdown→ADF conversion** (`markdown.go`) — comment and description text is parsed as markdown with [goldmark](https://github.com/yuin/goldmark) (Table and Strikethrough extensions enabled) and converted to structured ADF nodes (`heading`, `bulletList`, `orderedList`, `codeBlock`, `blockquote`, `table`, `rule`, marks for strong/em/code/strike/link) before posting. Previously the whole text was sent as a single plain-text node, so markdown appeared raw in the Jira web UI. `markdownToADF` is the inverse of `adfToMarkdown`.
-- **Duplicate guard** (`create_dedupe.go`, `api.FindOpenIssueBySummary`) — JQL's `~` is a fuzzy text match, so it only narrows the candidates and an exact summary comparison decides. The guard fails closed: if the check can't complete, nothing is created. A batch also remembers what the run created, because a fresh ticket isn't in Jira's search index for about 3 seconds (measured once on Jira Cloud). Across separate runs that gap is unguarded: an immediate retry still creates a duplicate.
+- **MCP-first, one `ops` layer** — before v0.27 the MCP handlers and the CLI each had their own copies of field building, assignee resolution, clone inheritance, transitions, dedupe and toil queries, and they had drifted (the CLI's toil JQL didn't escape quotes). Each now exists once in `internal/ops`, and `ops` results are plain structs, so `-json` output and MCP text describe the same thing.
+- **Untrusted text** — ticket text is written by other Jira users. `internal/termsafe` strips C0/C1 controls and Unicode `Bidi_Control` characters wherever Jira text reaches the terminal, and `api.ValidateIssueKey` keeps crafted keys (`../../myself`) out of request paths. `fetch_template` never writes files, so an agent can't change the default template later CLI creates use.
+- **ADF→markdown conversion** (`internal/adf`) — Jira Cloud API v3 returns comment bodies as Atlassian Document Format (ADF), not raw markdown. `adf.ToMarkdown` recursively walks the ADF node tree to produce standard markdown, which is then rendered to styled terminal output via [glamour](https://github.com/charmbracelet/glamour).
+- **Markdown→ADF conversion** (`internal/adf`) — comment and description text is parsed as markdown with [goldmark](https://github.com/yuin/goldmark) (Table and Strikethrough extensions enabled) and converted to structured ADF nodes (`heading`, `bulletList`, `orderedList`, `codeBlock`, `blockquote`, `table`, `rule`, marks for strong/em/code/strike/link) before posting. Previously the whole text was sent as a single plain-text node, so markdown appeared raw in the Jira web UI. `adf.FromMarkdown` is the inverse of `adf.ToMarkdown`.
+- **Duplicate guard** (`ops.DedupeGuard`, `api.FindOpenIssueBySummary`) — JQL's `~` is a fuzzy text match, so it only narrows the candidates and an exact summary comparison decides. The guard fails closed: if the check can't complete, nothing is created. A batch also remembers what the run created, because a fresh ticket isn't in Jira's search index for about 3 seconds (measured once on Jira Cloud). Across separate runs that gap is unguarded: an immediate retry still creates a duplicate.
 - **Two-call last-comment fetch** — `FetchLastComment` first requests one comment to read `total`, then requests `startAt=total-1` to fetch the last without downloading all comments.

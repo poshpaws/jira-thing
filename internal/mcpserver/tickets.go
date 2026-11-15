@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
+	"jira-thing/internal/template"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -174,7 +177,7 @@ func handleAddComment(conn api.JiraConnection) server.ToolHandlerFunc {
 		if strings.TrimSpace(comment) == "" {
 			return mcp.NewToolResultError("comment is empty"), nil
 		}
-		adf := markdownToADFBody(comment)
+		adf := adf.FromMarkdown(comment)
 		if err := api.AddComment(conn, key, adf); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("adding comment: %v", err)), nil
 		}
@@ -225,105 +228,56 @@ func createTicketTool() mcp.Tool {
 
 func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		fields, err := buildCreateFields(conn, req)
+		createReq, err := createRequest(req)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if blocked := checkDuplicate(conn, req); blocked != nil {
-			return blocked, nil
-		}
-		result, err := api.CreateIssue(conn, fields)
+		opts := ops.CreateOptions{Dedupe: ops.NewDedupeGuard(conn, req.GetBool("dedupe_by_summary", false))}
+		res, err := ops.CreateTicket(conn, createReq, opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("creating ticket: %v", err)), nil
 		}
-		key := ""
-		if k, ok := result["key"].(string); ok {
-			key = k
-		}
-		msg := fmt.Sprintf("Created ticket: %s\nURL: %s/browse/%s", key, conn.BaseURL, key)
-		if parent := req.GetString("parent", ""); parent != "" {
-			if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
-				msg += fmt.Sprintf("\nWarning: created but failed to link to parent %s: %v", parent, err)
-			} else {
-				msg += fmt.Sprintf("\nLinked to parent: %s", parent)
-			}
-		}
-		return mcp.NewToolResultText(msg), nil
+		return mcp.NewToolResultText(formatCreateResult(res)), nil
 	}
 }
 
-// checkDuplicate runs the dedupe_by_summary check when requested, returning
-// the tool result that stops the create, or nil if it should go ahead. A
-// failed check stops it too, since the create would then be unguarded.
-func checkDuplicate(conn api.JiraConnection, req mcp.CallToolRequest) *mcp.CallToolResult {
-	if !req.GetBool("dedupe_by_summary", false) {
-		return nil
-	}
-	existing, err := api.FindOpenIssueBySummary(conn, req.GetString("project", ""), req.GetString("summary", ""))
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("%v; nothing created", err))
-	}
-	if existing == "" {
-		return nil
-	}
-	return mcp.NewToolResultText(fmt.Sprintf("Skipped: %s already has this summary and is still open; nothing created\nURL: %s/browse/%s",
-		existing, conn.BaseURL, existing))
-}
-
-// buildCreateFields translates the create_ticket request arguments into a Jira fields payload.
-func buildCreateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[string]any, error) {
-	fields, err := requiredCreateFields(req)
-	if err != nil {
-		return nil, err
-	}
-	if priority := req.GetString("priority", ""); priority != "" {
-		fields["priority"] = map[string]any{"name": priority}
-	}
-	if desc := req.GetString("description", ""); desc != "" {
-		fields["description"] = markdownToADFBody(desc)
-	}
-	if labelsStr := req.GetString("labels", ""); labelsStr != "" {
-		fields["labels"] = splitLabels(labelsStr)
-	}
-	if componentsStr := req.GetString("components", ""); componentsStr != "" {
-		fields["components"] = buildComponents(componentsStr)
-	}
-	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := resolveAssignee(conn, assignee)
-		if err != nil {
-			return nil, err
-		}
-		fields["assignee"] = resolved
-	}
-	return fields, nil
-}
-
-// requiredCreateFields builds the fields map from create_ticket's required arguments.
-func requiredCreateFields(req mcp.CallToolRequest) (map[string]any, error) {
+// createRequest translates the create_ticket arguments into an ops request.
+func createRequest(req mcp.CallToolRequest) (ops.CreateRequest, error) {
 	project, err := req.RequireString("project")
 	if err != nil {
-		return nil, err
+		return ops.CreateRequest{}, err
 	}
 	summary, err := req.RequireString("summary")
 	if err != nil {
-		return nil, err
+		return ops.CreateRequest{}, err
 	}
-	return map[string]any{
-		"project":   map[string]any{"key": project},
-		"summary":   summary,
-		"issuetype": map[string]any{"name": req.GetString("issue_type", "Task")},
+	return ops.CreateRequest{
+		Project:     project,
+		Summary:     summary,
+		IssueType:   req.GetString("issue_type", ""),
+		Priority:    req.GetString("priority", ""),
+		Description: req.GetString("description", ""),
+		Labels:      template.SplitLabels(req.GetString("labels", "")),
+		Components:  template.SplitLabels(req.GetString("components", "")),
+		Assignee:    req.GetString("assignee", ""),
+		Parent:      req.GetString("parent", ""),
 	}, nil
 }
 
-// buildComponents turns a comma-separated component name list into the Jira
-// API's expected component object shape.
-func buildComponents(namesStr string) []map[string]any {
-	names := splitLabels(namesStr)
-	components := make([]map[string]any, len(names))
-	for i, name := range names {
-		components[i] = map[string]any{"name": name}
+// formatCreateResult words a create result for the agent.
+func formatCreateResult(res ops.CreateResult) string {
+	if res.Status == ops.StatusExists {
+		return fmt.Sprintf("Skipped: %s already has this summary and is still open; nothing created\nURL: %s", res.Key, res.URL)
 	}
-	return components
+	msg := fmt.Sprintf("Created ticket: %s\nURL: %s", res.Key, res.URL)
+	switch {
+	case res.Parent == "":
+	case res.ParentErr != nil:
+		msg += fmt.Sprintf("\nWarning: created but failed to link to parent %s: %v", res.Parent, res.ParentErr)
+	default:
+		msg += fmt.Sprintf("\nLinked to parent: %s", res.Parent)
+	}
+	return msg
 }
 
 // --- update_ticket ---
@@ -365,78 +319,20 @@ func handleUpdateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		fields, err := buildUpdateFields(conn, req)
+		res, err := ops.UpdateTicket(conn, ops.UpdateRequest{
+			Key:         key,
+			Summary:     req.GetString("summary", ""),
+			Description: req.GetString("description", ""),
+			Priority:    req.GetString("priority", ""),
+			Labels:      template.SplitLabels(req.GetString("labels", "")),
+			Assignee:    req.GetString("assignee", ""),
+			Parent:      req.GetString("parent", ""),
+		}, false)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		parent := req.GetString("parent", "")
-		if len(fields) == 0 && parent == "" {
-			return mcp.NewToolResultError("no fields provided to update"), nil
-		}
-		if len(fields) > 0 {
-			if err := api.UpdateIssue(conn, key, fields); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("updating %s: %v", key, err)), nil
-			}
-		}
-		if parent != "" {
-			if err := api.AddIssuesToEpic(conn, parent, []string{key}); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("linking %s to parent %s: %v", key, parent, err)), nil
-			}
-		}
-		return mcp.NewToolResultText(fmt.Sprintf("%s updated", key)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("%s updated", res.Key)), nil
 	}
-}
-
-// buildUpdateFields translates the update_ticket request arguments into a Jira fields payload.
-func buildUpdateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[string]any, error) {
-	fields := map[string]any{}
-	if summary := req.GetString("summary", ""); summary != "" {
-		fields["summary"] = summary
-	}
-	if desc := req.GetString("description", ""); desc != "" {
-		fields["description"] = markdownToADFBody(desc)
-	}
-	if priority := req.GetString("priority", ""); priority != "" {
-		fields["priority"] = map[string]any{"name": priority}
-	}
-	if labelsStr := req.GetString("labels", ""); labelsStr != "" {
-		fields["labels"] = splitLabels(labelsStr)
-	}
-	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := resolveAssignee(conn, assignee)
-		if err != nil {
-			return nil, err
-		}
-		fields["assignee"] = resolved
-	}
-	return fields, nil
-}
-
-// resolveAssignee turns the assignee argument into the Jira API's expected assignee field value.
-func resolveAssignee(conn api.JiraConnection, assignee string) (any, error) {
-	switch assignee {
-	case "unassign":
-		return nil, nil
-	case "me":
-		self, err := api.FetchMyself(conn)
-		if err != nil {
-			return nil, fmt.Errorf("resolving current user: %w", err)
-		}
-		return map[string]any{"accountId": self["accountId"]}, nil
-	default:
-		return map[string]any{"accountId": assignee}, nil
-	}
-}
-
-func splitLabels(labelsStr string) []string {
-	labels := strings.Split(labelsStr, ",")
-	trimmed := make([]string, 0, len(labels))
-	for _, l := range labels {
-		if t := strings.TrimSpace(l); t != "" {
-			trimmed = append(trimmed, t)
-		}
-	}
-	return trimmed
 }
 
 // --- list_transitions ---
@@ -459,14 +355,14 @@ func handleListTransitions(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		transitions, err := api.FetchTransitions(conn, key)
+		transitions, err := ops.ListTransitions(conn, key)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if len(transitions) == 0 {
 			return mcp.NewToolResultText(fmt.Sprintf("No transitions available for %s.", key)), nil
 		}
-		return mcp.NewToolResultText(FormatTransitions(key, transitions)), nil
+		return mcp.NewToolResultText(ops.FormatTransitions(key, transitions)), nil
 	}
 }
 
@@ -506,64 +402,18 @@ func handleTransitionTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		transitions, err := api.FetchTransitions(conn, key)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
-		}
-		transition, err := FindTransition(transitions, targetStatus)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, FormatTransitions(key, transitions))), nil
-		}
-		opts, err := buildTransitionOptions(conn, req)
+		res, err := ops.TransitionTicket(conn, ops.TransitionRequest{
+			Key:        key,
+			State:      targetStatus,
+			Comment:    req.GetString("comment", ""),
+			Resolution: req.GetString("resolution", ""),
+			Assignee:   req.GetString("assignee", ""),
+		}, false)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if err := api.TransitionIssueWithOptions(conn, key, transition.ID, opts); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("transitioning %s: %v", key, err)), nil
-		}
-		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", key, transition.Name)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", res.Key, res.Transition.Name)), nil
 	}
-}
-
-// buildTransitionOptions translates the transition_ticket request's optional side-effect
-// arguments (resolution, assignee, comment) into a TransitionOptions value.
-func buildTransitionOptions(conn api.JiraConnection, req mcp.CallToolRequest) (api.TransitionOptions, error) {
-	fields := map[string]any{}
-	if resolution := req.GetString("resolution", ""); resolution != "" {
-		fields["resolution"] = map[string]any{"name": resolution}
-	}
-	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := resolveAssignee(conn, assignee)
-		if err != nil {
-			return api.TransitionOptions{}, err
-		}
-		fields["assignee"] = resolved
-	}
-	opts := api.TransitionOptions{Fields: fields}
-	if comment := req.GetString("comment", ""); comment != "" {
-		opts.Comment = markdownToADFBody(comment)
-	}
-	return opts, nil
-}
-
-// FindTransition matches targetStatus against a transition's name (case-insensitive).
-func FindTransition(transitions []api.Transition, targetStatus string) (api.Transition, error) {
-	for _, t := range transitions {
-		if strings.EqualFold(t.Name, targetStatus) {
-			return t, nil
-		}
-	}
-	return api.Transition{}, fmt.Errorf("no transition to %q is available from the current state", targetStatus)
-}
-
-// FormatTransitions renders the available workflow states for key as a bullet list.
-func FormatTransitions(key string, transitions []api.Transition) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Available states for %s:\n\n", key)
-	for _, t := range transitions {
-		fmt.Fprintf(&sb, "- %s\n", t.Name)
-	}
-	return sb.String()
 }
 
 // --- formatters ---
@@ -613,7 +463,7 @@ func formatIssue(issue map[string]any) string {
 
 	if desc, ok := fields["description"].(map[string]any); ok {
 		sb.WriteString("## Description\n\n")
-		sb.WriteString(adfToMarkdownBody(desc))
+		sb.WriteString(adf.ToMarkdown(desc))
 		sb.WriteString("\n")
 	}
 
@@ -653,7 +503,7 @@ func formatComment(comment api.Comment) string {
 	}
 	fmt.Fprintf(&sb, "**%s** on %s:\n\n", author, created)
 	if comment.Body != nil {
-		sb.WriteString(adfToMarkdownBody(comment.Body))
+		sb.WriteString(adf.ToMarkdown(comment.Body))
 	}
 	return sb.String()
 }
@@ -665,24 +515,4 @@ func nestedStr(m map[string]any, key1, key2 string) string {
 		}
 	}
 	return ""
-}
-
-// markdownToADFBody converts markdown text to ADF document format.
-// This calls back into the main package's converter via a function variable
-// set during server initialisation.
-var markdownToADFBody func(md string) map[string]any
-
-// adfToMarkdownBody converts an ADF document node to markdown text.
-var adfToMarkdownBody func(node map[string]any) string
-
-// SetConverters wires up the markdown/ADF conversion functions.
-// Called from main before starting the server, since the converters
-// live in package main and cannot be imported.
-// Panics if either function is nil — callers must wire both before serving.
-func SetConverters(toADF func(string) map[string]any, toMD func(map[string]any) string) {
-	if toADF == nil || toMD == nil {
-		panic("mcpserver: SetConverters called with nil function")
-	}
-	markdownToADFBody = toADF
-	adfToMarkdownBody = toMD
 }

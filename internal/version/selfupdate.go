@@ -62,6 +62,9 @@ func SelfUpdate(ctx context.Context, current string) (string, error) {
 	if current == "dev" {
 		return "", fmt.Errorf("cannot self-update a dev build; download a tagged release from GitHub")
 	}
+	if err := checkNotHomebrew(); err != nil {
+		return "", err
+	}
 
 	release, err := LatestRelease()
 	if err != nil {
