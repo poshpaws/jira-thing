@@ -204,3 +204,39 @@ jobs:
             echo "Release ${TAG_NAME} already exists, uploading assets."
             gh release upload "${TAG_NAME}" dist/* --clobber
           fi
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Push formula to poshpaws/homebrew-tap
+        env:
+          # Fine-grained PAT: Contents read/write on poshpaws/homebrew-tap only.
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew tap update."
+            exit 0
+          fi
+          version="${TAG_NAME#v}"
+          gh release download "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --pattern checksums.txt --dir "${RUNNER_TEMP}"
+          gh auth setup-git
+          gh repo clone poshpaws/homebrew-tap "${RUNNER_TEMP}/tap"
+          scripts/homebrew-formula.sh "${version}" "${RUNNER_TEMP}/checksums.txt" > "${RUNNER_TEMP}/tap/Formula/jira-thing.rb"
+          cd "${RUNNER_TEMP}/tap"
+          if git diff --quiet; then
+            echo "Formula already at ${version}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "jira-thing ${version}"
+          git push

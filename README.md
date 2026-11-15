@@ -8,6 +8,15 @@ A CLI tool for Jira and Confluence. Clone tickets from reusable templates, manag
 
 ## Installation
 
+### Homebrew (macOS and Linux)
+
+```bash
+brew install poshpaws/tap/jira-thing
+brew upgrade jira-thing        # later releases
+```
+
+The formula installs the same signed, notarised release binaries as below. `jira-thing self-update` refuses to replace a Homebrew-managed binary and points you at `brew upgrade` instead.
+
 ### Pre-built binaries
 
 Download the latest release for your platform from the [Releases](../../releases) page:
