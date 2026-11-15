@@ -20,6 +20,7 @@ import (
 	mcpsrv "jira-thing/internal/mcpserver"
 	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
+	"jira-thing/internal/termsafe"
 	"jira-thing/internal/tui"
 	vercheck "jira-thing/internal/version"
 
@@ -427,13 +428,14 @@ func printTaskRow(issue map[string]any) {
 		tui.SummaryStyle.Render(summary))
 }
 
-// getString safely extracts a string value from a map by key.
+// getString safely extracts a string value from a map by key, stripped of
+// terminal control and bidi characters since map values come from Jira.
 func getString(m map[string]any, key string) string {
 	v, ok := m[key].(string)
 	if !ok {
 		return ""
 	}
-	return v
+	return termsafe.Clean(v)
 }
 
 // nestedString safely extracts m[key1][key2] as a string.

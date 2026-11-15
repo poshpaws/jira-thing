@@ -150,3 +150,30 @@ func TestBuildDescribeMarkdown_ListsLinkedTickets(t *testing.T) {
 		t.Errorf("missing linked tickets section before description:\n%s", got)
 	}
 }
+
+func TestRenderDescribe_StripsEscapesFromJiraText(t *testing.T) {
+	issue := map[string]any{
+		"key": "PROJ-1",
+		"fields": map[string]any{
+			"summary":  "Fix\x1b]0;pwned\x07 it‮",
+			"status":   map[string]any{"name": "Open\x1b[2J"},
+			"assignee": map[string]any{"displayName": "Eve\x1b[8m"},
+		},
+	}
+	out := captureStdout(func() { renderDescribe(issue, true, false) })
+	for _, bad := range []rune{'\x1b', '\x07', '‮'} {
+		if strings.ContainsRune(out, bad) {
+			t.Errorf("control character %q survived: %q", bad, out)
+		}
+	}
+	if !strings.Contains(out, "Fix]0;pwned it") {
+		t.Errorf("expected visible text kept, got: %q", out)
+	}
+}
+
+func TestIssuesToTickets_StripsEscapes(t *testing.T) {
+	issues := []map[string]any{{"key": "PROJ-1", "fields": map[string]any{"summary": "a\x1b[31mb"}}}
+	if got := issuesToTickets(issues)[0].Summary; got != "a[31mb" {
+		t.Errorf("got %q", got)
+	}
+}

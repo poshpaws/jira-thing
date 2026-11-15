@@ -8,6 +8,7 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/termsafe"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/mattn/go-isatty"
@@ -23,6 +24,7 @@ func shouldRenderPlain(plain bool) bool {
 // renderMarkdown prints md glamour-rendered when writing to a terminal, or as
 // plain text otherwise (piped output, or -plain).
 func renderMarkdown(md string, plain bool) {
+	md = termsafe.Clean(md)
 	if shouldRenderPlain(plain) {
 		fmt.Print(md)
 		return
