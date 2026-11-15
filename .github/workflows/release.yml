@@ -37,6 +37,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Download modules
+        # Retried: a cold module cache means ~40 proxy.golang.org downloads,
+        # and one dropped stream (as in the v0.26.0 run) shouldn't fail a release.
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && exit 0
+            echo "::warning::go mod download failed (attempt ${attempt}); retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -69,6 +80,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Download modules
+        # Retried: a cold module cache means ~40 proxy.golang.org downloads,
+        # and one dropped stream (as in the v0.26.0 run) shouldn't fail a release.
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && exit 0
+            echo "::warning::go mod download failed (attempt ${attempt}); retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
 
       - name: Build
         env:
