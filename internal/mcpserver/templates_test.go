@@ -80,14 +80,3 @@ func TestHandleFetchTemplate_DefaultsToCreatorMarker(t *testing.T) {
 		t.Errorf("expected original assignee kept, got %s", resultText(t, kept))
 	}
 }
-
-func TestHandleFetchTemplate_SaveWritesUserTemplate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	creates := 0
-	srv := batchServer(t, &creates)
-	result, _ := handleFetchTemplate(api.JiraConnection{BaseURL: srv.URL})(context.Background(),
-		newCallToolRequest(map[string]any{"ticket_key": "SRC-1", "save": true}))
-	if text := resultText(t, result); !strings.Contains(text, ".config/jira-thing/ticket_template.json") {
-		t.Errorf("text=%s", text)
-	}
-}

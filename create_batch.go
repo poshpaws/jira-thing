@@ -47,7 +47,7 @@ func printBatchItem(conn api.JiraConnection, it ops.BatchItem, total int) {
 		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, it.Result.Payload)
 		printParentLinkStep(it.Result.Parent)
 	default:
-		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(it.Result.Key), it.Summary)
+		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(it.Result.Key), termsafe.Clean(it.Summary))
 	}
 }
 
@@ -62,7 +62,7 @@ func batchSummary(created, skipped, total int) string {
 
 // printBatchError reports the failure of the ticket at index i.
 func printBatchError(i int, err error) {
-	fmt.Fprintf(os.Stderr, "  %s ticket %d: %v\n", tui.ErrorStyle.Render("Error:"), i+1, err)
+	fmt.Fprintf(os.Stderr, "  %s ticket %d: %s\n", tui.ErrorStyle.Render("Error:"), i+1, termsafe.Clean(err.Error()))
 }
 
 // printBatchSkipped reports an entry skipped as a duplicate of existing.

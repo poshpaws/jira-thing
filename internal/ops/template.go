@@ -26,13 +26,3 @@ func SetTemplateAssignee(tmpl map[string]any, keep bool) {
 	}
 	tmpl["assignee"] = template.AssigneeSelf
 }
-
-// SaveUserTemplate writes tmpl to the per-user default template location,
-// returning the path written.
-func SaveUserTemplate(tmpl map[string]any) (string, error) {
-	path, err := template.UserTemplatePath()
-	if err != nil {
-		return "", err
-	}
-	return template.Save(tmpl, path)
-}

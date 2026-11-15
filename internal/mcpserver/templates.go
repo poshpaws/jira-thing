@@ -23,18 +23,15 @@ func registerTemplateTools(s *server.MCPServer, conn api.JiraConnection) {
 func fetchTemplateTool() mcp.Tool {
 	return mcp.NewTool("fetch_template",
 		mcp.WithDescription("Fetch a Jira ticket's reusable fields (project, issue type, priority, labels, components, "+
-			"description, assignee) as a JSON template, for use as the base of create_tickets_batch entries or the CLI's "+
-			"create -t. By default the assignee becomes a marker meaning \"whoever creates from this template\"."),
+			"description, assignee) as a JSON template, for use as the base of create_tickets_batch entries. By default "+
+			"the assignee becomes a marker meaning \"whoever creates from this template\". Saving a template as the CLI's "+
+			"default is left to the user (jira-thing template KEY), so an agent can't change what later creates use."),
 		mcp.WithString("ticket_key",
 			mcp.Required(),
 			mcp.Description("Jira ticket key to copy (e.g. PROJ-42)"),
 		),
 		mcp.WithBoolean("keep_assignee",
 			mcp.Description("If true, keep the ticket's original assignee instead of the creator marker"),
-		),
-		mcp.WithBoolean("save",
-			mcp.Description("If true, also save it as the default template at ~/.config/jira-thing/ticket_template.json, "+
-				"which the CLI's create command picks up without -t"),
 		),
 	)
 }
@@ -53,14 +50,7 @@ func handleFetchTemplate(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("encoding template: %v", err)), nil
 		}
-		if !req.GetBool("save", false) {
-			return mcp.NewToolResultText(string(body)), nil
-		}
-		path, err := ops.SaveUserTemplate(tmpl)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("saving template: %v", err)), nil
-		}
-		return mcp.NewToolResultText(fmt.Sprintf("Saved to %s\n\n%s", path, body)), nil
+		return mcp.NewToolResultText(string(body)), nil
 	}
 }
 
