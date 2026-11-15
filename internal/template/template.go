@@ -184,6 +184,16 @@ func candidatePaths() []string {
 	return CandidatePathsFunc()
 }
 
+// UserTemplatePath returns ~/.config/jira-thing/ticket_template.json, the
+// per-user default template location, which is always on the search path.
+func UserTemplatePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "jira-thing", defaultTemplateFile), nil
+}
+
 func defaultCandidatePaths() []string {
 	var paths []string
 	if cwd, err := os.Getwd(); err == nil {

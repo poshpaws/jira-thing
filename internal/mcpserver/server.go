@@ -30,6 +30,7 @@ func NewServer(version string, conn api.JiraConnection) *server.MCPServer {
 	registerEpicTools(s, conn)
 	registerToilTools(s, conn)
 	registerPointCheckTools(s, conn)
+	registerTemplateTools(s, conn)
 
 	return s
 }

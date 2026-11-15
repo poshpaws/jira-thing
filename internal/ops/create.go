@@ -86,8 +86,9 @@ func createFields(conn api.JiraConnection, req CreateRequest) (map[string]any, e
 	setIfGiven(fields, "priority", req.Priority)
 	setIfGiven(fields, "parent", req.Parent)
 	if req.Description != "" {
-		fields["description"] = adf.FromMarkdown(req.Description)
+		fields["description"] = req.Description
 	}
+	markdownDescription(fields)
 	if len(req.Labels) > 0 {
 		fields["labels"] = req.Labels
 	}
@@ -101,6 +102,20 @@ func createFields(conn api.JiraConnection, req CreateRequest) (map[string]any, e
 		return nil, ErrSummaryRequired
 	}
 	return fields, setAssignee(conn, fields, req.Assignee)
+}
+
+// markdownDescription converts a string description (markdown, as written in
+// a batch entry or passed by a caller) to ADF, dropping an empty one. An
+// ADF description, as fetched into a template, is left alone.
+func markdownDescription(fields map[string]any) {
+	d, ok := fields["description"].(string)
+	switch {
+	case !ok:
+	case d == "":
+		delete(fields, "description")
+	default:
+		fields["description"] = adf.FromMarkdown(d)
+	}
 }
 
 // dryRunCreate resolves the payload without sending it, recording the ticket

@@ -238,11 +238,10 @@ func runTemplate(args []string) {
 	}
 	conn := mustConnect()
 	fmt.Printf("Fetching %s...\n", fs.Arg(0))
-	issue, err := api.FetchIssue(conn, fs.Arg(0))
+	tmpl, err := ops.FetchTemplate(conn, fs.Arg(0), true)
 	if err != nil {
 		fatal("fetching issue: %v", err)
 	}
-	tmpl := template.Build(issue)
 	promptAssigneeChoice(tmpl)
 	saved, err := template.Save(tmpl, *output)
 	if err != nil {

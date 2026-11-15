@@ -121,19 +121,11 @@ func reportCreateResult(conn api.JiraConnection, res ops.CreateResult, jsonOut b
 		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, res.Payload)
 		printParentLinkStep(res.Parent)
 	default:
-		if err := parentLinkError(res); err != nil {
+		if err := ops.ParentLinkError(res); err != nil {
 			fatal("%v", err)
 		}
 		reportCreated(res, jsonOut)
 	}
-}
-
-// parentLinkError reports a ticket that was created but not linked to its parent.
-func parentLinkError(res ops.CreateResult) error {
-	if res.ParentErr == nil {
-		return nil
-	}
-	return fmt.Errorf("created %s but failed to link to parent %s: %w", res.Key, res.Parent, res.ParentErr)
 }
 
 // reportCreated prints the newly created ticket's key and URL, as JSON when
@@ -179,21 +171,22 @@ func printParentLinkStep(parentKey string) {
 func promptAssigneeChoice(tmpl map[string]any) {
 	assignee, ok := tmpl["assignee"].(map[string]any)
 	if !ok {
-		tmpl["assignee"] = template.AssigneeSelf
+		ops.SetTemplateAssignee(tmpl, false)
 		return
 	}
-	displayName, _ := assignee["displayName"].(string)
+	displayName := getString(assignee, "displayName")
 	if displayName == "" {
 		displayName = "original user"
 	}
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("Assignee: (1) current user (self) or (2) %s? [1/2]: ", displayName)
 	line, _ := reader.ReadString('\n')
-	if strings.TrimSpace(line) == "2" {
+	keep := strings.TrimSpace(line) == "2"
+	ops.SetTemplateAssignee(tmpl, keep)
+	if keep {
 		fmt.Printf("Keeping assignee: %s\n", displayName)
 		return
 	}
-	tmpl["assignee"] = template.AssigneeSelf
 	fmt.Println("Assignee set to current user (resolved at ticket creation time)")
 }
 

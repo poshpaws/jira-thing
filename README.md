@@ -1048,8 +1048,10 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `create_epic` | Create an epic. Jira has two incompatible epic models depending on how the project is configured (team-managed vs company-managed); this tool sets the classic "Epic Name" field when the instance has one, and is a no-op on team-managed projects where it doesn't exist. |
 | `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
 | `create_ticket` | Create a new Jira ticket with the specified fields |
+| `create_tickets_batch` | Create several Jira tickets in one call. Each entry is a ticket object, e.g. {"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. Entries are created independently: one failing does not stop the rest, and the result reports each one. |
 | `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone — use with care. |
 | `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description |
+| `fetch_template` | Fetch a Jira ticket's reusable fields (project, issue type, priority, labels, components, description, assignee) as a JSON template, for use as the base of create_tickets_batch entries or the CLI's create -t. By default the assignee becomes a marker meaning "whoever creates from this template". |
 | `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
 | `link_tickets` | Link two Jira tickets together (e.g. mark one as blocking another). The link_type must match one of the types returned by list_link_types — call that tool first if unsure. |
 | `list_boards` | List Agile (Scrum/Kanban) boards visible to the current user, optionally filtered to a project. |
