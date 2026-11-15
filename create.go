@@ -10,6 +10,7 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
 )
@@ -87,83 +88,63 @@ func runCreate(args []string) {
 	}
 
 	conn := mustConnect()
-	if err := applyCreateFieldFlags(conn, tmpl, flags); err != nil {
-		fatal("%v", err)
-	}
-
-	if skipIfDuplicate(conn, tmpl, flags) {
-		return
-	}
-
-	if flags.dryRun {
-		printCreateDryRun(conn, tmpl)
-		return
-	}
-
-	key, err := createTicket(conn, tmpl)
+	opts := ops.CreateOptions{Dedupe: ops.NewDedupeGuard(conn, flags.dedupe), DryRun: flags.dryRun}
+	res, err := ops.CreateTicket(conn, createRequest(tmpl, flags), opts)
 	if err != nil {
 		fatal("%v", err)
 	}
-	reportCreated(conn, key, flags.json)
+	reportCreateResult(conn, res, flags.json)
+}
+
+// createRequest pairs the resolved template with the first-class field
+// flags, each of which overrides whatever the template holds.
+func createRequest(tmpl map[string]any, flags createFlags) ops.CreateRequest {
+	return ops.CreateRequest{
+		Fields:     tmpl,
+		Project:    flags.project,
+		IssueType:  flags.issueType,
+		Priority:   flags.priority,
+		Labels:     template.SplitLabels(flags.labels),
+		Components: template.SplitLabels(flags.components),
+		Assignee:   flags.assignee,
+		Parent:     flags.epic,
+	}
+}
+
+// reportCreateResult prints what the create did: the duplicate that made it
+// unnecessary, the dry-run payload, or the new ticket.
+func reportCreateResult(conn api.JiraConnection, res ops.CreateResult, jsonOut bool) {
+	switch res.Status {
+	case ops.StatusExists:
+		reportDuplicate(res, jsonOut)
+	case ops.StatusDryRun:
+		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, res.Payload)
+		printParentLinkStep(res.Parent)
+	default:
+		if err := parentLinkError(res); err != nil {
+			fatal("%v", err)
+		}
+		reportCreated(res, jsonOut)
+	}
+}
+
+// parentLinkError reports a ticket that was created but not linked to its parent.
+func parentLinkError(res ops.CreateResult) error {
+	if res.ParentErr == nil {
+		return nil
+	}
+	return fmt.Errorf("created %s but failed to link to parent %s: %w", res.Key, res.Parent, res.ParentErr)
 }
 
 // reportCreated prints the newly created ticket's key and URL, as JSON when
 // jsonOut is set, otherwise as styled text.
-func reportCreated(conn api.JiraConnection, key string, jsonOut bool) {
-	url := conn.BaseURL + "/browse/" + key
+func reportCreated(res ops.CreateResult, jsonOut bool) {
 	if jsonOut {
-		printJSONResult(jsonResult{Key: key, URL: url, Status: "created"})
+		printJSONResult(jsonResult{Key: res.Key, URL: res.URL, Status: res.Status})
 		return
 	}
-	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(key))
-	fmt.Printf("URL: %s\n", url)
-}
-
-// applyCreateFieldFlags overlays first-class create flags onto tmpl, each
-// overriding any value the template already holds. Only flags actually given
-// produce a change. Must run after resolveCreateFields (so it overrides, not
-// competes with, prompted/template values) and before prepareTicketPayload
-// (so -epic's parent key and -assignee's resolved value are still present
-// for it to consume).
-func applyCreateFieldFlags(conn api.JiraConnection, tmpl map[string]any, flags createFlags) error {
-	// Bare strings here are wrapped into Jira's object shape by
-	// prepareTicketPayload's NormaliseRefFields.
-	for field, value := range map[string]string{
-		"project": flags.project, "issuetype": flags.issueType, "priority": flags.priority,
-	} {
-		if value != "" {
-			tmpl[field] = value
-		}
-	}
-	if flags.labels != "" {
-		tmpl["labels"] = template.SplitLabels(flags.labels)
-	}
-	if flags.components != "" {
-		tmpl["components"] = buildComponents(flags.components)
-	}
-	if flags.epic != "" {
-		tmpl["parent"] = flags.epic
-	}
-	if flags.assignee == "" {
-		return nil
-	}
-	resolved, err := template.ResolveAssigneeArg(conn, flags.assignee)
-	if err != nil {
-		return err
-	}
-	tmpl["assignee"] = resolved
-	return nil
-}
-
-// buildComponents turns a comma-separated component name list into the Jira
-// API's expected component object shape.
-func buildComponents(names string) []map[string]any {
-	parts := template.SplitLabels(names)
-	components := make([]map[string]any, len(parts))
-	for i, name := range parts {
-		components[i] = map[string]any{"name": name}
-	}
-	return components
+	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(res.Key))
+	fmt.Printf("URL: %s\n", res.URL)
 }
 
 // loadCreateTemplate loads the template at path, exiting with a pointer to
@@ -184,17 +165,6 @@ func loadCreateTemplate(path string, allowNone bool) map[string]any {
 	return tmpl
 }
 
-// printCreateDryRun resolves the ticket payload and prints what would be
-// POSTed, without creating anything.
-func printCreateDryRun(conn api.JiraConnection, tmpl map[string]any) {
-	payload, parentKey, err := prepareTicketPayload(conn, tmpl)
-	if err != nil {
-		fatal("%v", err)
-	}
-	printDryRun("POST", conn.BaseURL+api.IssueEndpoint, payload)
-	printParentLinkStep(parentKey)
-}
-
 // printParentLinkStep notes the epic/parent link a real create makes right
 // after the POST, which the create payload itself doesn't contain.
 func printParentLinkStep(parentKey string) {
@@ -202,47 +172,6 @@ func printParentLinkStep(parentKey string) {
 		return
 	}
 	fmt.Printf("\nThen: link the new ticket to %s (sets \"parent\", falling back to the classic \"Epic Link\" field)\n", parentKey)
-}
-
-// prepareTicketPayload strips non-updatable fields, resolves a self-assignee
-// marker, and extracts the optional "parent" ticket key, returning the
-// request body CreateIssue would send and the parent key to link afterwards.
-func prepareTicketPayload(conn api.JiraConnection, tmpl map[string]any) (map[string]any, string, error) {
-	parentKey, _ := tmpl["parent"].(string)
-	delete(tmpl, "parent")
-	template.StripExcludedFields(tmpl)
-	template.NormaliseRefFields(tmpl)
-
-	if tmpl["assignee"] == template.AssigneeSelf {
-		me, err := api.FetchMyself(conn)
-		if err != nil {
-			return nil, "", fmt.Errorf("fetching current user: %w", err)
-		}
-		template.ResolveAssignee(tmpl, me["accountId"].(string))
-	}
-	return tmpl, parentKey, nil
-}
-
-// createTicket prepares the ticket payload, creates the issue, links it to
-// the parent if one was given, and returns the new ticket's key.
-func createTicket(conn api.JiraConnection, tmpl map[string]any) (string, error) {
-	payload, parentKey, err := prepareTicketPayload(conn, tmpl)
-	if err != nil {
-		return "", err
-	}
-
-	result, err := api.CreateIssue(conn, payload)
-	if err != nil {
-		return "", fmt.Errorf("creating issue: %w", err)
-	}
-	key := getString(result, "key")
-
-	if parentKey != "" {
-		if err := api.AddIssuesToEpic(conn, parentKey, []string{key}); err != nil {
-			return key, fmt.Errorf("created %s but failed to link to parent %s: %w", key, parentKey, err)
-		}
-	}
-	return key, nil
 }
 
 // promptAssigneeChoice asks the user whether to use self or the original assignee in the template.

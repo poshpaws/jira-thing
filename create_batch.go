@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/tui"
 )
 
@@ -17,7 +18,7 @@ import (
 func runBatchCreate(path string, dryRun, dedupe bool) {
 	tickets := loadBatchTickets(path)
 	conn := mustConnect()
-	guard := newDedupeGuard(conn, dedupe)
+	guard := ops.NewDedupeGuard(conn, dedupe)
 	if dryRun {
 		previewBatchTickets(conn, guard, tickets)
 		return
@@ -79,7 +80,7 @@ func loadBatchTickets(path string) []map[string]any {
 // previewBatchTickets resolves and prints each batch entry's payload without
 // creating anything, continuing past per-ticket resolution failures just like
 // a real batch create would continue past per-ticket API failures.
-func previewBatchTickets(conn api.JiraConnection, guard *dedupeGuard, tickets []map[string]any) {
+func previewBatchTickets(conn api.JiraConnection, guard *ops.DedupeGuard, tickets []map[string]any) {
 	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Dry run — %d ticket(s), none will be created:", len(tickets))))
 	for i, tmpl := range tickets {
 		if err := previewBatchTicket(conn, guard, tmpl, i, len(tickets)); err != nil {
@@ -89,46 +90,35 @@ func previewBatchTickets(conn api.JiraConnection, guard *dedupeGuard, tickets []
 }
 
 // previewBatchTicket prints what a real run would do with the entry at index i.
-func previewBatchTicket(conn api.JiraConnection, guard *dedupeGuard, tmpl map[string]any, i, total int) error {
+func previewBatchTicket(conn api.JiraConnection, guard *ops.DedupeGuard, tmpl map[string]any, i, total int) error {
 	if err := resolveCreateFields(tmpl, "", true); err != nil {
 		return err
 	}
-	existing, err := guard.find(tmpl)
+	opts := ops.CreateOptions{Dedupe: guard, DryRun: true, Label: fmt.Sprintf("ticket %d in this batch", i+1)}
+	res, err := ops.CreateTicket(conn, ops.CreateRequest{Fields: tmpl}, opts)
 	if err != nil {
 		return err
 	}
-	if existing != "" {
-		printBatchSkipped(existing, tmpl)
+	if res.Status == ops.StatusExists {
+		printBatchSkipped(res.Key, tmpl)
 		return nil
 	}
-	guard.remember(tmpl, fmt.Sprintf("ticket %d in this batch", i+1))
-	payload, parentKey, err := prepareTicketPayload(conn, tmpl)
-	if err != nil {
-		return err
-	}
 	fmt.Printf("\n[%d/%d]\n", i+1, total)
-	printDryRun("POST", conn.BaseURL+api.IssueEndpoint, payload)
-	printParentLinkStep(parentKey)
+	printDryRun("POST", conn.BaseURL+api.IssueEndpoint, res.Payload)
+	printParentLinkStep(res.Parent)
 	return nil
 }
 
 // createBatchTicket resolves fields non-interactively and creates a single
 // ticket from a batch entry. If the entry duplicates an existing ticket, it
 // returns that ticket's key with duplicate set, and creates nothing.
-func createBatchTicket(conn api.JiraConnection, guard *dedupeGuard, tmpl map[string]any) (key string, duplicate bool, err error) {
+func createBatchTicket(conn api.JiraConnection, guard *ops.DedupeGuard, tmpl map[string]any) (key string, duplicate bool, err error) {
 	if err := resolveCreateFields(tmpl, "", true); err != nil {
 		return "", false, err
 	}
-	existing, err := guard.find(tmpl)
+	res, err := ops.CreateTicket(conn, ops.CreateRequest{Fields: tmpl}, ops.CreateOptions{Dedupe: guard})
 	if err != nil {
 		return "", false, err
 	}
-	if existing != "" {
-		return existing, true, nil
-	}
-	key, err = createTicket(conn, tmpl)
-	if key != "" {
-		guard.remember(tmpl, key)
-	}
-	return key, false, err
+	return res.Key, res.Status == ops.StatusExists, parentLinkError(res)
 }

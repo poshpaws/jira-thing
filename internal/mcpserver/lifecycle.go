@@ -6,6 +6,7 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -141,7 +142,7 @@ func buildCloneFields(conn api.JiraConnection, sourceKey string, req mcp.CallToo
 		fields["priority"] = map[string]any{"name": priority}
 	}
 	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := resolveAssignee(conn, assignee)
+		resolved, err := ops.ResolveAssignee(conn, assignee)
 		if err != nil {
 			return nil, err
 		}

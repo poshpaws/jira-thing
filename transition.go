@@ -7,7 +7,7 @@ import (
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 	mcpsrv "jira-thing/internal/mcpserver"
-	"jira-thing/internal/template"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/tui"
 )
 
@@ -99,7 +99,7 @@ func buildTransitionOptions(conn api.JiraConnection, flags transitionFlags) (api
 		fields["resolution"] = map[string]any{"name": flags.resolution}
 	}
 	if flags.assignee != "" {
-		resolved, err := template.ResolveAssigneeArg(conn, flags.assignee)
+		resolved, err := ops.ResolveAssignee(conn, flags.assignee)
 		if err != nil {
 			return api.TransitionOptions{}, err
 		}

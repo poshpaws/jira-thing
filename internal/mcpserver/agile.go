@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/template"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -131,7 +132,7 @@ func handleAddToSprint(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		keys := splitLabels(keysStr)
+		keys := template.SplitLabels(keysStr)
 		if len(keys) == 0 {
 			return mcp.NewToolResultError("no ticket keys provided"), nil
 		}
