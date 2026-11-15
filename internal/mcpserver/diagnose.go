@@ -19,7 +19,7 @@ func registerDiagnoseTools(s *server.MCPServer, conn api.JiraConnection) {
 func diagnoseConnectionTool() mcp.Tool {
 	return mcp.NewTool("diagnose_connection",
 		mcp.WithDescription("Check jira-thing's Jira connection: the configured URL and email, the API token's format "+
-			"(the token itself is masked), and an authenticated API call. Use when other tools fail with auth or "+
+			"(no part of the token is returned), and an authenticated API call. Use when other tools fail with auth or "+
 			"connection errors; the result suggests a fix for 401/403 failures."),
 	)
 }
@@ -33,7 +33,9 @@ func handleDiagnoseConnection(conn api.JiraConnection) server.ToolHandlerFunc {
 // formatDiagnosis lists each check and its outcome, stopping at the first failure.
 func formatDiagnosis(d ops.Diagnosis) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "URL: %s\nEmail: %s\nToken: %s\n\n", d.URL, d.Email, d.MaskedToken)
+	// The masked token stays in the CLI's output: no part of a credential
+	// belongs in an agent's context.
+	fmt.Fprintf(&sb, "URL: %s\nEmail: %s\n\n", d.URL, d.Email)
 	if d.TokenErr != nil {
 		fmt.Fprintf(&sb, "FAIL token format: %v", d.TokenErr)
 		return sb.String()

@@ -47,7 +47,7 @@ func printBatchItem(conn api.JiraConnection, it ops.BatchItem, total int) {
 		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, it.Result.Payload)
 		printParentLinkStep(it.Result.Parent)
 	default:
-		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(it.Result.Key), termsafe.Clean(it.Summary))
+		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(termsafe.Clean(it.Result.Key)), termsafe.Clean(it.Summary))
 	}
 }
 
@@ -67,7 +67,7 @@ func printBatchError(i int, err error) {
 
 // printBatchSkipped reports an entry skipped as a duplicate of existing.
 func printBatchSkipped(existing, summary string) {
-	fmt.Printf("  %s %s  %s (duplicate)\n", tui.SuccessStyle.Render("Skipped:"), tui.KeyStyle.Render(existing), termsafe.Clean(summary))
+	fmt.Printf("  %s %s  %s (duplicate)\n", tui.SuccessStyle.Render("Skipped:"), tui.KeyStyle.Render(termsafe.Clean(existing)), termsafe.Clean(summary))
 }
 
 // loadBatchTickets reads and parses path as a non-empty JSON array of ticket templates.

@@ -84,7 +84,10 @@ func TestHandleFetchTemplate_DefaultsToCreatorMarker(t *testing.T) {
 }
 
 func TestFormatDiagnosis(t *testing.T) {
-	failed := formatDiagnosis(ops.Diagnosis{URL: "u", APIErr: errors.New("HTTP 401"), Hint: "regenerate"})
+	failed := formatDiagnosis(ops.Diagnosis{URL: "u", MaskedToken: "abc...xyz", APIErr: errors.New("HTTP 401"), Hint: "regenerate"})
+	if strings.Contains(failed, "abc") {
+		t.Errorf("token fragment leaked into tool output: %s", failed)
+	}
 	if !strings.Contains(failed, "FAIL API connection") || !strings.Contains(failed, "Hint: regenerate") {
 		t.Errorf("failed=%s", failed)
 	}
