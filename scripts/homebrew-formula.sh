@@ -10,6 +10,11 @@ if [[ $# -ne 2 ]]; then
 fi
 version="$1"
 checksums="$2"
+# The version is interpolated into Ruby source, so allow only a plain semver.
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+  echo "error: invalid version '$version' (expected e.g. 0.27.0)" >&2
+  exit 2
+fi
 base="https://github.com/poshpaws/jira-thing/releases/download/v${version}"
 
 sha() {

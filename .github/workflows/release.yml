@@ -208,7 +208,9 @@ jobs:
   homebrew:
     name: Update Homebrew tap
     needs: [release]
-    if: startsWith(github.ref, 'refs/tags/')
+    # Tag pushes only: a manual workflow_dispatch run on another ref must
+    # never reach the tap token.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -227,7 +229,17 @@ jobs:
             exit 0
           fi
           version="${TAG_NAME#v}"
-          gh release download "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --pattern checksums.txt --dir "${RUNNER_TEMP}"
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Tag ${TAG_NAME} is not a semver release tag."
+            exit 1
+          fi
+          gh release download "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern checksums.txt --pattern checksums.txt.sig --dir "${RUNNER_TEMP}"
+          # Verify the manifest against the same public key self-update uses.
+          awk '/BEGIN PUBLIC KEY/{f=1} f{sub(/^.*`/,""); print} /END PUBLIC KEY/{exit}' \
+            internal/version/pubkey.go > "${RUNNER_TEMP}/release-pubkey.pem"
+          openssl dgst -sha256 -verify "${RUNNER_TEMP}/release-pubkey.pem" \
+            -signature "${RUNNER_TEMP}/checksums.txt.sig" "${RUNNER_TEMP}/checksums.txt"
           gh auth setup-git
           gh repo clone poshpaws/homebrew-tap "${RUNNER_TEMP}/tap"
           scripts/homebrew-formula.sh "${version}" "${RUNNER_TEMP}/checksums.txt" > "${RUNNER_TEMP}/tap/Formula/jira-thing.rb"
