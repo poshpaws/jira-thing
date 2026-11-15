@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -180,7 +181,7 @@ func handleAddWorklog(conn api.JiraConnection) server.ToolHandlerFunc {
 		}
 		var comment map[string]any
 		if c := req.GetString("comment", ""); c != "" {
-			comment = markdownToADFBody(c)
+			comment = adf.FromMarkdown(c)
 		}
 		if err := api.AddWorklog(conn, key, timeSpent, comment); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("logging work on %s: %v", key, err)), nil

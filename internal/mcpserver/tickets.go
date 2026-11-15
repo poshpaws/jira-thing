@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -174,7 +175,7 @@ func handleAddComment(conn api.JiraConnection) server.ToolHandlerFunc {
 		if strings.TrimSpace(comment) == "" {
 			return mcp.NewToolResultError("comment is empty"), nil
 		}
-		adf := markdownToADFBody(comment)
+		adf := adf.FromMarkdown(comment)
 		if err := api.AddComment(conn, key, adf); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("adding comment: %v", err)), nil
 		}
@@ -280,7 +281,7 @@ func buildCreateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[st
 		fields["priority"] = map[string]any{"name": priority}
 	}
 	if desc := req.GetString("description", ""); desc != "" {
-		fields["description"] = markdownToADFBody(desc)
+		fields["description"] = adf.FromMarkdown(desc)
 	}
 	if labelsStr := req.GetString("labels", ""); labelsStr != "" {
 		fields["labels"] = splitLabels(labelsStr)
@@ -394,7 +395,7 @@ func buildUpdateFields(conn api.JiraConnection, req mcp.CallToolRequest) (map[st
 		fields["summary"] = summary
 	}
 	if desc := req.GetString("description", ""); desc != "" {
-		fields["description"] = markdownToADFBody(desc)
+		fields["description"] = adf.FromMarkdown(desc)
 	}
 	if priority := req.GetString("priority", ""); priority != "" {
 		fields["priority"] = map[string]any{"name": priority}
@@ -541,7 +542,7 @@ func buildTransitionOptions(conn api.JiraConnection, req mcp.CallToolRequest) (a
 	}
 	opts := api.TransitionOptions{Fields: fields}
 	if comment := req.GetString("comment", ""); comment != "" {
-		opts.Comment = markdownToADFBody(comment)
+		opts.Comment = adf.FromMarkdown(comment)
 	}
 	return opts, nil
 }
@@ -613,7 +614,7 @@ func formatIssue(issue map[string]any) string {
 
 	if desc, ok := fields["description"].(map[string]any); ok {
 		sb.WriteString("## Description\n\n")
-		sb.WriteString(adfToMarkdownBody(desc))
+		sb.WriteString(adf.ToMarkdown(desc))
 		sb.WriteString("\n")
 	}
 
@@ -653,7 +654,7 @@ func formatComment(comment api.Comment) string {
 	}
 	fmt.Fprintf(&sb, "**%s** on %s:\n\n", author, created)
 	if comment.Body != nil {
-		sb.WriteString(adfToMarkdownBody(comment.Body))
+		sb.WriteString(adf.ToMarkdown(comment.Body))
 	}
 	return sb.String()
 }
@@ -665,24 +666,4 @@ func nestedStr(m map[string]any, key1, key2 string) string {
 		}
 	}
 	return ""
-}
-
-// markdownToADFBody converts markdown text to ADF document format.
-// This calls back into the main package's converter via a function variable
-// set during server initialisation.
-var markdownToADFBody func(md string) map[string]any
-
-// adfToMarkdownBody converts an ADF document node to markdown text.
-var adfToMarkdownBody func(node map[string]any) string
-
-// SetConverters wires up the markdown/ADF conversion functions.
-// Called from main before starting the server, since the converters
-// live in package main and cannot be imported.
-// Panics if either function is nil — callers must wire both before serving.
-func SetConverters(toADF func(string) map[string]any, toMD func(map[string]any) string) {
-	if toADF == nil || toMD == nil {
-		panic("mcpserver: SetConverters called with nil function")
-	}
-	markdownToADFBody = toADF
-	adfToMarkdownBody = toMD
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
@@ -1440,7 +1441,7 @@ func buildSubtaskFields(parentKey string, inherited map[string]any, task parsedT
 	fields["parent"] = map[string]any{"key": parentKey}
 	fields["summary"] = task.Summary
 	if task.Description != "" {
-		fields["description"] = markdownToADF(task.Description)
+		fields["description"] = adf.FromMarkdown(task.Description)
 	}
 	return fields
 }
@@ -1461,9 +1462,6 @@ func describeParseMode(opts parseOpts) string {
 func runServeMCP() {
 	conn := mustConnect()
 
-	// Wire the markdown/ADF converters into the MCP server package.
-	// These live in package main and can't be imported directly.
-	mcpsrv.SetConverters(markdownToADF, adfToMarkdown)
 	mcpsrv.SetStorageConverter(func(md string) string {
 		result := markdownToConfluence(md, ".")
 		return result.Storage

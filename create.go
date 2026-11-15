@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
@@ -269,5 +270,5 @@ func promptAssigneeChoice(tmpl map[string]any) {
 
 // buildDescription converts markdown text to the Jira Atlassian Document Format structure.
 func buildDescription(text string) map[string]any {
-	return markdownToADF(text)
+	return adf.FromMarkdown(text)
 }

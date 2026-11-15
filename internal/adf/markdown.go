@@ -1,4 +1,5 @@
-package main
+// Package adf converts between markdown and Atlassian Document Format (ADF).
+package adf
 
 import (
 	"strings"
@@ -10,9 +11,9 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// markdownToADF converts markdown text to an Atlassian Document Format doc node.
-// It is the inverse of adfToMarkdown in render.go.
-func markdownToADF(md string) map[string]any {
+// FromMarkdown converts markdown text to an Atlassian Document Format doc node.
+// It is the inverse of ToMarkdown.
+func FromMarkdown(md string) map[string]any {
 	src := []byte(md)
 	parser := goldmark.New(
 		goldmark.WithExtensions(extension.Table, extension.Strikethrough),

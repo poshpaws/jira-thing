@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 
+	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
 	mcpsrv "jira-thing/internal/mcpserver"
 	"jira-thing/internal/template"
@@ -106,7 +107,7 @@ func buildTransitionOptions(conn api.JiraConnection, flags transitionFlags) (api
 	}
 	opts := api.TransitionOptions{Fields: fields}
 	if flags.comment != "" {
-		opts.Comment = markdownToADF(flags.comment)
+		opts.Comment = adf.FromMarkdown(flags.comment)
 	}
 	return opts, nil
 }
