@@ -3,12 +3,14 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -78,5 +80,16 @@ func TestHandleFetchTemplate_DefaultsToCreatorMarker(t *testing.T) {
 		newCallToolRequest(map[string]any{"ticket_key": "SRC-1", "keep_assignee": true}))
 	if !strings.Contains(resultText(t, kept), `"a1"`) {
 		t.Errorf("expected original assignee kept, got %s", resultText(t, kept))
+	}
+}
+
+func TestFormatDiagnosis(t *testing.T) {
+	failed := formatDiagnosis(ops.Diagnosis{URL: "u", APIErr: errors.New("HTTP 401"), Hint: "regenerate"})
+	if !strings.Contains(failed, "FAIL API connection") || !strings.Contains(failed, "Hint: regenerate") {
+		t.Errorf("failed=%s", failed)
+	}
+	passed := formatDiagnosis(ops.Diagnosis{User: ops.User{DisplayName: "Me", AccountID: "a1"}})
+	if !strings.Contains(passed, "All checks passed") || !strings.Contains(passed, "a1") {
+		t.Errorf("passed=%s", passed)
 	}
 }

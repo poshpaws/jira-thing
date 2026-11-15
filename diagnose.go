@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
-	"jira-thing/internal/auth"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/tui"
 )
 
@@ -55,28 +55,28 @@ func runDiagnose(args []string) {
 		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ Credentials:"), err.Error())
 		return
 	}
-	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Credentials loaded from keyring"))
-	fmt.Printf("    URL:   %s\n", conn.BaseURL)
-	fmt.Printf("    Email: %s\n", conn.Email)
-	fmt.Printf("    Token: %s\n", maskToken(conn.APIToken))
+	printDiagnosis(ops.Diagnose(conn))
+}
 
-	if err := auth.ValidateToken(conn.APIToken); err != nil {
-		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ Token format:"), err.Error())
+// printDiagnosis reports each check in order, stopping at the first failure.
+func printDiagnosis(d ops.Diagnosis) {
+	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Credentials loaded from keyring"))
+	fmt.Printf("    URL:   %s\n", d.URL)
+	fmt.Printf("    Email: %s\n", d.Email)
+	fmt.Printf("    Token: %s\n", d.MaskedToken)
+	if d.TokenErr != nil {
+		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ Token format:"), d.TokenErr.Error())
 		return
 	}
 	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Token format valid"))
 	fmt.Println()
-
-	me, err := api.FetchMyself(conn)
-	if err != nil {
-		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ API connection:"), formatDiagError(err))
+	if d.APIErr != nil {
+		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ API connection:"), formatDiagError(d.APIErr, d.Hint))
 		return
 	}
-	displayName, _ := me["displayName"].(string)
-	accountID, _ := me["accountId"].(string)
 	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ API connection successful"))
-	fmt.Printf("    User:      %s\n", displayName)
-	fmt.Printf("    AccountId: %s\n", accountID)
+	fmt.Printf("    User:      %s\n", d.User.DisplayName)
+	fmt.Printf("    AccountId: %s\n", d.User.AccountID)
 	fmt.Println()
 	fmt.Println(tui.SuccessStyle.Render("All checks passed."))
 }
@@ -172,22 +172,10 @@ func printTeamID(value any) {
 	}
 }
 
-// formatDiagError adds helpful context for common API errors.
-func formatDiagError(err error) string {
-	msg := err.Error()
-	if strings.Contains(msg, "401") {
-		return msg + "\n    → API token may be invalid or expired. Regenerate at https://id.atlassian.com/manage-profile/security/api-tokens"
+// formatDiagError appends the fix hint, if any, under the API error.
+func formatDiagError(err error, hint string) string {
+	if hint == "" {
+		return err.Error()
 	}
-	if strings.Contains(msg, "403") {
-		return msg + "\n    → Check that the email matches the token owner's Atlassian account"
-	}
-	return msg
-}
-
-// maskToken shows the first and last 3 characters of a token with ellipsis between.
-func maskToken(token string) string {
-	if len(token) <= 6 {
-		return "***"
-	}
-	return token[:3] + "..." + token[len(token)-3:]
+	return err.Error() + "\n    → " + hint
 }
