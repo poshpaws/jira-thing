@@ -13,6 +13,7 @@ func TestClean(t *testing.T) {
 		{"C1 CSI removed", "a\u009b31mb", "a31mb"},
 		{"bidi override removed", "user‮gnp.exe", "usergnp.exe"},
 		{"bidi isolates removed", "a⁦b⁩c", "abc"},
+		{"bidi marks removed", "a\u200Eb\u200Fc\u061Cd", "abcd"},
 		{"line separators removed", "a b c", "abc"},
 		{"emoji ZWJ kept", "👩‍💻", "👩‍💻"},
 	}
