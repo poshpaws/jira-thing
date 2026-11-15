@@ -9,6 +9,7 @@ import (
 
 	"jira-thing/internal/api"
 	"jira-thing/internal/config"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/tui"
 )
 
@@ -224,9 +225,9 @@ func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket, fetch
 // menuTransitionTicket runs the same transition flow as the `state` command,
 // inline for a ticket key already known (e.g. from a quick action).
 func menuTransitionTicket(conn api.JiraConnection, key string) {
-	transitions, err := api.FetchTransitions(conn, key)
+	transitions, err := ops.ListTransitions(conn, key)
 	if err != nil {
-		printMenuErr("fetching transitions for %s: %v", key, err)
+		printMenuErr("%v", err)
 		return
 	}
 	if len(transitions) == 0 {
@@ -242,8 +243,9 @@ func menuTransitionTicket(conn api.JiraConnection, key string) {
 		fmt.Println("Cancelled.")
 		return
 	}
-	if err := api.TransitionIssue(conn, key, picked.ID); err != nil {
-		printMenuErr("transitioning %s: %v", key, err)
+	move := ops.TransitionRequest{Key: key, Transition: api.Transition{ID: picked.ID, Name: picked.Name}}
+	if _, err := ops.TransitionTicket(conn, move, false); err != nil {
+		printMenuErr("%v", err)
 		return
 	}
 	fmt.Printf("%s moved to %s\n", key, picked.Name)
@@ -319,12 +321,9 @@ func menuAddWorklog(conn api.JiraConnection) {
 		printMenuErr("time spent is required")
 		return
 	}
-	var comment map[string]any
-	if c := promptLine("Comment (blank to skip): "); c != "" {
-		comment = buildDescription(c)
-	}
-	if err := api.AddWorklog(conn, key, timeSpent, comment); err != nil {
-		printMenuErr("logging work on %s: %v", key, err)
+	comment := promptLine("Comment (blank to skip): ")
+	if err := ops.LogWork(conn, ops.WorklogRequest{Key: key, TimeSpent: timeSpent, Comment: comment}); err != nil {
+		printMenuErr("%v", err)
 		return
 	}
 	fmt.Printf("Logged %s on %s\n", timeSpent, key)
@@ -424,24 +423,13 @@ func menuCloneTicket(conn api.JiraConnection) {
 		fmt.Println("Cancelled.")
 		return
 	}
-	issue, err := api.FetchIssue(conn, sourceKey)
-	if err != nil {
-		printMenuErr("fetching %s: %v", sourceKey, err)
-		return
-	}
-	source, _ := issue["fields"].(map[string]any)
-	fields := inheritedCloneFields(source)
 	summary := promptLine("Summary (blank for default): ")
-	if summary == "" {
-		summary = "CLONE - " + getString(source, "summary")
-	}
-	fields["summary"] = summary
-	result, err := api.CreateIssue(conn, fields)
+	res, err := ops.CloneTicket(conn, ops.CloneRequest{SourceKey: sourceKey, Summary: summary})
 	if err != nil {
-		printMenuErr("cloning: %v", err)
+		printMenuErr("%v", err)
 		return
 	}
-	fmt.Printf("Cloned %s -> %s\n", sourceKey, getString(result, "key"))
+	fmt.Printf("Cloned %s -> %s\n", res.SourceKey, res.Key)
 }
 
 func menuDeleteTicket(conn api.JiraConnection) {
@@ -455,8 +443,8 @@ func menuDeleteTicket(conn api.JiraConnection) {
 		return
 	}
 	cascade := promptConfirm("Also delete its subtasks?")
-	if err := api.DeleteIssue(conn, key, cascade); err != nil {
-		printMenuErr("deleting %s: %v", key, err)
+	if err := ops.DeleteTicket(conn, key, cascade); err != nil {
+		printMenuErr("%v", err)
 		return
 	}
 	fmt.Printf("Deleted %s\n", key)
@@ -643,13 +631,12 @@ func menuOpen(conn api.JiraConnection) {
 }
 
 func menuWhoami(conn api.JiraConnection) {
-	self, err := api.FetchMyself(conn)
+	me, err := ops.WhoAmI(conn)
 	if err != nil {
-		printMenuErr("fetching current user: %v", err)
+		printMenuErr("%v", err)
 		return
 	}
-	fmt.Printf("Account ID: %v\nDisplay name: %v\nEmail: %v\n",
-		self["accountId"], self["displayName"], self["emailAddress"])
+	fmt.Printf("Account ID: %s\nDisplay name: %s\nEmail: %s\n", me.AccountID, me.DisplayName, me.Email)
 }
 
 // splitCommaList splits a comma-separated string into trimmed, non-empty parts.
@@ -668,18 +655,6 @@ func splitCommaList(s string) []string {
 func inheritedFields(fields map[string]any) map[string]any {
 	inherited := make(map[string]any)
 	for _, key := range subtaskInheritFields {
-		if v, ok := fields[key]; ok && v != nil {
-			inherited[key] = v
-		}
-	}
-	return inherited
-}
-
-// inheritedCloneFields extracts the clone-inheritable fields from a source issue's fields map.
-func inheritedCloneFields(fields map[string]any) map[string]any {
-	keys := []string{"project", "issuetype", "priority", "labels", "components", "description"}
-	inherited := make(map[string]any, len(keys))
-	for _, key := range keys {
 		if v, ok := fields[key]; ok && v != nil {
 			inherited[key] = v
 		}

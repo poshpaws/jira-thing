@@ -379,16 +379,7 @@ func TransitionIssue(conn JiraConnection, issueKey, transitionID string) error {
 // TransitionIssueWithOptions is TransitionIssue with optional field changes and/or
 // a comment applied atomically as part of the transition.
 func TransitionIssueWithOptions(conn JiraConnection, issueKey, transitionID string, opts TransitionOptions) error {
-	payload := map[string]any{"transition": map[string]any{"id": transitionID}}
-	if len(opts.Fields) > 0 {
-		payload["fields"] = opts.Fields
-	}
-	if opts.Comment != nil {
-		payload["update"] = map[string]any{
-			"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}},
-		}
-	}
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(TransitionPayload(transitionID, opts))
 	if err != nil {
 		return err
 	}
@@ -402,6 +393,20 @@ func TransitionIssueWithOptions(conn JiraConnection, issueKey, transitionID stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return executeRequest(req, nil)
+}
+
+// TransitionPayload builds the request body TransitionIssueWithOptions sends.
+func TransitionPayload(transitionID string, opts TransitionOptions) map[string]any {
+	payload := map[string]any{"transition": map[string]any{"id": transitionID}}
+	if len(opts.Fields) > 0 {
+		payload["fields"] = opts.Fields
+	}
+	if opts.Comment != nil {
+		payload["update"] = map[string]any{
+			"comment": []map[string]any{{"add": map[string]any{"body": opts.Comment}}},
+		}
+	}
+	return payload
 }
 
 // Field describes a Jira field as returned by GET /rest/api/3/field.

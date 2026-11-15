@@ -355,14 +355,14 @@ func handleListTransitions(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		transitions, err := api.FetchTransitions(conn, key)
+		transitions, err := ops.ListTransitions(conn, key)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if len(transitions) == 0 {
 			return mcp.NewToolResultText(fmt.Sprintf("No transitions available for %s.", key)), nil
 		}
-		return mcp.NewToolResultText(FormatTransitions(key, transitions)), nil
+		return mcp.NewToolResultText(ops.FormatTransitions(key, transitions)), nil
 	}
 }
 
@@ -402,64 +402,18 @@ func handleTransitionTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		transitions, err := api.FetchTransitions(conn, key)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching transitions for %s: %v", key, err)), nil
-		}
-		transition, err := FindTransition(transitions, targetStatus)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("%v\n\n%s", err, FormatTransitions(key, transitions))), nil
-		}
-		opts, err := buildTransitionOptions(conn, req)
+		res, err := ops.TransitionTicket(conn, ops.TransitionRequest{
+			Key:        key,
+			State:      targetStatus,
+			Comment:    req.GetString("comment", ""),
+			Resolution: req.GetString("resolution", ""),
+			Assignee:   req.GetString("assignee", ""),
+		}, false)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		if err := api.TransitionIssueWithOptions(conn, key, transition.ID, opts); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("transitioning %s: %v", key, err)), nil
-		}
-		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", key, transition.Name)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("%s moved to %s", res.Key, res.Transition.Name)), nil
 	}
-}
-
-// buildTransitionOptions translates the transition_ticket request's optional side-effect
-// arguments (resolution, assignee, comment) into a TransitionOptions value.
-func buildTransitionOptions(conn api.JiraConnection, req mcp.CallToolRequest) (api.TransitionOptions, error) {
-	fields := map[string]any{}
-	if resolution := req.GetString("resolution", ""); resolution != "" {
-		fields["resolution"] = map[string]any{"name": resolution}
-	}
-	if assignee := req.GetString("assignee", ""); assignee != "" {
-		resolved, err := ops.ResolveAssignee(conn, assignee)
-		if err != nil {
-			return api.TransitionOptions{}, err
-		}
-		fields["assignee"] = resolved
-	}
-	opts := api.TransitionOptions{Fields: fields}
-	if comment := req.GetString("comment", ""); comment != "" {
-		opts.Comment = adf.FromMarkdown(comment)
-	}
-	return opts, nil
-}
-
-// FindTransition matches targetStatus against a transition's name (case-insensitive).
-func FindTransition(transitions []api.Transition, targetStatus string) (api.Transition, error) {
-	for _, t := range transitions {
-		if strings.EqualFold(t.Name, targetStatus) {
-			return t, nil
-		}
-	}
-	return api.Transition{}, fmt.Errorf("no transition to %q is available from the current state", targetStatus)
-}
-
-// FormatTransitions renders the available workflow states for key as a bullet list.
-func FormatTransitions(key string, transitions []api.Transition) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Available states for %s:\n\n", key)
-	for _, t := range transitions {
-		fmt.Fprintf(&sb, "- %s\n", t.Name)
-	}
-	return sb.String()
 }
 
 // --- formatters ---

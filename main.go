@@ -18,6 +18,7 @@ import (
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
 	mcpsrv "jira-thing/internal/mcpserver"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
 	"jira-thing/internal/tui"
 	vercheck "jira-thing/internal/version"
@@ -300,9 +301,9 @@ func runState(args []string) {
 		}
 	}
 
-	transitions, err := api.FetchTransitions(conn, key)
+	transitions, err := ops.ListTransitions(conn, key)
 	if err != nil {
-		fatal("fetching transitions for %s: %v", key, err)
+		fatal("%v", err)
 	}
 	if len(transitions) == 0 {
 		fmt.Printf("No transitions available for %s.\n", key)
@@ -318,8 +319,9 @@ func runState(args []string) {
 		return
 	}
 
-	if err := api.TransitionIssue(conn, key, picked.ID); err != nil {
-		fatal("transitioning %s: %v", key, err)
+	move := ops.TransitionRequest{Key: key, Transition: api.Transition{ID: picked.ID, Name: picked.Name}}
+	if _, err := ops.TransitionTicket(conn, move, false); err != nil {
+		fatal("%v", err)
 	}
 	fmt.Printf("%s moved to %s\n", key, picked.Name)
 }

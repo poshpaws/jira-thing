@@ -38,20 +38,6 @@ func TestInheritedFields_CopiesKnownKeysOnly(t *testing.T) {
 	}
 }
 
-func TestInheritedCloneFields_CopiesKnownKeysOnly(t *testing.T) {
-	fields := map[string]any{
-		"priority": map[string]any{"name": "High"},
-		"assignee": map[string]any{"accountId": "abc"},
-	}
-	got := inheritedCloneFields(fields)
-	if _, ok := got["priority"]; !ok {
-		t.Errorf("expected priority to be inherited")
-	}
-	if _, ok := got["assignee"]; ok {
-		t.Errorf("assignee should not be inherited by clone")
-	}
-}
-
 // mockSelectMenuOption replaces selectMenuOptionFn to pick a fixed index once, then cancel.
 func mockSelectMenuOption(pickOnce int) func() {
 	old := selectMenuOptionFn
