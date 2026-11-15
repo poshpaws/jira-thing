@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
 	"jira-thing/internal/config"
 	"jira-thing/internal/template"
@@ -1061,122 +1060,6 @@ func TestRunToilCheck_JQLUsesTeamFieldWhenEnabled(t *testing.T) {
 	}
 	if strings.Contains(receivedJQL, `labels = "c4cb9231-6ac0-44e7-bd76-64331a96af81"`) {
 		t.Errorf("JQL should not fall back to legacy label match: %s", receivedJQL)
-	}
-}
-
-// --- extractNotes ---
-
-func TestExtractNotes_Found(t *testing.T) {
-	body := "<!-- jira-thing:notes:start --><p>my notes</p><!-- jira-thing:notes:end -->"
-	got := extractNotes(body)
-	if got != "<p>my notes</p>" {
-		t.Errorf("extractNotes = %q, want <p>my notes</p>", got)
-	}
-}
-
-func TestExtractNotes_Missing(t *testing.T) {
-	if got := extractNotes("<p>no markers</p>"); got != "" {
-		t.Errorf("extractNotes = %q, want empty", got)
-	}
-}
-
-// --- renderTicketPage ---
-
-func testIssue(key, summary string) map[string]any {
-	return map[string]any{
-		"key": key,
-		"fields": map[string]any{
-			"summary":  summary,
-			"updated":  "2026-05-20T10:00:00.000Z",
-			"status":   map[string]any{"name": "Open"},
-			"priority": map[string]any{"name": "High"},
-		},
-	}
-}
-
-func TestRenderTicketPage_ContainsDetailsAndNotes(t *testing.T) {
-	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "")
-	for _, want := range []string{
-		"jira-thing:details:start", "jira-thing:details:end",
-		"jira-thing:notes:start", "jira-thing:notes:end",
-		"ac:structured-macro", `ac:name="jira"`, "PROJ-1",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in output: %s", want, out)
-		}
-	}
-}
-
-func TestRenderTicketPage_PreservesExistingNotes(t *testing.T) {
-	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "<p>saved note</p>")
-	if !strings.Contains(out, "<p>saved note</p>") {
-		t.Errorf("notes not preserved: %s", out)
-	}
-}
-
-func TestRenderTicketPage_KeyEscaped(t *testing.T) {
-	out := renderTicketPage(testIssue(`<script>`, "irrelevant"), "")
-	if strings.Contains(out, "<script>") {
-		t.Errorf("unescaped key in output: %s", out)
-	}
-}
-
-func TestRenderTicketPage_NewPageHasDateAndNotePanel(t *testing.T) {
-	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "")
-	if !strings.Contains(out, `<time datetime=`) {
-		t.Errorf("new page missing time element: %s", out)
-	}
-	if !strings.Contains(out, `ac:adf-extension`) {
-		t.Errorf("new page missing adf-extension: %s", out)
-	}
-	if !strings.Contains(out, `panelType`) || !strings.Contains(out, `note`) {
-		t.Errorf("new page missing note panelType: %s", out)
-	}
-}
-
-func TestRenderTicketPage_ExistingNotesNoDatePanel(t *testing.T) {
-	out := renderTicketPage(testIssue("PROJ-1", "Fix toil"), "<p>existing note</p>")
-	if strings.Contains(out, `<time datetime=`) {
-		t.Errorf("existing notes page should not inject date element: %s", out)
-	}
-	if strings.Contains(out, `ac:adf-extension`) {
-		t.Errorf("existing notes page should not inject panel: %s", out)
-	}
-}
-
-// --- renderHangerPage ---
-
-func TestRenderHangerPage_WithIssues(t *testing.T) {
-	issues := []map[string]any{
-		testIssue("PROJ-1", "Fix toil"),
-		testIssue("PROJ-2", "More toil"),
-	}
-	out := renderHangerPage(issues, nil)
-	for _, want := range []string{"PROJ-1", "PROJ-2", "ac:link", "ri:page"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in hanger page: %s", want, out)
-		}
-	}
-}
-
-func TestRenderHangerPage_Empty(t *testing.T) {
-	out := renderHangerPage([]map[string]any{}, nil)
-	if !strings.Contains(out, "No open TOIL tickets") {
-		t.Errorf("expected no-ticket message, got: %s", out)
-	}
-}
-
-func TestRenderHangerPage_IncludesManualPages(t *testing.T) {
-	issues := []map[string]any{testIssue("PROJ-1", "Fix toil")}
-	manuals := []api.ConfluencePageWithBody{
-		{ConfluencePage: api.ConfluencePage{Title: "Team Notes"}},
-		{ConfluencePage: api.ConfluencePage{Title: "Process Guide"}},
-	}
-	out := renderHangerPage(issues, manuals)
-	for _, want := range []string{"PROJ-1", "Team Notes", "Process Guide", "ac:link", "ri:page"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in hanger page: %s", want, out)
-		}
 	}
 }
 

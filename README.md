@@ -1068,6 +1068,7 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `my_tasks` | List open Jira tasks assigned to the current user |
 | `remove_from_epic` | Remove issues from their epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
 | `search_tickets` | Search Jira tickets using JQL. Returns key, summary, status, priority, and updated date for each match. |
+| `sync_toil` | Sync open toil tickets to Confluence: one child page per ticket under the configured ticket_hanger page (keeping any notes already written on it), then rewrite the hanger page's index. Needs the toil settings plus confluence_space and ticket_hanger in ~/.config/jira-thing/jira-thing.json. |
 | `transition_ticket` | Move a Jira ticket to a new workflow state. The target_status must match one of the states returned by list_transitions for this ticket — call that tool first if unsure what states are available. |
 | `unlink_tickets` | Remove the link between two Jira tickets, whichever link type currently connects them. |
 | `update_ticket` | Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee). Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use transition_ticket instead. |
