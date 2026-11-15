@@ -33,12 +33,11 @@ func runDiagnose(args []string) {
 	}
 
 	if *userID {
-		conn := mustConnect()
-		me, err := api.FetchMyself(conn)
+		me, err := ops.WhoAmI(mustConnect())
 		if err != nil {
-			fatal("fetching current user: %v", err)
+			fatal("%v", err)
 		}
-		fmt.Println(me["accountId"])
+		fmt.Println(me.AccountID)
 		return
 	}
 
@@ -47,9 +46,14 @@ func runDiagnose(args []string) {
 		return
 	}
 
+	runConnectionChecks()
+}
+
+// runConnectionChecks loads the stored credentials and reports each
+// connectivity check in turn.
+func runConnectionChecks() {
 	fmt.Println("Running diagnostics...")
 	fmt.Println()
-
 	conn, err := buildConnection()
 	if err != nil {
 		fmt.Printf("  %s %s\n", tui.ErrorStyle.Render("✗ Credentials:"), err.Error())

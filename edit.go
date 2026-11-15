@@ -12,10 +12,17 @@ import (
 	"jira-thing/internal/tui"
 )
 
-// runEdit mutates fields on an existing Jira ticket non-interactively: only
-// the flags given are changed, everything else on the ticket is left alone.
-// This is the field-level counterpart to "update", which only adds comments.
-func runEdit(args []string) {
+// editFlags holds runEdit's parsed flags and ticket key.
+type editFlags struct {
+	key             string
+	req             ops.UpdateRequest
+	descriptionFile string
+	dryRun          bool
+	json            bool
+}
+
+// parseEditFlags parses runEdit's flag set, exiting on a parse error or a missing key.
+func parseEditFlags(args []string) editFlags {
 	fs := flag.NewFlagSet("edit", flag.ExitOnError)
 	summary := fs.String("summary", "", "New summary/title")
 	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the new description")
@@ -28,30 +35,33 @@ func runEdit(args []string) {
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY] [-dry-run] [-json]")
 	}
-	key := fs.Arg(0)
+	req := ops.UpdateRequest{
+		Key: fs.Arg(0), Summary: *summary, Priority: *priority,
+		Labels: template.SplitLabels(*labels), Assignee: *assignee, Parent: *parent,
+	}
+	return editFlags{key: fs.Arg(0), req: req, descriptionFile: *descriptionFile, dryRun: *dryRun, json: *jsonOut}
+}
 
-	description, err := readDescriptionFile(*descriptionFile)
+// runEdit mutates fields on an existing Jira ticket non-interactively: only
+// the flags given are changed, everything else on the ticket is left alone.
+// This is the field-level counterpart to "update", which only adds comments.
+func runEdit(args []string) {
+	flags := parseEditFlags(args)
+	description, err := readDescriptionFile(flags.descriptionFile)
 	if err != nil {
 		fatal("%v", err)
 	}
+	flags.req.Description = description
 
 	conn := mustConnect()
-	res, err := ops.UpdateTicket(conn, ops.UpdateRequest{
-		Key:         key,
-		Summary:     *summary,
-		Description: description,
-		Priority:    *priority,
-		Labels:      template.SplitLabels(*labels),
-		Assignee:    *assignee,
-		Parent:      *parent,
-	}, *dryRun)
+	res, err := ops.UpdateTicket(conn, flags.req, flags.dryRun)
 	if errors.Is(err, ops.ErrNothingToUpdate) {
 		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent")
 	}
 	if err != nil {
 		fatal("%v", err)
 	}
-	reportEditResult(conn, res, *jsonOut)
+	reportEditResult(conn, res, flags.json)
 }
 
 // reportEditResult prints the dry-run requests, or the edited ticket.
