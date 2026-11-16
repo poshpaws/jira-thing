@@ -19,17 +19,24 @@ type UpdateRequest struct {
 	Description string // markdown, replaces the existing description
 	Priority    string
 	Labels      []string
-	Assignee    string // "me", "unassign" or an account ID
+	Assignee    string // "me", "unassign", a name, an email or an account ID
 	Parent      string // epic/parent key to link to
+	IssueType   string // new issue type name, matched case-insensitively
+	StoryPoints *float64
+	// PointFields are the story point field IDs to try, first match on the
+	// edit screen wins; nil means DefaultStoryPointFields.
+	PointFields []string
 }
 
 // UpdateResult reports what an update did, or would do in a dry run.
 type UpdateResult struct {
-	Key    string
-	URL    string
-	Status string
-	Fields map[string]any // the PUT body; empty when only Parent changes
-	Parent string
+	Key         string
+	URL         string
+	Status      string
+	Fields      map[string]any // the PUT body; empty when only Parent changes
+	Parent      string
+	IssueType   string // the new type's name, when the type changes
+	PointsField string // the field story points were written to
 }
 
 // UpdateTicket applies req to an existing ticket: a field PUT when any fields
@@ -40,10 +47,13 @@ func UpdateTicket(conn api.JiraConnection, req UpdateRequest, dryRun bool) (Upda
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	if len(fields) == 0 && req.Parent == "" {
+	if len(fields) == 0 && req.Parent == "" && req.IssueType == "" && req.StoryPoints == nil {
 		return UpdateResult{}, ErrNothingToUpdate
 	}
 	res := UpdateResult{Key: req.Key, URL: IssueURL(conn, req.Key), Status: StatusEdited, Fields: fields, Parent: req.Parent}
+	if err := applyMetaFields(conn, req, &res); err != nil {
+		return UpdateResult{}, err
+	}
 	if dryRun {
 		res.Status = StatusDryRun
 		return res, nil

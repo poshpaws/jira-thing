@@ -24,6 +24,7 @@ type MenuOption struct {
 // menuModel is the bubbletea model for the top-level menu.
 type menuModel struct {
 	table     table.Model
+	title     string
 	options   []MenuOption
 	picked    int
 	done      bool
@@ -43,7 +44,7 @@ func SelectMenuOption(title string, options []MenuOption) (int, bool, error) {
 	return final.picked, final.cancelled, nil
 }
 
-func newMenuModel(_ string, options []MenuOption) menuModel {
+func newMenuModel(title string, options []MenuOption) menuModel {
 	columns := []table.Column{
 		{Title: "Action", Width: colWidthAction},
 		{Title: "Description", Width: colWidthDesc},
@@ -67,7 +68,7 @@ func newMenuModel(_ string, options []MenuOption) menuModel {
 		Foreground(lipgloss.Color("229")).
 		Background(lipgloss.Color("57"))
 	t.SetStyles(s)
-	return menuModel{table: t, options: options}
+	return menuModel{table: t, title: title, options: options}
 }
 
 func (m menuModel) Init() tea.Cmd { return nil }
@@ -98,7 +99,7 @@ func (m menuModel) View() string {
 		return ""
 	}
 	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).
-		Render("  jira-thing menu")
+		Render("  " + m.title)
 	help := "\n  ↑/↓ navigate • enter select • q quit\n"
 	return "\n" + heading + "\n\n" + m.table.View() + help
 }

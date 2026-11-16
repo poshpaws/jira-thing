@@ -41,3 +41,18 @@ func unsafe(r rune) bool {
 		return r == lineSeparator || r == paraSeparator
 	}
 }
+
+// Lines applies Line to each value.
+func Lines(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = Line(v)
+	}
+	return out
+}
+
+// Line is Clean for a value shown on one line, such as a name in a list:
+// newlines and tabs become spaces, so the value can't forge extra lines.
+func Line(s string) string {
+	return strings.NewReplacer("\n", " ", "\t", " ").Replace(Clean(s))
+}

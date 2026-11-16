@@ -10,6 +10,8 @@ import (
 // Config holds user-configurable settings loaded from ~/.config/jira-thing/jira-thing.json.
 type Config struct {
 	Project              string `json:"project"`
+	Board                int    `json:"board"`              // Agile board ID for sprint commands; default: the project's only sprint board
+	StoryPointsField     string `json:"story_points_field"` // custom field ID for story points, e.g. customfield_10016; tried before the defaults
 	ToilMarker           string `json:"toil_marker"`
 	ToilTeam             string `json:"toil_team"`      // legacy: a second label to match
 	Team                 string `json:"team"`           // Jira team UUID; used when use_team_field is true

@@ -8,6 +8,7 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/ops"
 	"jira-thing/internal/termsafe"
 
 	"github.com/charmbracelet/glamour"
@@ -62,6 +63,19 @@ func renderDescribe(issue map[string]any, plain, raw bool) {
 		return
 	}
 	renderMarkdown(buildDescribeMarkdown(issue), plain)
+}
+
+// renderDescribeResult prints a ticket followed by its fetched comments, if
+// any were asked for; with raw, both as one JSON object.
+func renderDescribeResult(res ops.DescribeResult, plain, raw bool) {
+	switch {
+	case res.Comments == nil:
+		renderDescribe(res.Issue, plain, raw)
+	case raw:
+		printRawJSON(map[string]any{"issue": res.Issue, "comments": res.Comments, "commentTotal": res.CommentTotal})
+	default:
+		renderMarkdown(buildDescribeMarkdown(res.Issue)+ops.CommentsMarkdown(res), plain)
+	}
 }
 
 // printRawJSON pretty-prints v as JSON, falling back to a plain error note if

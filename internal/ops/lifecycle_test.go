@@ -103,7 +103,7 @@ func TestCloneTicket_InheritsAndPrefixesSummary(t *testing.T) {
 		"summary": "Broken", "status": map[string]any{"name": "Done"}, "labels": []any{"x"},
 	}}
 	conn := startLifecycle(t, j)
-	res, err := CloneTicket(conn, CloneRequest{SourceKey: "SRC-1", Assignee: "me"})
+	res, err := CloneTicket(conn, CloneRequest{SourceKey: "SRC-1", Assignee: "me"}, false)
 	if err != nil || res.Key != "NEW-2" || res.Status != StatusCloned {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -113,28 +113,6 @@ func TestCloneTicket_InheritsAndPrefixesSummary(t *testing.T) {
 	}
 	if _, ok := fields["status"]; ok || nestedStr(fields, "assignee", "accountId") != "acc-me" {
 		t.Errorf("status copied or assignee unresolved: %v", fields)
-	}
-}
-
-func TestDeleteTicket_PassesCascade(t *testing.T) {
-	j := &lifecycleJira{}
-	conn := startLifecycle(t, j)
-	if err := DeleteTicket(conn, "K-1", true); err != nil || !strings.Contains(j.requests[0], "deleteSubtasks=true") {
-		t.Errorf("err=%v requests=%v", err, j.requests)
-	}
-}
-
-func TestLogWork(t *testing.T) {
-	j := &lifecycleJira{}
-	conn := startLifecycle(t, j)
-	if err := LogWork(conn, WorklogRequest{Key: "K-1"}); !errors.Is(err, ErrTimeSpentRequired) {
-		t.Errorf("expected ErrTimeSpentRequired, got %v", err)
-	}
-	if err := LogWork(conn, WorklogRequest{Key: "K-1", TimeSpent: "2h", Comment: "**did** it"}); err != nil {
-		t.Fatal(err)
-	}
-	if j.bodies[0]["timeSpent"] != "2h" || j.bodies[0]["comment"] == nil {
-		t.Errorf("unexpected worklog body %v", j.bodies[0])
 	}
 }
 

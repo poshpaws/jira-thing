@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -33,16 +34,19 @@ type JiraConnection struct {
 
 // SearchQuery holds the parameters for a JQL search request.
 type SearchQuery struct {
-	JQL        string
-	Fields     []string
-	MaxResults int
+	JQL           string
+	Fields        []string
+	MaxResults    int
+	NextPageToken string // continues a previous page; empty for the first
 }
 
 // SearchResult holds the response from the Jira search API.
 type SearchResult struct {
-	Issues     []map[string]any `json:"issues"`
-	Total      int              `json:"total"`
-	MaxResults int              `json:"maxResults"`
+	Issues        []map[string]any `json:"issues"`
+	Total         int              `json:"total"`
+	MaxResults    int              `json:"maxResults"`
+	NextPageToken string           `json:"nextPageToken"`
+	IsLast        bool             `json:"isLast"`
 }
 
 // APIRequest groups the HTTP method, endpoint URL, and optional body for a request.
@@ -305,6 +309,25 @@ func FetchLastComment(conn JiraConnection, issueKey string) (Comment, error) {
 	return page.Comments[0], nil
 }
 
+// FetchRecentComments returns an issue's newest n comments, oldest first,
+// with Total counting every comment on the issue.
+func FetchRecentComments(conn JiraConnection, issueKey string, n int) (CommentResult, error) {
+	if err := ValidateIssueKey(issueKey); err != nil {
+		return CommentResult{}, err
+	}
+	endpoint := fmt.Sprintf("%s%s/%s/comment?orderBy=-created&maxResults=%d", conn.BaseURL, IssueEndpoint, issueKey, n)
+	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
+	if err != nil {
+		return CommentResult{}, err
+	}
+	var result CommentResult
+	if err := executeRequest(req, &result); err != nil {
+		return CommentResult{}, err
+	}
+	slices.Reverse(result.Comments)
+	return result, nil
+}
+
 // fetchCommentPage retrieves a page of comments from a Jira issue.
 func fetchCommentPage(conn JiraConnection, issueKey string, startAt, maxResults int) (CommentResult, error) {
 	if err := ValidateIssueKey(issueKey); err != nil {
@@ -322,11 +345,11 @@ func fetchCommentPage(conn JiraConnection, issueKey string, startAt, maxResults 
 
 // SearchIssues executes a JQL search via POST /rest/api/3/search/jql and returns matching issues.
 func SearchIssues(conn JiraConnection, q SearchQuery) (SearchResult, error) {
-	payload, err := json.Marshal(map[string]any{
-		"jql":        q.JQL,
-		"fields":     q.Fields,
-		"maxResults": q.MaxResults,
-	})
+	body := map[string]any{"jql": q.JQL, "fields": q.Fields, "maxResults": q.MaxResults}
+	if q.NextPageToken != "" {
+		body["nextPageToken"] = q.NextPageToken
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return SearchResult{}, err
 	}

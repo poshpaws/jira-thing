@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
+	"jira-thing/internal/termsafe"
 	"jira-thing/internal/tui"
 )
 
@@ -28,18 +31,43 @@ func parseEditFlags(args []string) editFlags {
 	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the new description")
 	priority := fs.String("priority", "", "New priority name (e.g. High, Medium, Low)")
 	labels := fs.String("labels", "", "Comma-separated labels (replaces all existing labels)")
-	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", or a Jira account ID`)
+	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", a name, an email, or a Jira account ID`)
 	parent := fs.String("parent", "", "Epic/parent ticket key to link this ticket to")
+	issueType := fs.String("type", "", "New issue type, e.g. Task (only types the ticket's edit screen allows)")
+	storyPoints := fs.String("points", "", `Story points, e.g. 3 or 0.5 (field: "story_points_field" in config, else the usual defaults)`)
 	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without changing anything")
 	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|ACCOUNT_ID] [-parent KEY] [-dry-run] [-json]")
+		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|NAME|EMAIL|ACCOUNT_ID] [-parent KEY] [-type T] [-points N] [-dry-run] [-json]")
 	}
 	req := ops.UpdateRequest{
 		Key: fs.Arg(0), Summary: *summary, Priority: *priority,
-		Labels: template.SplitLabels(*labels), Assignee: *assignee, Parent: *parent,
+		Labels: template.SplitLabels(*labels), Assignee: *assignee, Parent: *parent, IssueType: *issueType,
+		StoryPoints: parsePoints(*storyPoints), PointFields: configuredPointFields(),
 	}
 	return editFlags{key: fs.Arg(0), req: req, descriptionFile: *descriptionFile, dryRun: *dryRun, json: *jsonOut}
+}
+
+// parsePoints reads -points, nil when not given; it exits on a non-number.
+func parsePoints(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		fatal("-points %q: %v", s, ops.ErrBadStoryPoints)
+	}
+	return &v
+}
+
+// configuredPointFields returns the story point fields to try, the
+// configured one first; an unreadable config falls back to the defaults.
+func configuredPointFields() []string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ops.DefaultStoryPointFields
+	}
+	return ops.StoryPointFields(cfg)
 }
 
 // runEdit mutates fields on an existing Jira ticket non-interactively: only
@@ -56,10 +84,10 @@ func runEdit(args []string) {
 	conn := mustConnect()
 	res, err := ops.UpdateTicket(conn, flags.req, flags.dryRun)
 	if errors.Is(err, ops.ErrNothingToUpdate) {
-		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent")
+		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent, -type, -points")
 	}
 	if err != nil {
-		fatal("%v", err)
+		fatal("%s", termsafe.Clean(err.Error()))
 	}
 	reportEditResult(conn, res, flags.json)
 }
@@ -75,6 +103,12 @@ func reportEditResult(conn api.JiraConnection, res ops.UpdateResult, jsonOut boo
 		return
 	}
 	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Edited ticket:"), tui.KeyStyle.Render(res.Key))
+	if res.IssueType != "" {
+		fmt.Printf("Type: %s\n", termsafe.Line(res.IssueType))
+	}
+	if res.PointsField != "" {
+		fmt.Printf("Story points: %v (%s)\n", res.Fields[res.PointsField], res.PointsField)
+	}
 	fmt.Printf("URL: %s\n", res.URL)
 }
 

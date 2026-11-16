@@ -80,7 +80,7 @@ the classic Epic Link field) — no separate `epic add` call needed.
 
 First-class flags do the same as template fields, no template file needed:
 `-project`, `-summary`, `-type`, `-priority`, `-labels`, `-components` (comma-separated), `-assignee`
-(`me`/`unassign`/account ID), `-epic` (same as `parent`) — all override the
+(`me`/`unassign`/name/email/account ID), `-epic` (same as `parent`) — all override the
 template when both are given. `-dry-run` prints the exact JSON body without creating
 anything (plus the epic link step, if `-epic`/`parent` is set); `-json` prints `{key,url,status}` instead of styled text.
 
@@ -121,12 +121,15 @@ jira-thing edit PROJ-123 -priority High -labels bug,urgent
 jira-thing edit PROJ-123 -assignee me
 jira-thing edit PROJ-123 -assignee unassign
 jira-thing edit PROJ-123 -parent PROJ-10
+jira-thing edit PROJ-123 -type Task -points 0.5 -dry-run
 ```
 
 Flags: `-summary`, `-description-file` (markdown file, converted to ADF),
 `-priority`, `-labels` (comma-separated, replaces all existing labels),
-`-assignee` (`me`, `unassign`, or a literal Jira account ID), `-parent`
-(epic/parent key to link to), `-dry-run` (print the payload, change nothing),
+`-assignee` (`me`, `unassign`, a name, an email, or a Jira account ID), `-parent`
+(epic/parent key to link to), `-type` (issue type the edit screen allows; an
+unknown name lists the allowed ones), `-points` (story points, decimals OK),
+`-dry-run` (print the payload, change nothing),
 `-json` (print `{key,url,status}` instead of styled text — parse this, not
 the styled output, when scripting). At least one flag is required.
 
@@ -154,8 +157,82 @@ name reprints the available list instead of a bare error, so a failed guess
 still tells you what to try next.
 
 Flags: `-comment` (markdown, added as part of the transition), `-resolution`
-(e.g. `Fixed`, `Won't Do`), `-assignee` (`me`/`unassign`/account ID, set as
-part of the transition), `-dry-run`.
+(e.g. `Fixed`, `Won't Do`), `-assignee` (`me`/`unassign`/name/email/account
+ID, set as part of the transition), `-dry-run`.
+
+---
+
+### `assign <TICKET-KEY> <WHO> [-dry-run] [-json]` (alias: `as`)
+
+```bash
+jira-thing assign PROJ-123 me
+jira-thing assign PROJ-123 "ada lovelace"     # name or email lookup
+jira-thing assign PROJ-123 unassign
+jira-thing assign PROJ-123 default            # project's default assignee
+```
+
+A name matching several users fails non-interactively and lists each
+candidate's account ID; retry with the right ID (or email). `-assignee` on
+`create`, `edit` and `transition` accepts names and emails the same way.
+
+---
+
+### `list` filters and formats (alias: `ls`)
+
+```bash
+jira-thing list -a me -s "In Progress" -json
+jira-thing list -t Bug -R x -C api -p PROJ -limit 200 -csv -columns key,status,summary
+jira-thing list -created-before -90d -R x -columns key -no-headers   # keys only
+```
+
+`-plain`, `-csv` and `-json` are exclusive; `-columns` alone means `-plain`.
+Filters: `-a -r -y -s -t -R -p -C -l -created -created-before -updated -w -jql`.
+
+---
+
+### `sprint list|add` (alias: `sp`)
+
+```bash
+jira-thing sprint list                         # sprints on the board
+jira-thing sprint list -current -json          # issues in the active sprint
+jira-thing sprint list -next -jql "assignee = currentUser()"
+jira-thing sprint add current PROJ-1 PROJ-2    # also: next, or a sprint ID
+jira-thing sprint add next PROJ-3 -dry-run -json
+```
+
+Board: `-b ID`, else `"board"` in config, else the only sprint board in `-p
+PROJECT`/config `"project"`. Several sprint boards fail with a list; retry
+with `-b`. `-prev` lists the last closed sprint; you can't add to it.
+
+---
+
+### `board list`, `project list`, `release list`
+
+```bash
+jira-thing board list -p PROJ -json            # board IDs for sprint -b
+jira-thing project list -json
+jira-thing release list -p PROJ -unreleased    # -all includes archived
+```
+
+---
+
+### `worklog add`, `delete`, `clone`, `me`
+
+```bash
+jira-thing worklog add PROJ-123 "2h 30m" -comment "pairing"   # alias: wl
+jira-thing delete PROJ-123 -dry-run                           # then -y to delete
+jira-thing delete PROJ-123 -cascade -y                        # with subtasks
+jira-thing clone PROJ-123 -replace web-01:web-02 -dry-run     # -summary/-priority/-assignee/-labels
+jira-thing me                                                 # email, or -json
+```
+
+```bash
+jira-thing watch PROJ-123            # or: unwatch; optional WHO (name/email/ID)
+jira-thing watchers PROJ-123 -json
+```
+
+`delete` asks for confirmation in a terminal and refuses without `-y`
+otherwise; always `-dry-run` first and confirm with the user. All four take `-json`.
 
 ---
 
@@ -185,13 +262,14 @@ jira-thing last-comment PROJ-123
 
 ---
 
-### `describe <TICKET-KEY> [-plain] [-raw]` (alias: `de`)
+### `describe <TICKET-KEY> [-comments N] [-plain] [-raw]` (alias: `de`)
 
 Dump a ticket's full details (key, summary, status, priority, assignee,
 linked tickets, description) as rendered markdown. Linked tickets are listed
 as `<relation> <KEY>: <summary> (<status>)`, e.g. `is blocked by PROJ-9: Upstream (Done)`. `-raw` prints the stored issue fields as
 JSON (including the ADF description) instead — useful for an agent that
-needs the structured value, not prose.
+needs the structured value, not prose. `-comments N` appends the latest N
+comments (max 100); with `-raw` the output becomes `{issue, comments, commentTotal}`.
 
 ```bash
 jira-thing describe PROJ-123

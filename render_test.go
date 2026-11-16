@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -176,4 +179,32 @@ func TestIssuesToTickets_StripsEscapes(t *testing.T) {
 	if got := issuesToTickets(issues)[0].Summary; got != "a[31mb" {
 		t.Errorf("got %q", got)
 	}
+}
+
+func TestRunDescribe_Comments(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/comment") {
+			json.NewEncoder(w).Encode(map[string]any{"total": 9, "comments": []map[string]any{
+				{"author": map[string]any{"displayName": "Ada"}, "created": "2026-11-16T09:30:00.000+0000"},
+			}})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"key": "PROJ-1", "fields": map[string]any{"summary": "S"}})
+	}))
+	defer srv.Close()
+	defer mockCreds(srv.URL)()
+	out := captureStdout(func() { runDescribe([]string{"PROJ-1", "-comments", "3", "-plain"}) })
+	if !strings.Contains(out, "Comments (latest 1 of 9)") || !strings.Contains(out, "Ada") {
+		t.Errorf("out = %s", out)
+	}
+	raw := captureStdout(func() { runDescribe([]string{"PROJ-1", "-comments", "3", "-raw"}) })
+	if !strings.Contains(raw, `"commentTotal": 9`) || !strings.Contains(raw, `"issue"`) {
+		t.Errorf("raw = %s", raw)
+	}
+	captureStderr(func() {
+		if !captureExit(func() { runDescribe([]string{"PROJ-1", "-comments", "101"}) }) {
+			t.Error("expected exit on too many comments")
+		}
+	})
 }

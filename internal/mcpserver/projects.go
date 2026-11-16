@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
+	"jira-thing/internal/ops"
+	"jira-thing/internal/termsafe"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -26,16 +29,16 @@ func listProjectsTool() mcp.Tool {
 
 func handleListProjects(conn api.JiraConnection) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projects, err := api.FetchProjects(conn)
+		projects, err := ops.ListProjects(conn)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching projects: %v", err)), nil
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if len(projects) == 0 {
 			return mcp.NewToolResultText("No projects found."), nil
 		}
 		var sb strings.Builder
 		for _, p := range projects {
-			fmt.Fprintf(&sb, "- %s — %s\n", p.Key, p.Name)
+			fmt.Fprintf(&sb, "- %s — %s\n", termsafe.Line(p.Key), termsafe.Line(p.Name))
 		}
 		return mcp.NewToolResultText(sb.String()), nil
 	}
@@ -45,38 +48,51 @@ func handleListProjects(conn api.JiraConnection) server.ToolHandlerFunc {
 
 func listVersionsTool() mcp.Tool {
 	return mcp.NewTool("list_versions",
-		mcp.WithDescription("List the releases/versions configured on a project"),
+		mcp.WithDescription("List a project's releases/versions, newest release date first. Archived releases are hidden unless include_archived is set."),
 		mcp.WithString("project_key",
-			mcp.Required(),
-			mcp.Description("Jira project key (e.g. PROJ)"),
+			mcp.Description("Jira project key (e.g. PROJ). Default: the configured project"),
+		),
+		mcp.WithBoolean("include_archived",
+			mcp.Description("Also list archived releases"),
+		),
+		mcp.WithBoolean("unreleased_only",
+			mcp.Description("Only list releases not yet released"),
 		),
 	)
 }
 
 func handleListVersions(conn api.JiraConnection) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectKey, err := req.RequireString("project_key")
+		cfg, err := config.Load()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("loading config: %v", err)), nil
+		}
+		filter := ops.ReleaseFilter{
+			Project:         ops.ProjectOrConfig(cfg, req.GetString("project_key", "")),
+			IncludeArchived: req.GetBool("include_archived", false),
+			UnreleasedOnly:  req.GetBool("unreleased_only", false),
+		}
+		versions, err := ops.ListReleases(conn, filter)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		versions, err := api.FetchProjectVersions(conn, projectKey)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("fetching versions for %s: %v", projectKey, err)), nil
-		}
-		if len(versions) == 0 {
-			return mcp.NewToolResultText("No versions found."), nil
-		}
-		var sb strings.Builder
-		for _, v := range versions {
-			status := "unreleased"
-			switch {
-			case v.Archived:
-				status = "archived"
-			case v.Released:
-				status = "released"
-			}
-			fmt.Fprintf(&sb, "- %s (%s)\n", v.Name, status)
-		}
-		return mcp.NewToolResultText(sb.String()), nil
+		return mcp.NewToolResultText(formatReleases(filter.Project, versions)), nil
 	}
+}
+
+// formatReleases lists releases as "- name (status, release date)".
+func formatReleases(project string, versions []api.ProjectVersion) string {
+	if len(versions) == 0 {
+		return fmt.Sprintf("No releases found in %s.", project)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Releases in %s:\n", project)
+	for _, v := range versions {
+		fmt.Fprintf(&sb, "- %s (%s", termsafe.Line(v.Name), ops.ReleaseStatus(v))
+		if v.ReleaseDate != "" {
+			fmt.Fprintf(&sb, ", %s", termsafe.Line(v.ReleaseDate))
+		}
+		sb.WriteString(")\n")
+	}
+	return sb.String()
 }

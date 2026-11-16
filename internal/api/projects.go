@@ -1,64 +1,60 @@
 package api
 
-import "net/http"
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+)
 
 const (
 	ProjectSearchEndpoint = "/rest/api/3/project/search"
 	ProjectEndpoint       = "/rest/api/3/project"
 )
 
-// Project describes a Jira project as returned by GET /rest/api/3/project/search.
-type Project struct {
-	ID   string `json:"id"`
-	Key  string `json:"key"`
-	Name string `json:"name"`
+// projectKeyPattern matches a Jira project key (PROJ) or numeric project ID.
+var projectKeyPattern = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*|[0-9]+)$`)
+
+// ValidateProjectKey rejects anything that isn't a project key or numeric ID,
+// since keys are interpolated into request paths.
+func ValidateProjectKey(key string) error {
+	if !projectKeyPattern.MatchString(key) {
+		return fmt.Errorf("invalid project key %q: expected a key like PROJ", key)
+	}
+	return nil
 }
 
-type projectSearchResponse struct {
-	Values []Project `json:"values"`
+// Project describes a Jira project as returned by GET /rest/api/3/project/search.
+type Project struct {
+	ID             string `json:"id"`
+	Key            string `json:"key"`
+	Name           string `json:"name"`
+	ProjectTypeKey string `json:"projectTypeKey,omitempty"`
+	Style          string `json:"style,omitempty"`
 }
 
 // FetchProjects returns every project the authenticated user can access.
 func FetchProjects(conn JiraConnection) ([]Project, error) {
-	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodGet,
-		Endpoint: conn.BaseURL + ProjectSearchEndpoint,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var result projectSearchResponse
-	if err := executeRequest(req, &result); err != nil {
-		return nil, err
-	}
-	return result.Values, nil
+	return fetchAllPages[Project](conn, conn.BaseURL+ProjectSearchEndpoint, url.Values{})
 }
 
 // ProjectVersion describes a release/version on a project, as returned by
-// GET /rest/api/3/project/{key}/version.
+// GET /rest/api/3/project/{key}/version. Dates are YYYY-MM-DD, empty if unset.
 type ProjectVersion struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Released bool   `json:"released"`
-	Archived bool   `json:"archived"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Released    bool   `json:"released"`
+	Archived    bool   `json:"archived"`
+	Overdue     bool   `json:"overdue,omitempty"`
+	StartDate   string `json:"startDate,omitempty"`
+	ReleaseDate string `json:"releaseDate,omitempty"`
 }
 
-type projectVersionsResponse struct {
-	Values []ProjectVersion `json:"values"`
-}
-
-// FetchProjectVersions returns the releases/versions configured on a project.
+// FetchProjectVersions returns every release/version configured on a project.
 func FetchProjectVersions(conn JiraConnection, projectKey string) ([]ProjectVersion, error) {
-	req, err := newAuthRequest(conn, APIRequest{
-		Method:   http.MethodGet,
-		Endpoint: conn.BaseURL + ProjectEndpoint + "/" + projectKey + "/version",
-	})
-	if err != nil {
+	if err := ValidateProjectKey(projectKey); err != nil {
 		return nil, err
 	}
-	var result projectVersionsResponse
-	if err := executeRequest(req, &result); err != nil {
-		return nil, err
-	}
-	return result.Values, nil
+	endpoint := conn.BaseURL + ProjectEndpoint + "/" + projectKey + "/version"
+	return fetchAllPages[ProjectVersion](conn, endpoint, url.Values{"orderBy": {"-releaseDate"}})
 }

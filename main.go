@@ -27,8 +27,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// storyPointFields lists Jira field names that may hold story points (read-only, for point-check).
-var storyPointFields = []string{"story_points", "customfield_10016", "customfield_10308"}
+// storyPointFields lists the field IDs point-check reads story points from;
+// runPointCheck puts the configured story_points_field first.
+var storyPointFields = ops.DefaultStoryPointFields
 
 // version is set at build time via -ldflags.
 var version = "dev"
@@ -69,12 +70,36 @@ func main() {
 		runList(os.Args[2:])
 	case "state", "sta":
 		runState(os.Args[2:])
+	case "assign", "as":
+		runAssign(os.Args[2:])
 	case "transition", "tr":
 		runTransition(os.Args[2:])
 	case "menu", "m":
 		runMenu()
 	case "epic":
 		runEpic(os.Args[2:])
+	case "sprint", "sp":
+		runSprint(os.Args[2:])
+	case "worklog", "wl":
+		runWorklog(os.Args[2:])
+	case "delete":
+		runDelete(os.Args[2:])
+	case "clone":
+		runClone(os.Args[2:])
+	case "me":
+		runMe(os.Args[2:])
+	case "watch":
+		runWatch(os.Args[2:])
+	case "unwatch":
+		runUnwatch(os.Args[2:])
+	case "watchers":
+		runWatchers(os.Args[2:])
+	case "board":
+		runBoard(os.Args[2:])
+	case "project":
+		runProject(os.Args[2:])
+	case "release":
+		runRelease(os.Args[2:])
 	case "open", "o":
 		runOpen(os.Args[2:])
 	case "update", "up":
@@ -154,6 +179,7 @@ func printUsage() {
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
 		{"list|ls [flags] [-json]", "Search tickets with jira-cli-style filter flags (-a -r -y -s -p -l --created --updated -w)"},
 		{"state|sta [TICKET-KEY]", "TUI to move a ticket to a new state"},
+		{"assign|as <TICKET-KEY> <me|unassign|default|NAME|EMAIL|ID>", "Assign a ticket; an ambiguous name opens a picker (-dry-run, -json)"},
 		{"transition|tr <TICKET-KEY> [STATE] [flags]", "Move a ticket to a new state non-interactively (scriptable); omit STATE to list states"},
 		{"menu|m", "Interactive menu for all ticket operations"},
 		{"epic list [-p PROJECT]", "List every epic in a project"},
@@ -161,11 +187,23 @@ func printUsage() {
 		{"epic create -p P -n N -s S", "Create an epic"},
 		{"epic add <EPIC-KEY> <KEY...>", "Add issues to an epic"},
 		{"epic remove <KEY...>", "Remove issues from their epic"},
+		{"sprint|sp list [-b BOARD] [-p PROJECT] [-state S]", "List a board's sprints (default board: config, else the project's sprint board)"},
+		{"sprint list -current|-prev|-next|-sprint ID [-jql J]", "List the issues in a sprint (-json)"},
+		{"sprint add <current|next|ID> <KEY...>", "Move tickets into a sprint (-dry-run, -json)"},
+		{"worklog|wl add <KEY> <DURATION> [-comment C]", "Log time, e.g. \"2h 30m\" (-dry-run, -json)"},
+		{"delete <KEY> [-cascade] [-y]", "Permanently delete a ticket; asks first unless -y (-dry-run, -json)"},
+		{"clone <KEY> [-summary/-priority/-assignee/-labels] [-replace a:b]", "Copy a ticket, replacing text in summary and description (-dry-run, -json)"},
+		{"me [-json]", "Print your Jira email (or account ID)"},
+		{"watch|unwatch <KEY> [WHO]", "Start or stop watching a ticket; WHO defaults to you (-dry-run, -json)"},
+		{"watchers <KEY>", "List who is watching a ticket (-json)"},
+		{"board list [-p PROJECT]", "List Agile boards (-json)"},
+		{"project list", "List the projects you can browse (-json)"},
+		{"release list [-p PROJECT] [-all] [-unreleased]", "List a project's releases, newest first; archived hidden unless -all (-json)"},
 		{"open|o [TICKET-KEY]", "Open a ticket (or Jira) in the browser"},
 		{"completion <bash|zsh>", "Print a shell completion script"},
 		{"last-comment|lc <TICKET-KEY> [-plain] [-raw]", "Show last comment as markdown"},
 		{"attach|at <TICKET-KEY> <file> | -f a -f b | --stdin --name x", "Attach one or more files, or piped stdin, to a ticket"},
-		{"describe|de <TICKET-KEY> [-plain] [-raw]", "Dump full ticket as rendered markdown"},
+		{"describe|de <TICKET-KEY> [-comments N] [-plain] [-raw]", "Dump full ticket as rendered markdown, with the latest N comments"},
 		{"link-types|lt [-json]", "List the issue link types configured on this Jira instance"},
 		{"link|ln <OUTWARD-KEY> <INWARD-KEY> -type T", "Link two tickets (OUTWARD-KEY <type's outward text> INWARD-KEY, e.g. A blocks B)"},
 		{"unlink|ul <KEY> <OTHER-KEY>", "Remove the link between two tickets"},
@@ -448,10 +486,13 @@ func nestedString(m map[string]any, key1, key2 string) string {
 // and reports which ones are missing story points.
 func runPointCheck() {
 	conn := mustConnect()
+	if cfg, err := config.Load(); err == nil {
+		storyPointFields = ops.StoryPointFields(cfg)
+	}
 	jql := `assignee = currentUser() AND sprint in openSprints() ORDER BY updated DESC`
 	q := api.SearchQuery{
 		JQL:        jql,
-		Fields:     []string{"summary", "status", "priority", "updated", "story_points", "customfield_10016", "customfield_10308"},
+		Fields:     append([]string{"summary", "status", "priority", "updated"}, storyPointFields...),
 		MaxResults: 100,
 	}
 	result, err := api.SearchIssues(conn, q)
@@ -500,10 +541,8 @@ func printPointCheckRow(issue map[string]any) {
 
 // getPointsDisplay returns the story points as a string, or "—" if unset.
 func getPointsDisplay(fields map[string]any) string {
-	for _, field := range storyPointFields {
-		if v, ok := fields[field]; ok && v != nil {
-			return fmt.Sprintf("%v", v)
-		}
+	if v, ok := ops.StoryPoints(fields, storyPointFields); ok {
+		return fmt.Sprintf("%v", v)
 	}
 	return "—"
 }
@@ -522,15 +561,8 @@ func findMissingPoints(issues []map[string]any) []map[string]any {
 // hasStoryPoints checks whether an issue has story points set.
 func hasStoryPoints(issue map[string]any) bool {
 	f, _ := issue["fields"].(map[string]any)
-	if f == nil {
-		return false
-	}
-	for _, field := range storyPointFields {
-		if v, ok := f[field]; ok && v != nil {
-			return true
-		}
-	}
-	return false
+	_, ok := ops.StoryPoints(f, storyPointFields)
+	return ok
 }
 
 // runLastComment fetches and renders the last comment on a Jira ticket.
@@ -554,15 +586,16 @@ func runDescribe(args []string) {
 	fs := flag.NewFlagSet("describe", flag.ExitOnError)
 	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
 	raw := fs.Bool("raw", false, "Print the stored issue fields as raw JSON (incl. ADF description)")
+	comments := fs.Int("comments", 0, fmt.Sprintf("Also show the latest N comments (max %d)", ops.MaxDescribeComments))
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing describe <TICKET-KEY> [-plain] [-raw]")
+		fatal("usage: jira-thing describe <TICKET-KEY> [-comments N] [-plain] [-raw]")
 	}
-	conn := mustConnect()
-	issue, err := api.FetchIssue(conn, fs.Arg(0))
+	res, err := ops.DescribeTicket(mustConnect(), fs.Arg(0), *comments)
 	if err != nil {
-		fatal("fetching issue: %v", err)
+		fatal("%s", termsafe.Clean(err.Error()))
+		return
 	}
-	renderDescribe(issue, *plain, *raw)
+	renderDescribeResult(res, *plain, *raw)
 }
 
 // runUpdate adds a comment to an existing Jira ticket via $EDITOR or stdin.

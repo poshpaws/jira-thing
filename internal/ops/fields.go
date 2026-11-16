@@ -1,10 +1,6 @@
 package ops
 
-import (
-	"fmt"
-
-	"jira-thing/internal/api"
-)
+import "jira-thing/internal/api"
 
 // Assignee argument values with special meaning; anything else is an account ID.
 const (
@@ -13,21 +9,17 @@ const (
 )
 
 // ResolveAssignee turns an assignee argument into the Jira API's assignee
-// field value: "me" resolves to the current user's account ID, "unassign"
-// clears the assignee (nil), and anything else is a literal account ID.
+// field value: "unassign" clears the assignee (nil), and "me", an account ID,
+// a name or an email resolves to that user's account ID (see ResolveUser).
 func ResolveAssignee(conn api.JiraConnection, assignee string) (any, error) {
-	switch assignee {
-	case AssigneeUnassign:
+	if assignee == AssigneeUnassign {
 		return nil, nil
-	case AssigneeMe:
-		self, err := api.FetchMyself(conn)
-		if err != nil {
-			return nil, fmt.Errorf("resolving current user: %w", err)
-		}
-		return map[string]any{"accountId": self["accountId"]}, nil
-	default:
-		return map[string]any{"accountId": assignee}, nil
 	}
+	user, err := ResolveUser(conn, assignee)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"accountId": user.AccountID}, nil
 }
 
 // Components turns component names into the Jira API's component object shape.

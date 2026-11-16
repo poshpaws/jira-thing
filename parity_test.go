@@ -21,6 +21,7 @@ var commandTools = map[string][]string{
 	"my-tasks":      {"my_tasks"},
 	"list":          {"search_tickets"},
 	"transition":    {"list_transitions", "transition_ticket"},
+	"assign":        {"assign_ticket", "search_users"},
 	"update":        {"add_comment"},
 	"edit":          {"update_ticket"},
 	"last-comment":  {"last_comment"},
@@ -40,6 +41,18 @@ var commandTools = map[string][]string{
 	"epic create":   {"create_epic"},
 	"epic add":      {"add_to_epic"},
 	"epic remove":   {"remove_from_epic"},
+	"sprint list":   {"list_sprints", "list_sprint_issues"},
+	"sprint add":    {"add_to_sprint"},
+	"board list":    {"list_boards"},
+	"worklog add":   {"add_worklog"},
+	"delete":        {"delete_ticket"},
+	"clone":         {"clone_ticket"},
+	"me":            {"whoami"},
+	"watch":         {"watch_ticket"},
+	"unwatch":       {"unwatch_ticket"},
+	"watchers":      {"list_watchers"},
+	"project list":  {"list_projects"},
+	"release list":  {"list_versions"},
 	"conf browse":   {"confluence_browse"},
 	"conf upload":   {"confluence_create_page", "confluence_update_page"},
 	"conf export":   {"confluence_export_page"},
@@ -51,12 +64,12 @@ var commandTools = map[string][]string{
 var localOnly = map[string]bool{
 	"version": true, "check-update": true, "self-update": true, "help": true,
 	"completion": true, "clear-auth": true, "serve-mcp": true,
-	"menu": true, "state": true, "open": true, "epic": true, "conf": true,
+	"menu": true, "state": true, "open": true, "epic": true, "conf": true, "sprint": true, "board": true, "project": true, "release": true, "worklog": true,
 }
 
 // dispatchers names the functions whose switch statements define commands,
 // and the prefix their cases are reported under.
-var dispatchers = map[string]string{"main": "", "runEpic": "epic ", "runConf": "conf "}
+var dispatchers = map[string]string{"main": "", "runEpic": "epic ", "runConf": "conf ", "runSprint": "sprint ", "runBoard": "board ", "runProject": "project ", "runRelease": "release ", "runWorklog": "worklog "}
 
 func TestEveryCommandHasMCPTools(t *testing.T) {
 	tools := mcpsrv.NewServer("test", api.JiraConnection{}).ListTools()
@@ -97,7 +110,7 @@ func cliCommands(t *testing.T) []string {
 	t.Helper()
 	fset := token.NewFileSet()
 	var cmds []string
-	for _, file := range []string{"main.go", "epic.go"} {
+	for _, file := range []string{"main.go", "epic.go", "sprint.go", "catalogue.go", "worklog.go"} {
 		f, err := parser.ParseFile(fset, file, nil, 0)
 		if err != nil {
 			t.Fatalf("parsing %s: %v", file, err)
