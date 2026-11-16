@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"jira-thing/internal/api"
 	"jira-thing/internal/config"
 )
 
@@ -114,5 +115,17 @@ func TestCatalogueMenus(t *testing.T) {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in %s", w, out)
 		}
+	}
+}
+
+func TestCataloguePrinters_OneLinePerRecord(t *testing.T) {
+	out := captureStdout(func() {
+		printBoards([]api.Board{{ID: 1, Name: "Team\n  [99] Forged", Type: "scrum"}})
+		printProjects([]api.Project{{Key: "P", Name: "Proj\nX"}})
+		printReleases([]api.ProjectVersion{{Name: "v1\nv2", ReleaseDate: "2026\n"}})
+		printSprints(api.Board{ID: 1}, []api.Sprint{{ID: 2, Name: "S\n  [3] Forged", State: "active\n"}})
+	})
+	if lines := strings.Count(out, "\n"); lines != 4 {
+		t.Errorf("want 4 lines, got %d:\n%s", lines, out)
 	}
 }

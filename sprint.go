@@ -148,7 +148,7 @@ func listSprintIssues(conn api.JiraConnection, f sprintListFlags) {
 		printTicketsJSON(conn, got.Issues)
 		return
 	}
-	fmt.Println(tui.HeadingStyle.Render("Sprint " + termsafe.Clean(sprintTitle(got.Sprint))))
+	fmt.Println(tui.HeadingStyle.Render("Sprint " + termsafe.Line(sprintTitle(got.Sprint))))
 	if len(got.Issues) == 0 {
 		fmt.Println("No issues found.")
 		return
@@ -163,11 +163,11 @@ func printSprints(board api.Board, sprints []api.Sprint) {
 		return
 	}
 	if board.Name != "" {
-		fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Board %d: %s", board.ID, termsafe.Clean(board.Name))))
+		fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Board %d: %s", board.ID, termsafe.Line(board.Name))))
 	}
 	for _, sp := range sprints {
-		fmt.Printf("  %s %s %s %s\n", tui.KeyStyle.Render(fmt.Sprintf("[%d]", sp.ID)), termsafe.Clean(sp.Name),
-			tui.StatusStyle.Render(sp.State), tui.DateStyle.Render(sprintDates(sp)))
+		fmt.Printf("  %s %s %s %s\n", tui.KeyStyle.Render(fmt.Sprintf("[%d]", sp.ID)), termsafe.Line(sp.Name),
+			tui.StatusStyle.Render(termsafe.Line(sp.State)), tui.DateStyle.Render(sprintDates(sp)))
 	}
 }
 
@@ -185,5 +185,5 @@ func sprintDates(sp api.Sprint) string {
 	if len(sp.StartDate) < dateLen || len(sp.EndDate) < dateLen {
 		return ""
 	}
-	return termsafe.Clean(sp.StartDate[:dateLen] + " → " + sp.EndDate[:dateLen])
+	return termsafe.Line(sp.StartDate[:dateLen] + " → " + sp.EndDate[:dateLen])
 }

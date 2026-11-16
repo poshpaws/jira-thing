@@ -129,8 +129,8 @@ func printBoards(boards []api.Board) {
 		return
 	}
 	for _, b := range boards {
-		fmt.Printf("  %s %s %s\n", tui.KeyStyle.Render(fmt.Sprintf("[%d]", b.ID)), termsafe.Clean(b.Name),
-			tui.DateStyle.Render(termsafe.Clean(b.Type)))
+		fmt.Printf("  %s %s %s\n", tui.KeyStyle.Render(fmt.Sprintf("[%d]", b.ID)), termsafe.Line(b.Name),
+			tui.DateStyle.Render(termsafe.Line(b.Type)))
 	}
 }
 
@@ -141,7 +141,7 @@ func printProjects(projects []api.Project) {
 		return
 	}
 	for _, p := range projects {
-		fmt.Printf("  %-12s %s\n", tui.KeyStyle.Render(termsafe.Clean(p.Key)), termsafe.Clean(p.Name))
+		fmt.Printf("  %-12s %s\n", tui.KeyStyle.Render(termsafe.Line(p.Key)), termsafe.Line(p.Name))
 	}
 }
 
@@ -152,7 +152,7 @@ func printReleases(versions []api.ProjectVersion) {
 		return
 	}
 	for _, v := range versions {
-		fmt.Printf("  %s %s %s\n", tui.KeyStyle.Render(termsafe.Clean(v.Name)),
-			tui.StatusStyle.Render(ops.ReleaseStatus(v)), tui.DateStyle.Render(termsafe.Clean(v.ReleaseDate)))
+		fmt.Printf("  %s %s %s\n", tui.KeyStyle.Render(termsafe.Line(v.Name)),
+			tui.StatusStyle.Render(ops.ReleaseStatus(v)), tui.DateStyle.Render(termsafe.Line(v.ReleaseDate)))
 	}
 }

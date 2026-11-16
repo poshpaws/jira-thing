@@ -95,7 +95,7 @@ func retryWithPick[T any](do func(picked *ops.User) (T, error)) (T, error) {
 func pickUser(candidates []ops.User) (ops.User, bool, error) {
 	options := make([]tui.MenuOption, len(candidates))
 	for i, u := range candidates {
-		options[i] = tui.MenuOption{Label: termsafe.Clean(u.DisplayName), Desc: termsafe.Clean(u.Email + " " + u.AccountID)}
+		options[i] = tui.MenuOption{Label: termsafe.Line(u.DisplayName), Desc: termsafe.Line(u.Email + " " + u.AccountID)}
 	}
 	idx, cancelled, err := selectMenuOptionFn("Pick an assignee", options)
 	if err != nil || cancelled {
@@ -119,7 +119,7 @@ func reportAssignResult(res ops.AssignResult, jsonOut bool) {
 		verb = "Dry run: would assign"
 	}
 	fmt.Printf("%s %s to %s\n", tui.SuccessStyle.Render(verb), tui.KeyStyle.Render(res.Key),
-		termsafe.Clean(ops.AssigneeLabel(res.Assignee)))
+		termsafe.Line(ops.AssigneeLabel(res.Assignee)))
 	fmt.Printf("URL: %s\n", res.URL)
 }
 

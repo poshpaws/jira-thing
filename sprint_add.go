@@ -68,7 +68,7 @@ func reportAddToSprint(conn api.JiraConnection, res ops.AddToSprintResult, jsonO
 		return
 	}
 	fmt.Printf("%s %d ticket(s) to sprint %s\n", tui.SuccessStyle.Render("Added"), len(res.Keys),
-		termsafe.Clean(sprintTitle(res.Sprint)))
+		termsafe.Line(sprintTitle(res.Sprint)))
 }
 
 // menuListSprints is the menu's "Sprints" action: list a board's sprints,

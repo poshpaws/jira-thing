@@ -61,7 +61,7 @@ func reportWatch(res ops.WatchResult, watch, jsonOut bool) {
 	if res.Status == ops.StatusDryRun {
 		prefix = tui.HeadingStyle.Render("Dry run:") + " "
 	}
-	fmt.Printf("%s%s %s %s\n", prefix, termsafe.Clean(ops.UserLabel(res.User)),
+	fmt.Printf("%s%s %s %s\n", prefix, termsafe.Line(ops.UserLabel(res.User)),
 		tui.SuccessStyle.Render(ops.WatchVerb(res, watch)), tui.KeyStyle.Render(res.Key))
 }
 
@@ -84,7 +84,7 @@ func runWatchers(args []string) {
 		fmt.Printf("Nobody is watching %s.\n", fs.Arg(0))
 	default:
 		for _, u := range users {
-			fmt.Printf("  %s\n", termsafe.Clean(ops.UserLabel(u)))
+			fmt.Printf("  %s\n", termsafe.Line(ops.UserLabel(u)))
 		}
 	}
 }
