@@ -9,7 +9,7 @@ import (
 	"jira-thing/internal/tui"
 )
 
-const transitionUsage = "usage: jira-thing transition <TICKET-KEY> [STATE] [-comment C] [-resolution R] [-assignee me|unassign|ACCOUNT_ID] [-dry-run]\n" +
+const transitionUsage = "usage: jira-thing transition <TICKET-KEY> [STATE] [-comment C] [-resolution R] [-assignee me|unassign|NAME|EMAIL|ACCOUNT_ID] [-dry-run]\n" +
 	"  omit STATE to list the states available from the ticket's current status"
 
 // transitionFlags holds runTransition's parsed flags and positional arguments.
@@ -27,7 +27,7 @@ func parseTransitionFlags(args []string) transitionFlags {
 	fs := flag.NewFlagSet("transition", flag.ExitOnError)
 	comment := fs.String("comment", "", "Optional comment (markdown) to add as part of the transition")
 	resolution := fs.String("resolution", "", `Optional resolution name (e.g. "Fixed", "Won't Do")`)
-	assignee := fs.String("assignee", "", `Optional assignee to set: "me", "unassign", or a Jira account ID`)
+	assignee := fs.String("assignee", "", `Optional assignee to set: "me", "unassign", a name, an email, or a Jira account ID`)
 	dryRun := fs.Bool("dry-run", false, "Show the resolved transition without applying it")
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal(transitionUsage)

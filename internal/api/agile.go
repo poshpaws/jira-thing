@@ -6,11 +6,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 // AgileBoardEndpoint and friends live under a separate base path (/rest/agile/1.0)
 // from the rest of the Jira REST API.
 const AgileBoardEndpoint = "/rest/agile/1.0/board"
+
+// MaxSprintIssues is the most issues Jira accepts in one move-to-sprint call.
+const MaxSprintIssues = 50
+
+// sprintIssueLimit caps the issues fetched for one sprint.
+const sprintIssueLimit = 100
+
+// sprintIssueFields are the issue fields the sprint issue list asks for.
+const sprintIssueFields = "summary,status,priority,updated,assignee,issuetype"
 
 // Board describes a Jira Agile board.
 type Board struct {
@@ -19,63 +29,46 @@ type Board struct {
 	Type string `json:"type"`
 }
 
-type boardSearchResponse struct {
-	Values []Board `json:"values"`
-}
-
-// FetchBoards returns the Agile boards visible to the user, optionally filtered
-// to a single project.
+// FetchBoards returns every Agile board visible to the user, optionally
+// filtered to a single project.
 func FetchBoards(conn JiraConnection, projectKey string) ([]Board, error) {
-	endpoint := conn.BaseURL + AgileBoardEndpoint
+	params := url.Values{}
 	if projectKey != "" {
-		endpoint += "?projectKeyOrId=" + projectKey
+		params.Set("projectKeyOrId", projectKey)
 	}
-	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
-	if err != nil {
-		return nil, err
-	}
-	var result boardSearchResponse
-	if err := executeRequest(req, &result); err != nil {
-		return nil, err
-	}
-	return result.Values, nil
+	return fetchAllPages[Board](conn, conn.BaseURL+AgileBoardEndpoint, params)
 }
 
-// Sprint describes a sprint on an Agile board.
+// Sprint describes a sprint on an Agile board. Dates are ISO 8601 strings and
+// are empty until the sprint is started (or, for CompleteDate, closed).
 type Sprint struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	StartDate    string `json:"startDate,omitempty"`
+	EndDate      string `json:"endDate,omitempty"`
+	CompleteDate string `json:"completeDate,omitempty"`
+	Goal         string `json:"goal,omitempty"`
 }
 
-type sprintSearchResponse struct {
-	Values []Sprint `json:"values"`
-}
-
-// FetchSprints returns the sprints on a board, optionally filtered by state
-// (comma-separated: "active", "future", "closed").
+// FetchSprints returns every sprint on a board, oldest first, optionally
+// filtered by state (comma-separated: "active", "future", "closed").
 func FetchSprints(conn JiraConnection, boardID int, state string) ([]Sprint, error) {
-	endpoint := fmt.Sprintf("%s%s/%d/sprint", conn.BaseURL, AgileBoardEndpoint, boardID)
+	params := url.Values{}
 	if state != "" {
-		endpoint += "?state=" + state
+		params.Set("state", state)
 	}
-	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
-	if err != nil {
-		return nil, err
-	}
-	var result sprintSearchResponse
-	if err := executeRequest(req, &result); err != nil {
-		return nil, err
-	}
-	return result.Values, nil
+	return fetchAllPages[Sprint](conn, fmt.Sprintf("%s%s/%d/sprint", conn.BaseURL, AgileBoardEndpoint, boardID), params)
 }
 
-// FetchSprintIssues returns the issues in a sprint, optionally narrowed by a JQL filter.
+// FetchSprintIssues returns up to 100 issues in a sprint, optionally narrowed
+// by a JQL filter.
 func FetchSprintIssues(conn JiraConnection, sprintID int, jql string) (SearchResult, error) {
-	endpoint := fmt.Sprintf("%s/rest/agile/1.0/sprint/%d/issue", conn.BaseURL, sprintID)
+	params := url.Values{"fields": {sprintIssueFields}, "maxResults": {strconv.Itoa(sprintIssueLimit)}}
 	if jql != "" {
-		endpoint += "?jql=" + url.QueryEscape(jql)
+		params.Set("jql", jql)
 	}
+	endpoint := fmt.Sprintf("%s/rest/agile/1.0/sprint/%d/issue?%s", conn.BaseURL, sprintID, params.Encode())
 	req, err := newAuthRequest(conn, APIRequest{Method: http.MethodGet, Endpoint: endpoint})
 	if err != nil {
 		return SearchResult{}, err
@@ -84,8 +77,13 @@ func FetchSprintIssues(conn JiraConnection, sprintID int, jql string) (SearchRes
 	return result, executeRequest(req, &result)
 }
 
-// AddIssuesToSprint moves up to 50 issues into a sprint.
+// AddIssuesToSprint moves up to MaxSprintIssues issues into a sprint.
 func AddIssuesToSprint(conn JiraConnection, sprintID int, issueKeys []string) error {
+	for _, key := range issueKeys {
+		if err := ValidateIssueKey(key); err != nil {
+			return err
+		}
+	}
 	payload, err := json.Marshal(map[string]any{"issues": issueKeys})
 	if err != nil {
 		return err

@@ -23,3 +23,15 @@ func TestClean(t *testing.T) {
 		}
 	}
 }
+
+func TestLine(t *testing.T) {
+	if got := Line("v1\n- [99] Injected\t\x1b[31mred"); got != "v1 - [99] Injected [31mred" {
+		t.Errorf("Line = %q", got)
+	}
+}
+
+func TestLines(t *testing.T) {
+	if got := Lines([]string{"a\nb", "c"}); len(got) != 2 || got[0] != "a b" || got[1] != "c" {
+		t.Errorf("Lines = %q", got)
+	}
+}

@@ -47,153 +47,88 @@ func TestRunList_JSONEmptyResultIsEmptyArray(t *testing.T) {
 	}
 }
 
-func TestBuildListJQL_Empty(t *testing.T) {
-	got := buildListJQL(listFilters{})
-	want := "ORDER BY created DESC"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+// listServer returns two issues and records the last search body.
+func listServer(t *testing.T, body *map[string]any) {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(body)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"isLast": true, "issues": []map[string]any{
+			{"key": "PROJ-1", "fields": map[string]any{"summary": "=HYPERLINK(\"x\")", "status": map[string]any{"name": "Open"},
+				"issuetype": map[string]any{"name": "Bug"}, "updated": "2026-11-16T09:00:00.000+0000"}},
+			{"key": "PROJ-2", "fields": map[string]any{"summary": "Second, with comma", "status": map[string]any{"name": "Done"}}},
+		}})
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(mockCreds(srv.URL))
+}
+
+func TestRunList_Formats(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+		not  []string
+	}{
+		{"plain default columns", []string{"-plain"}, []string{"KEY", "TYPE", "PROJ-1", "Bug", "2026-11-16"}, nil},
+		{"plain no headers", []string{"-plain", "-no-headers", "-columns", "key,status"}, []string{"PROJ-1  Open"}, []string{"KEY"}},
+		{"columns alone is plain", []string{"-columns", "key"}, []string{"KEY\nPROJ-1\nPROJ-2"}, nil},
+		{"csv", []string{"-csv", "-columns", "key,summary"}, []string{"KEY,SUMMARY", `PROJ-1,"'=HYPERLINK(""x"")"`, `PROJ-2,"Second, with comma"`}, nil},
+		{"json columns", []string{"-json", "-columns", "key,status"}, []string{`{"key":"PROJ-1","status":"Open"}`}, []string{"summary"}},
+		{"styled", nil, []string{"Found 2 ticket(s)", "PROJ-2"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body map[string]any
+			listServer(t, &body)
+			out := captureStdout(func() { runList(tt.args) })
+			for _, w := range tt.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("missing %q in:\n%s", w, out)
+				}
+			}
+			for _, n := range tt.not {
+				if strings.Contains(out, n) {
+					t.Errorf("unexpected %q in:\n%s", n, out)
+				}
+			}
+		})
 	}
 }
 
-func TestBuildListJQL_AssigneeMe(t *testing.T) {
-	got := buildListJQL(listFilters{assignee: "me"})
-	if !strings.Contains(got, "assignee = currentUser()") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_AssigneeUnassigned(t *testing.T) {
-	got := buildListJQL(listFilters{assignee: "x"})
-	if !strings.Contains(got, "assignee is EMPTY") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_AssigneeNotUnassigned(t *testing.T) {
-	got := buildListJQL(listFilters{assignee: "~x"})
-	if !strings.Contains(got, "assignee is not EMPTY") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_AssigneeName(t *testing.T) {
-	got := buildListJQL(listFilters{assignee: "Jon Doe"})
-	if !strings.Contains(got, `assignee = "Jon Doe"`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_AssigneeNegatedName(t *testing.T) {
-	got := buildListJQL(listFilters{assignee: "~Jon Doe"})
-	if !strings.Contains(got, `assignee != "Jon Doe"`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_ReporterMe(t *testing.T) {
-	got := buildListJQL(listFilters{reporter: "me"})
-	if !strings.Contains(got, "reporter = currentUser()") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_PriorityAndStatus(t *testing.T) {
-	got := buildListJQL(listFilters{priority: "High", status: "In Progress"})
-	if !strings.Contains(got, `priority = "High"`) || !strings.Contains(got, `status = "In Progress"`) {
-		t.Errorf("got %q", got)
-	}
-	if !strings.Contains(got, " AND ") {
-		t.Errorf("expected clauses AND-ed together, got %q", got)
-	}
-}
-
-func TestBuildListJQL_NegatedStatus(t *testing.T) {
-	got := buildListJQL(listFilters{status: "~Done"})
-	if !strings.Contains(got, `status != "Done"`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_Project(t *testing.T) {
-	got := buildListJQL(listFilters{project: "PROJ"})
-	if !strings.Contains(got, `project = "PROJ"`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_Labels(t *testing.T) {
-	got := buildListJQL(listFilters{labels: []string{"backend", "urgent"}})
-	if !strings.Contains(got, `labels in ("backend", "urgent")`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_CreatedRelative(t *testing.T) {
-	got := buildListJQL(listFilters{created: "-7d"})
-	if !strings.Contains(got, "created >= -7d") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_CreatedKeyword(t *testing.T) {
-	got := buildListJQL(listFilters{created: "week"})
-	if !strings.Contains(got, "created >= startOfWeek()") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_CreatedAbsolute(t *testing.T) {
-	got := buildListJQL(listFilters{created: "2026-01-01"})
-	if !strings.Contains(got, `created >= "2026-01-01"`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_Updated(t *testing.T) {
-	got := buildListJQL(listFilters{updated: "-30m"})
-	if !strings.Contains(got, "updated >= -30m") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_Watching(t *testing.T) {
-	got := buildListJQL(listFilters{watching: true})
-	if !strings.Contains(got, "watcher = currentUser()") {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_RawJQLAppended(t *testing.T) {
-	got := buildListJQL(listFilters{jql: `summary ~ "cli"`})
-	if !strings.Contains(got, `(summary ~ "cli")`) {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestBuildListJQL_OrderByAndReverse(t *testing.T) {
-	got := buildListJQL(listFilters{orderBy: "rank", reverse: true})
-	want := "ORDER BY rank ASC"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestBuildListJQL_AllFiltersCombined(t *testing.T) {
-	got := buildListJQL(listFilters{
-		assignee: "me",
-		priority: "High",
-		status:   "In Progress",
-		labels:   []string{"backend"},
+func TestRunList_NewFiltersAndLimit(t *testing.T) {
+	var body map[string]any
+	listServer(t, &body)
+	captureStdout(func() {
+		runList([]string{"-t", "Bug", "-R", "x", "-C", "api", "-created-before", "month", "-limit", "7", "-json"})
 	})
-	for _, want := range []string{
-		"assignee = currentUser()",
-		`priority = "High"`,
-		`status = "In Progress"`,
-		`labels in ("backend")`,
-		"ORDER BY created DESC",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("expected %q in %q", want, got)
+	jql, _ := body["jql"].(string)
+	for _, w := range []string{`issuetype = "Bug"`, "resolution is EMPTY", `component in ("api")`, "created < startOfMonth()"} {
+		if !strings.Contains(jql, w) {
+			t.Errorf("missing %q in %q", w, jql)
+		}
+	}
+	if body["maxResults"] != 7.0 {
+		t.Errorf("maxResults = %v", body["maxResults"])
+	}
+}
+
+func TestRunList_Rejects(t *testing.T) {
+	for _, args := range [][]string{{"-json", "-csv"}, {"-columns", "bogus"}, {"-limit", "5000"}, {"stray"}, {"-order-by", "a b"}} {
+		var body map[string]any
+		listServer(t, &body)
+		captureStderr(func() {
+			if !captureExit(func() { runList(args) }) {
+				t.Errorf("%v: expected exit", args)
+			}
+		})
+	}
+}
+
+func TestCSVSafe(t *testing.T) {
+	for in, want := range map[string]string{"=1+1": "'=1+1", "+x": "'+x", "-2": "'-2", "@a": "'@a", "plain": "plain", "": ""} {
+		if got := csvSafe(in); got != want {
+			t.Errorf("csvSafe(%q) = %q", in, got)
 		}
 	}
 }

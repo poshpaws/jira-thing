@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"jira-thing/internal/api"
 	"jira-thing/internal/config"
 	"jira-thing/internal/ops"
+	"jira-thing/internal/termsafe"
 	"jira-thing/internal/tui"
 )
 
@@ -91,6 +91,8 @@ func menuActions() []menuAction {
 		{"Create Ticket", "Create a ticket from a template", func(api.JiraConnection) { runCreate(nil) }},
 		{"Change State", "Move a ticket to a new workflow state", func(api.JiraConnection) { runState(nil) }},
 		{"Update Fields", "Edit summary, priority, labels, or assignee", menuUpdateFields},
+		{"Assign Ticket", "Assign a ticket by name, email or account ID", menuAssign},
+		{"Watch / Unwatch", "Start or stop watching a ticket yourself", menuWatch},
 		{"Add Comment", "Add a comment to a ticket", menuAddComment},
 		{"Add Worklog", "Log time spent against a ticket", menuAddWorklog},
 		{"Attach File", "Attach a local file to a ticket", menuAttach},
@@ -101,6 +103,7 @@ func menuActions() []menuAction {
 		{"Delete Ticket", "Permanently delete a ticket", menuDeleteTicket},
 		{"Boards", "List Agile boards", menuListBoards},
 		{"Sprints", "List sprints on a board and their issues", menuListSprints},
+		{"Add to Sprint", "Move tickets into the current, next or a numbered sprint", menuAddToSprint},
 		{"Projects", "List accessible projects", menuListProjects},
 		{"Releases", "List a project's releases/versions", menuListVersions},
 		{"List Epics", "List every epic in a project", menuListEpics},
@@ -257,13 +260,16 @@ func menuDescribe(conn api.JiraConnection) {
 		fmt.Println("Cancelled.")
 		return
 	}
-	issue, err := api.FetchIssue(conn, key)
+	res, err := ops.DescribeTicket(conn, key, menuDescribeComments)
 	if err != nil {
-		printMenuErr("fetching %s: %v", key, err)
+		printMenuErr("%s", termsafe.Clean(err.Error()))
 		return
 	}
-	renderDescribe(issue, false, false)
+	renderDescribeResult(res, false, false)
 }
+
+// menuDescribeComments is how many recent comments the menu's describe shows.
+const menuDescribeComments = 5
 
 func menuUpdateFields(conn api.JiraConnection) {
 	key := pickTicketKey(conn, "Ticket key: ")
@@ -308,25 +314,6 @@ func menuAddComment(conn api.JiraConnection) {
 		return
 	}
 	fmt.Printf("Comment added to %s\n", key)
-}
-
-func menuAddWorklog(conn api.JiraConnection) {
-	key := pickTicketKey(conn, "Ticket key: ")
-	if key == "" {
-		fmt.Println("Cancelled.")
-		return
-	}
-	timeSpent := promptLine("Time spent (e.g. 2h, 1d 3h): ")
-	if timeSpent == "" {
-		printMenuErr("time spent is required")
-		return
-	}
-	comment := promptLine("Comment (blank to skip): ")
-	if err := ops.LogWork(conn, ops.WorklogRequest{Key: key, TimeSpent: timeSpent, Comment: comment}); err != nil {
-		printMenuErr("%v", err)
-		return
-	}
-	fmt.Printf("Logged %s on %s\n", timeSpent, key)
 }
 
 func menuAttach(conn api.JiraConnection) {
@@ -415,118 +402,6 @@ func menuUnlinkTickets(conn api.JiraConnection) {
 		return
 	}
 	fmt.Printf("Unlinked %s from %s\n", key, other)
-}
-
-func menuCloneTicket(conn api.JiraConnection) {
-	sourceKey := pickTicketKey(conn, "Source ticket key: ")
-	if sourceKey == "" {
-		fmt.Println("Cancelled.")
-		return
-	}
-	summary := promptLine("Summary (blank for default): ")
-	res, err := ops.CloneTicket(conn, ops.CloneRequest{SourceKey: sourceKey, Summary: summary})
-	if err != nil {
-		printMenuErr("%v", err)
-		return
-	}
-	fmt.Printf("Cloned %s -> %s\n", res.SourceKey, res.Key)
-}
-
-func menuDeleteTicket(conn api.JiraConnection) {
-	key := pickTicketKey(conn, "Ticket key to delete: ")
-	if key == "" {
-		fmt.Println("Cancelled.")
-		return
-	}
-	if !promptConfirm(fmt.Sprintf("Permanently delete %s?", key)) {
-		fmt.Println("Cancelled.")
-		return
-	}
-	cascade := promptConfirm("Also delete its subtasks?")
-	if err := ops.DeleteTicket(conn, key, cascade); err != nil {
-		printMenuErr("%v", err)
-		return
-	}
-	fmt.Printf("Deleted %s\n", key)
-}
-
-func menuListBoards(conn api.JiraConnection) {
-	projectKey := promptLine("Project key (blank for all): ")
-	boards, err := api.FetchBoards(conn, projectKey)
-	if err != nil {
-		printMenuErr("fetching boards: %v", err)
-		return
-	}
-	if len(boards) == 0 {
-		fmt.Println("No boards found.")
-		return
-	}
-	for _, b := range boards {
-		fmt.Printf("  [%d] %s (%s)\n", b.ID, b.Name, b.Type)
-	}
-}
-
-func menuListSprints(conn api.JiraConnection) {
-	boardIDStr := promptLine("Board ID: ")
-	boardID, err := strconv.Atoi(boardIDStr)
-	if err != nil {
-		printMenuErr("invalid board ID: %v", err)
-		return
-	}
-	sprints, err := api.FetchSprints(conn, boardID, "")
-	if err != nil {
-		printMenuErr("fetching sprints: %v", err)
-		return
-	}
-	if len(sprints) == 0 {
-		fmt.Println("No sprints found.")
-		return
-	}
-	for _, sp := range sprints {
-		fmt.Printf("  [%d] %s (%s)\n", sp.ID, sp.Name, sp.State)
-	}
-	sprintIDStr := promptLine("View issues in sprint ID (blank to skip): ")
-	if sprintIDStr == "" {
-		return
-	}
-	sprintID, err := strconv.Atoi(sprintIDStr)
-	if err != nil {
-		printMenuErr("invalid sprint ID: %v", err)
-		return
-	}
-	result, err := api.FetchSprintIssues(conn, sprintID, "")
-	if err != nil {
-		printMenuErr("fetching sprint issues: %v", err)
-		return
-	}
-	printTasks(result.Issues)
-}
-
-func menuListProjects(conn api.JiraConnection) {
-	projects, err := api.FetchProjects(conn)
-	if err != nil {
-		printMenuErr("fetching projects: %v", err)
-		return
-	}
-	for _, p := range projects {
-		fmt.Printf("  %s — %s\n", p.Key, p.Name)
-	}
-}
-
-func menuListVersions(conn api.JiraConnection) {
-	projectKey := promptLine("Project key: ")
-	versions, err := api.FetchProjectVersions(conn, projectKey)
-	if err != nil {
-		printMenuErr("fetching versions: %v", err)
-		return
-	}
-	if len(versions) == 0 {
-		fmt.Println("No versions found.")
-		return
-	}
-	for _, v := range versions {
-		fmt.Printf("  %s (released: %v)\n", v.Name, v.Released)
-	}
 }
 
 func menuListEpics(conn api.JiraConnection) {

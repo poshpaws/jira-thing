@@ -46,7 +46,7 @@ func parseCreateFlags(args []string) createFlags {
 	priority := fs.String("priority", "", "Priority name (e.g. High, Medium, Low) — overrides the template")
 	labels := fs.String("labels", "", "Comma-separated labels — overrides the template")
 	components := fs.String("components", "", "Comma-separated component names — overrides the template")
-	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", or a Jira account ID`)
+	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", a name, an email, or a Jira account ID`)
 	epic := fs.String("epic", "", "Epic/parent ticket key to link this ticket to — overrides the template")
 	nonInteractive := fs.Bool("non-interactive", false, "Fail instead of prompting for missing required fields")
 	fs.BoolVar(nonInteractive, "y", false, "Alias for -non-interactive")

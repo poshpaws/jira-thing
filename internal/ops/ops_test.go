@@ -209,7 +209,8 @@ func TestResolveAssignee(t *testing.T) {
 	}{
 		{AssigneeUnassign, nil},
 		{AssigneeMe, "acc-me"},
-		{"acc-999", "acc-999"},
+		{"5b10ac8d82e05b22cc7d4ef5", "5b10ac8d82e05b22cc7d4ef5"},
+		{"557058:f58131cb-b67d-43c7-b30d-6b58d40bd077", "557058:f58131cb-b67d-43c7-b30d-6b58d40bd077"},
 	}
 	for _, tt := range tests {
 		got, err := ResolveAssignee(conn, tt.arg)

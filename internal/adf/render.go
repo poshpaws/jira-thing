@@ -173,8 +173,7 @@ func renderTableCells(row map[string]any) []string {
 // adfMention extracts the display name from an ADF mention node.
 func adfMention(node map[string]any) string {
 	attrs, _ := node["attrs"].(map[string]any)
-	name, _ := attrs["text"].(string)
-	return "@" + name
+	return "@" + strings.TrimPrefix(getString(attrs, "text"), "@")
 }
 
 // getString returns m[key] as a string, or "" if absent or not a string.

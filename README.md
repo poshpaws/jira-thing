@@ -116,6 +116,8 @@ jira-thing clear-auth
 ```json
 {
   "project": "PROJ",
+  "board": 42,
+  "story_points_field": "customfield_10016",
   "toil_marker": "TOIL_LABEL",
   "toil_team": "Team-Name",
   "team": "c4cb9231-6ac0-44e7-bd76-64331a96af81",
@@ -130,7 +132,9 @@ jira-thing clear-auth
 
 | Field | Used by | Description |
 |---|---|---|
-| `project` | `toil-check`, `toil-sync` | Jira project key (e.g. `PROJ`) |
+| `project` | `toil-check`, `toil-sync`, `epic list`, `sprint` | Jira project key (e.g. `PROJ`) |
+| `board` | `sprint` | Agile board ID for sprint commands. Default: the project's only sprint board |
+| `story_points_field` | `edit -points`, `point-check` | Story point custom field ID, tried before `customfield_10016` and `customfield_10308`. Find it with `diagnose -find-field "story point"` |
 | `toil_marker` | `toil-check`, `toil-sync` | Label that identifies toil tickets |
 | `toil_team` | `toil-check`, `toil-sync` | Legacy team label filter (used when `use_team_field` is false) |
 | `team` | `toil-check`, `toil-sync` | Jira Team field UUID (used when `use_team_field` is true) |
@@ -186,7 +190,7 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-priority` | — | Priority name (e.g. `High`, `Medium`, `Low`) — overrides the template |
 | `-labels` | — | Comma-separated labels — overrides the template |
 | `-components` | — | Comma-separated component names — overrides the template |
-| `-assignee` | — | `me`, `unassign`, or a literal Jira account ID |
+| `-assignee` | — | `me`, `unassign`, a name or email (must match one user), or a Jira account ID |
 | `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
 | `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. If an epic/parent is set, also prints the link step that runs right after the create. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
 | `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
@@ -269,8 +273,10 @@ jira-thing edit <TICKET-KEY> [flags]
 | `-description-file` | Path to a markdown file for the new description (replaces the existing one) |
 | `-priority` | New priority name (e.g. High, Medium, Low) |
 | `-labels` | Comma-separated labels — replaces all existing labels |
-| `-assignee` | `me`, `unassign`, or a literal Jira account ID |
+| `-assignee` | `me`, `unassign`, a name or email (must match one user), or a Jira account ID |
 | `-parent` | Epic/parent ticket key to link this ticket to |
+| `-type` | New issue type, matched case-insensitively. Only types the ticket's edit screen allows; an unknown name lists them. Types with a different workflow or screen need **Move** in Jira |
+| `-points` | Story points, e.g. `3` or `0.5`. Written to `story_points_field` from config if it's on the ticket's edit screen, else the first of `customfield_10016`, `customfield_10308` that is |
 | `-dry-run` | Print the resolved payload (method, URL, JSON body) and exit — nothing is changed |
 | `-json` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 
@@ -285,6 +291,7 @@ jira-thing edit PROJ-99 -priority High -labels bug,urgent -assignee me
 
 jira-thing edit PROJ-99 -priority High -dry-run   # preview, change nothing
 jira-thing edit PROJ-99 -priority High -json      # {"key":"PROJ-99","url":"https://...","status":"edited"}
+jira-thing edit PROJ-99 -type Task -points 0.5    # Bug → Task, half a point
 ```
 
 ---
@@ -359,7 +366,7 @@ Omit `STATE` to list the states available from the ticket's current status inste
 |---|---|
 | `-comment` | Optional comment (markdown) to add as part of the transition |
 | `-resolution` | Optional resolution name (e.g. `Fixed`, `Won't Do`) |
-| `-assignee` | Optional assignee to set during the transition: `me`, `unassign`, or a Jira account ID |
+| `-assignee` | Optional assignee to set during the transition: `me`, `unassign`, a name, an email, or a Jira account ID |
 | `-dry-run` | Print the resolved payload and exit — nothing is changed |
 
 State names match case-insensitively. An unrecognised state prints the available list instead of a bare error.
@@ -374,6 +381,34 @@ jira-thing transition PROJ-101          # no STATE given — lists available sta
 
 jira-thing tr PROJ-101 done -resolution Fixed
 # Moved PROJ-101 to Done
+```
+
+---
+
+### `assign` — assign a ticket by name, email or account ID
+
+```bash
+jira-thing assign <TICKET-KEY> <me|unassign|default|NAME|EMAIL|ACCOUNT_ID> [-dry-run] [-json]
+```
+
+| Assignee | Meaning |
+|---|---|
+| `me` | The authenticated user |
+| `unassign` | Clear the assignee |
+| `default` | The project's default assignee |
+| a name or email | Looked up among active users; an exact name or email match wins over partial ones |
+| an account ID | Used as-is, with no lookup |
+
+A name that matches several people opens a picker in a terminal. In scripts (stdin or stdout not a terminal) it fails instead, listing each candidate's account ID to retry with. `-assignee` on `create`, `edit` and `transition` accepts names and emails the same way, without the picker.
+
+**Example:**
+
+```bash
+jira-thing assign PROJ-101 "ada lovelace"
+# Assigned PROJ-101 to Ada Lovelace <ada@example.com> (5b10ac8d82e05b22cc7d4ef5)
+
+jira-thing as PROJ-101 unassign -json
+# {"key":"PROJ-101","url":"https://...","status":"assigned","accountId":""}
 ```
 
 ---
@@ -425,15 +460,26 @@ jira-thing list [flags]
 | `-r` | Reporter: same shorthand as `-a` |
 | `-y` | Priority name, or `~name` to exclude |
 | `-s` | Status name, or `~name` to exclude |
+| `-t` | Issue type name, or `~name` to exclude |
+| `-R` | Resolution name; `x` for unresolved, `~x` for resolved |
 | `-p` | Project key |
+| `-C` | Component (repeatable; matches any) |
 | `-l` | Label (repeatable: `-l backend -l urgent`) |
-| `--created` | Created-date filter: relative (`-7d`), keyword (`day`/`week`/`month`/`year`), or absolute (`2026-01-01`) |
+| `--created` | Created on or after: relative (`-7d`), keyword (`day`/`week`/`month`/`year`, meaning the start of the current one), or absolute (`2026-01-01`) |
+| `--created-before` | Created before, same formats |
 | `--updated` | Same format as `--created`, filtered on the updated date |
 | `-w` | Only tickets you're watching |
 | `-jql` | Raw JQL, AND-ed in alongside the flags above |
 | `--order-by` | Sort field (default `created`) |
 | `--reverse` | Sort ascending instead of descending |
-| `-json` | Print matching tickets as a JSON array instead of styled text — `[]` on no matches, never prose, so scripts don't need a special case |
+| `-limit` | Most tickets to return (default 100, max 1000; pages through Jira's results) |
+| `-json` | Print matching tickets as a JSON array instead of styled text — `[]` on no matches, never prose, so scripts don't need a special case. With `-columns`, each object holds just those columns |
+| `-plain` | Tab-aligned table with no colours, for reading or `cut`/`awk` |
+| `-csv` | CSV. Cells starting with `=`, `+`, `-` or `@` get a leading `'` so a spreadsheet won't run ticket text as a formula |
+| `-columns` | Comma-separated columns for `-plain`/`-csv`/`-json`: `key`, `summary`, `status`, `priority`, `type`, `assignee`, `reporter`, `resolution`, `labels`, `components`, `created`, `updated`, `url`. Alone, it implies `-plain`. Default: `key,type,status,priority,assignee,updated,summary` |
+| `-no-headers` | Leave out the header row in `-plain` and `-csv` |
+
+A `-jql` with its own `ORDER BY` and no other flags is sent unchanged; otherwise the flags are AND-ed with it and `--order-by` sets the sort.
 
 **Examples:**
 
@@ -449,6 +495,12 @@ jira-thing list -w -p PROJ --reverse
 
 # Scripted: JSON array of key/url/summary/status/priority/updated
 jira-thing list -a me -s"In Progress" -json
+
+# Unresolved bugs in the api component, as CSV for a spreadsheet
+jira-thing list -t Bug -R x -C api -csv -columns key,status,assignee,summary
+
+# Keys only, for a loop
+jira-thing list -p PROJ -created-before -90d -R x -columns key -no-headers -limit 500
 ```
 
 ---
@@ -471,6 +523,98 @@ jira-thing epic remove <ISSUE-1> [ISSUE-2 ...]           # remove issues from th
 
 ---
 
+### `sprint` — sprints and their issues (alias: `sp`)
+
+```bash
+jira-thing sprint list                          # sprints on the board, oldest first
+jira-thing sprint list -state active,future     # only open sprints
+jira-thing sprint list -current                 # issues in the active sprint
+jira-thing sprint list -prev -jql "assignee = currentUser()"
+jira-thing sprint list -sprint 1234 -json       # issues in sprint 1234, as JSON
+jira-thing sprint add current PROJ-1 PROJ-2     # move tickets into the active sprint
+jira-thing sprint add next PROJ-3 -dry-run      # show the request, move nothing
+```
+
+The board comes from `-b BOARD`, then `"board"` in config, then the only sprint board in `-p PROJECT` (default: config's `"project"`). A project with several sprint boards fails with a list of them; pass `-b` or set `"board"`. "Sprint board" means any board that isn't kanban: company-managed scrum boards and team-managed boards alike.
+
+`-current` is the active sprint (the latest started, if several are active), `-prev` the last closed sprint and `-next` the first future one. `sprint add` takes `current`, `next` or a sprint ID, and sends more than 50 keys in batches. `-json` prints `{sprintId, sprintName, keys, status}`.
+
+---
+
+### `board list`, `project list`, `release list` — what's there
+
+```bash
+jira-thing board list                    # every Agile board you can see
+jira-thing board list -p PROJ            # one project's boards (find the ID for "board" in config)
+jira-thing project list                  # every project you can browse
+jira-thing release list                  # config's project, newest release date first
+jira-thing release list -p PROJ -unreleased
+jira-thing release list -all -json       # include archived releases, as JSON
+```
+
+All three page through Jira's results, so long lists aren't cut off at 50. `release list` hides archived releases unless you pass `-all`, and labels each one `unreleased`, `overdue`, `released` or `archived`. Each command prints the raw Jira records with `-json`.
+
+---
+
+### `worklog add` — log time (alias: `wl`)
+
+```bash
+jira-thing worklog add PROJ-101 "2h 30m"
+jira-thing wl add PROJ-101 1d 4h -comment "Migration **dry run** with ops"
+jira-thing wl add PROJ-101 45m -dry-run       # check the duration, log nothing
+```
+
+The duration uses Jira's units (`w`, `d`, `h`, `m`, decimals allowed) and is checked before anything is sent. It can be quoted or given as separate words. `-comment` takes markdown. `-json` prints `{key, url, status, timeSpent}`.
+
+---
+
+### `delete` — permanently delete a ticket
+
+```bash
+jira-thing delete PROJ-101                 # shows the ticket and asks first
+jira-thing delete PROJ-101 -dry-run        # what would go, including subtasks
+jira-thing delete PROJ-101 -cascade -y     # with its subtasks, no prompt
+```
+
+Deleting cannot be undone. Without `-y`, `delete` shows the ticket and asks; in a script (no terminal) it refuses unless you pass `-y`. A ticket with subtasks is refused unless you pass `-cascade`, and the error lists them. `-json` prints `{key, summary, subtasks, status}`.
+
+---
+
+### `clone` — copy a ticket
+
+```bash
+jira-thing clone PROJ-101                                 # "CLONE - <summary>"
+jira-thing clone PROJ-101 -summary "Patch web-02" -assignee ada
+jira-thing clone PROJ-101 -replace web-01:web-02 -replace prod:staging -dry-run
+jira-thing clone PROJ-101 -labels q4,ops -priority High -json
+```
+
+The copy inherits the project, type, priority, labels, components and description. `-replace find:replace` (split at the first colon, repeatable) swaps text in the summary and in the description's text, leaving the source untouched. `-labels` replaces the inherited labels; `-assignee` accepts names and emails like `assign`.
+
+---
+
+### `me` — who am I
+
+```bash
+jira-thing me          # your email (or account ID, if your profile hides it)
+jira-thing me -json    # {accountId, displayName, emailAddress}
+```
+
+---
+
+### `watch`, `unwatch`, `watchers`
+
+```bash
+jira-thing watch PROJ-101                 # you start watching
+jira-thing watch PROJ-101 "ada lovelace"  # someone else (needs permission to manage watchers)
+jira-thing unwatch PROJ-101 -dry-run
+jira-thing watchers PROJ-101 -json
+```
+
+The user defaults to you and is resolved like `assign`: a name, email or account ID, with a picker in a terminal when a name matches several people. `watch` and `unwatch` print `{key, url, status, accountId, displayName}` with `-json`. The menu's **Watch / Unwatch** flips whether you're watching the picked ticket.
+
+---
+
 ### `open` — open a ticket in the browser
 
 ```bash
@@ -482,7 +626,7 @@ jira-thing open            # opens the Jira base URL
 
 ### `completion` — shell completion
 
-Prints a completion script for bash or zsh, covering top-level command names and aliases.
+Prints a completion script for bash or zsh, covering command names, aliases and the sub-commands of `epic`, `sprint`, `board`, `project`, `release`, `worklog`, `conf` and `completion`. Flags are not completed.
 
 ```bash
 jira-thing completion bash >> ~/.bashrc
@@ -563,13 +707,14 @@ jira-thing last-comment <TICKET-KEY> [-plain] [-raw]
 Fetches a Jira ticket and renders its key, summary, status, priority, assignee, linked tickets, and description as formatted markdown in the terminal. Linked tickets appear under a **Linked Tickets** heading as `<relation> <KEY>: <summary> (<status>)` — e.g. `is blocked by PROJ-9: Upstream (Done)` — and the section is omitted when the ticket has no links.
 
 ```bash
-jira-thing describe <TICKET-KEY> [-plain] [-raw]
+jira-thing describe <TICKET-KEY> [-comments N] [-plain] [-raw]
 ```
 
 | Flag | Description |
 |---|---|
+| `-comments` | Also show the latest N comments (max 100), oldest first, under **Comments (latest N of TOTAL)** |
 | `-plain` | Force plain text output even on a terminal (auto-detected anyway when piped) |
-| `-raw` | Print the stored issue fields as raw JSON, including the ADF description, instead of rendering markdown |
+| `-raw` | Print the stored issue fields as raw JSON, including the ADF description, instead of rendering markdown. With `-comments`, prints `{issue, comments, commentTotal}` |
 
 **Example:**
 
@@ -577,6 +722,7 @@ jira-thing describe <TICKET-KEY> [-plain] [-raw]
 jira-thing de PROJ-42
 jira-thing de PROJ-42 | cat     # auto-plain — no escape codes to strip
 jira-thing de PROJ-42 -raw      # raw JSON fields, e.g. to inspect the stored ADF
+jira-thing de PROJ-42 -comments 5   # with the latest five comments
 ```
 
 ---
@@ -1045,10 +1191,11 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `add_comment` | Add a markdown comment to a Jira ticket. The markdown is converted to Atlassian Document Format automatically. |
 | `add_remote_link` | Attach a remote web link (e.g. a URL to external documentation or a related resource) to a Jira ticket. |
 | `add_to_epic` | Add issues to an epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
-| `add_to_sprint` | Move tickets into a sprint (up to 50 at a time). |
+| `add_to_sprint` | Move tickets into a sprint. More than 50 keys are sent in batches. |
 | `add_worklog` | Log time spent against a Jira ticket. |
+| `assign_ticket` | Assign a Jira ticket to someone, by name, email or account ID, or unassign it |
 | `check_story_points` | Check the current user's open-sprint tickets for missing story points. Checks a few common story-point field names/IDs; if this instance uses a different custom field, use list_fields to find its ID and inspect tickets with describe_ticket instead. |
-| `clone_ticket` | Clone an existing Jira ticket, optionally overriding summary, priority, or assignee on the copy. |
+| `clone_ticket` | Clone an existing Jira ticket, optionally overriding summary, priority, assignee or labels, and replacing text in the summary and description. |
 | `confluence_browse` | List child pages under a Confluence page. Use to navigate the page hierarchy. |
 | `confluence_create_page` | Create a new Confluence page under a parent page. Content is provided as markdown and converted to Confluence storage format. |
 | `confluence_export_page` | Export a Confluence page as markdown, given its numeric page ID. Also resolves every embedded document the page references — images, attached files, view-file/multimedia macros, draw.io diagrams — downloading them into an attachments/ subdirectory when output_dir is given. |
@@ -1058,8 +1205,8 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
 | `create_ticket` | Create a new Jira ticket with the specified fields |
 | `create_tickets_batch` | Create several Jira tickets in one call. Each entry is a ticket object, e.g. {"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. Entries are created independently: one failing does not stop the rest, and the result reports each one. |
-| `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone — use with care. |
-| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description |
+| `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone: run with dry_run first and confirm with the user. |
+| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description, optionally with its latest comments |
 | `diagnose_connection` | Check jira-thing's Jira connection: the configured URL and email, the API token's format (no part of the token is returned), and an authenticated API call. Use when other tools fail with auth or connection errors; the result suggests a fix for 401/403 failures. |
 | `fetch_template` | Fetch a Jira ticket's reusable fields (project, issue type, priority, labels, components, description, assignee) as a JSON template, for use as the base of create_tickets_batch entries. By default the assignee becomes a marker meaning "whoever creates from this template". Saving a template as the CLI's default is left to the user (jira-thing template KEY), so an agent can't change what later creates use. |
 | `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
@@ -1070,18 +1217,22 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `list_fields` | List every field known to the Jira instance, including custom fields with their customfield_XXXXX IDs. Custom fields are configured per instance, so their IDs must always be looked up here rather than assumed — the same field name can map to a different ID on different boards. |
 | `list_link_types` | List the issue link types configured on this Jira instance (e.g. Blocks, Relates, Duplicate). Link types are instance-configurable, so always call this before link_tickets rather than assuming a type name is valid. |
 | `list_projects` | List every Jira project the current user can access |
-| `list_sprint_issues` | List the issues in a sprint. Get the sprint_id from list_sprints. |
-| `list_sprints` | List the sprints on a board. Get the board_id from list_boards. |
+| `list_sprint_issues` | List the issues in a sprint (up to 100). Defaults to the current sprint. |
+| `list_sprints` | List the sprints on a board, oldest first. |
 | `list_toil_tickets` | List toil tickets for the project/team configured in ~/.config/jira-thing/jira-thing.json (project, toil_marker label, and team filter). Fails if those aren't configured — this tool is specific to instances that have set up toil tracking. |
 | `list_transitions` | List the workflow states a Jira ticket can currently move to. Boards customise workflows heavily (a personal board may have 4 states, a client board 12), so always call this before transition_ticket rather than assuming a state name is valid. |
-| `list_versions` | List the releases/versions configured on a project |
+| `list_versions` | List a project's releases/versions, newest release date first. Archived releases are hidden unless include_archived is set. |
+| `list_watchers` | List who is watching a Jira ticket |
 | `my_tasks` | List open Jira tasks assigned to the current user |
 | `remove_from_epic` | Remove issues from their epic. Tries the "parent" field then falls back to the classic "Epic Link" custom field per issue. |
-| `search_tickets` | Search Jira tickets using JQL. Returns key, summary, status, priority, and updated date for each match. |
+| `search_tickets` | Search Jira tickets with JQL and/or filters (AND-ed together). Returns key, status, priority, summary and updated date, or the chosen columns. |
+| `search_users` | Find active Jira users by name or email, returning their account IDs. Use it to pick an assignee when a name matches several people. |
 | `sync_toil` | Sync open toil tickets to Confluence: one child page per ticket under the configured ticket_hanger page (keeping any notes already written on it), then rewrite the hanger page's index. Needs the toil settings plus confluence_space and ticket_hanger in ~/.config/jira-thing/jira-thing.json. |
 | `transition_ticket` | Move a Jira ticket to a new workflow state. The target_status must match one of the states returned by list_transitions for this ticket — call that tool first if unsure what states are available. |
 | `unlink_tickets` | Remove the link between two Jira tickets, whichever link type currently connects them. |
-| `update_ticket` | Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee). Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use transition_ticket instead. |
+| `unwatch_ticket` | Stop watching a Jira ticket, for yourself or someone else |
+| `update_ticket` | Edit fields on an existing Jira ticket (summary, description, priority, labels, assignee, parent, issue type, story points). Only the fields you provide are changed; omitted fields are left untouched. To change workflow state, use transition_ticket instead. |
+| `watch_ticket` | Start watching a Jira ticket, for yourself or someone else |
 | `whoami` | Show the current authenticated Jira user (account ID, display name, email) |
 
 <!-- mcp-tools:end -->
@@ -1128,8 +1279,11 @@ Most commands have short aliases for quick typing:
 | `my-tasks` | `mt` |
 | `state` | `sta` |
 | `transition` | `tr` |
+| `assign` | `as` |
 | `menu` | `m` |
 | `list` | `ls` |
+| `sprint` | `sp` |
+| `worklog` | `wl` |
 | `open` | `o` |
 | `update` | `up` |
 | `last-comment` | `lc` |

@@ -32,6 +32,8 @@ func NewServer(version string, conn api.JiraConnection) *server.MCPServer {
 	registerPointCheckTools(s, conn)
 	registerTemplateTools(s, conn)
 	registerDiagnoseTools(s, conn)
+	registerUserTools(s, conn)
+	registerWatchTools(s, conn)
 
 	return s
 }

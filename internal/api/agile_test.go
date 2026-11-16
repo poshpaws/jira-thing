@@ -110,3 +110,63 @@ func TestAddIssuesToSprint_400(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestFetchSprints_PaginatesUntilLast(t *testing.T) {
+	var starts []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("startAt")
+		starts = append(starts, start)
+		if r.URL.Query().Get("state") != "closed" {
+			t.Errorf("state = %q", r.URL.Query().Get("state"))
+		}
+		page := map[string]any{"values": []map[string]any{{"id": 1, "name": "S1", "state": "closed"}}, "isLast": false}
+		if start != "0" {
+			page = map[string]any{"values": []map[string]any{{"id": 2, "name": "S2", "state": "closed", "completeDate": "2026-01-02"}}, "isLast": true}
+		}
+		json.NewEncoder(w).Encode(page)
+	}))
+	defer srv.Close()
+
+	sprints, err := api.FetchSprints(conn(srv.URL), 1, "closed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sprints) != 2 || sprints[1].CompleteDate != "2026-01-02" || strings.Join(starts, ",") != "0,1" {
+		t.Errorf("sprints=%+v starts=%v", sprints, starts)
+	}
+}
+
+func TestFetchBoards_EscapesProject(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("projectKeyOrId") != "A&b=c" {
+			t.Errorf("raw query = %s", r.URL.RawQuery)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"values": []any{}})
+	}))
+	defer srv.Close()
+
+	if _, err := api.FetchBoards(conn(srv.URL), "A&b=c"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFetchSprintIssues_AsksForListFields(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if !strings.Contains(q.Get("fields"), "summary") || q.Get("jql") != "assignee = currentUser()" {
+			t.Errorf("query = %s", r.URL.RawQuery)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"issues": []any{}})
+	}))
+	defer srv.Close()
+
+	if _, err := api.FetchSprintIssues(conn(srv.URL), 5, "assignee = currentUser()"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAddIssuesToSprint_RejectsBadKey(t *testing.T) {
+	if err := api.AddIssuesToSprint(conn("https://example.invalid"), 5, []string{"OK-1", "../x"}); err == nil {
+		t.Error("expected invalid key error")
+	}
+}

@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
-	"jira-thing/internal/tui"
+	"jira-thing/internal/ops"
+	"jira-thing/internal/termsafe"
 )
 
 // stringList is a repeatable string flag (flag.Value), e.g. -l backend -l urgent.
@@ -19,74 +20,93 @@ func (l *stringList) Set(v string) error {
 	return nil
 }
 
-// listFilters holds the parsed flags for the `list` command's JQL builder.
-type listFilters struct {
-	assignee string
-	reporter string
-	priority string
-	status   string
-	project  string
-	labels   []string
-	created  string
-	updated  string
-	watching bool
-	jql      string
-	orderBy  string
-	reverse  bool
+// listFlags holds the parsed flags for the list command.
+type listFlags struct {
+	filter     ops.ListFilter
+	limit      int
+	columns    string
+	jsonOut    bool
+	plain      bool
+	csv        bool
+	noHeaders  bool
+	labels     stringList
+	components stringList
 }
 
-// parseListFlags parses runList's flag set, exiting on a parse error.
-func parseListFlags(args []string) (listFilters, bool) {
+// defineListFilterFlags registers the JQL filter flags on fs.
+func defineListFilterFlags(fs *flag.FlagSet, f *listFlags) {
+	fs.StringVar(&f.filter.Assignee, "a", "", `Filter by assignee: "me", "x" (unassigned), "~x" (assigned), name, or "~name" (not)`)
+	fs.StringVar(&f.filter.Reporter, "r", "", `Filter by reporter: "me", name, or "~name" (not)`)
+	fs.StringVar(&f.filter.Priority, "y", "", `Filter by priority: name, or "~name" (not)`)
+	fs.StringVar(&f.filter.Status, "s", "", `Filter by status: name, or "~name" (not)`)
+	fs.StringVar(&f.filter.Type, "t", "", `Filter by issue type: name, or "~name" (not)`)
+	fs.StringVar(&f.filter.Resolution, "R", "", `Filter by resolution: name, "x" (unresolved), "~x" (resolved)`)
+	fs.StringVar(&f.filter.Project, "p", "", "Filter by project key")
+	fs.Var(&f.components, "C", "Filter by component (repeatable)")
+	fs.Var(&f.labels, "l", "Filter by label (repeatable)")
+	fs.StringVar(&f.filter.Created, "created", "", `Created on or after: "-7d", "week", "2026-01-01"`)
+	fs.StringVar(&f.filter.CreatedBefore, "created-before", "", `Created before: "-30d", "month", "2026-01-01"`)
+	fs.StringVar(&f.filter.Updated, "updated", "", `Updated on or after: "-30m", "month"`)
+	fs.BoolVar(&f.filter.Watching, "w", false, "Only tickets you are watching")
+	fs.StringVar(&f.filter.JQL, "jql", "", "Raw JQL, AND-ed together with the other flags")
+	fs.StringVar(&f.filter.OrderBy, "order-by", "", `Sort field (default "created")`)
+	fs.BoolVar(&f.filter.Reverse, "reverse", false, "Reverse the sort order (ascending instead of descending)")
+}
+
+// defineListOutputFlags registers the output format flags on fs.
+func defineListOutputFlags(fs *flag.FlagSet, f *listFlags) {
+	fs.IntVar(&f.limit, "limit", ops.DefaultListLimit, fmt.Sprintf("Most tickets to return (max %d)", ops.MaxListLimit))
+	fs.StringVar(&f.columns, "columns", "", "Comma-separated columns for -plain/-csv/-json: "+strings.Join(ops.ColumnNames(), ","))
+	fs.BoolVar(&f.jsonOut, "json", false, "Print matching tickets as a JSON array")
+	fs.BoolVar(&f.plain, "plain", false, "Print a plain tab-aligned table, no colours")
+	fs.BoolVar(&f.csv, "csv", false, "Print CSV")
+	fs.BoolVar(&f.noHeaders, "no-headers", false, "Leave out the header row in -plain and -csv")
+}
+
+// parseListFlags parses runList's flag set, exiting on a parse error or
+// conflicting output flags.
+func parseListFlags(args []string) listFlags {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
-	f := listFilters{}
-	var labels stringList
-	fs.StringVar(&f.assignee, "a", "", `Filter by assignee: "me", "x" (unassigned), "~x" (assigned), name, or "~name" (not)`)
-	fs.StringVar(&f.reporter, "r", "", `Filter by reporter: "me", name, or "~name" (not)`)
-	fs.StringVar(&f.priority, "y", "", `Filter by priority: name, or "~name" (not)`)
-	fs.StringVar(&f.status, "s", "", `Filter by status: name, or "~name" (not)`)
-	fs.StringVar(&f.project, "p", "", "Filter by project key")
-	fs.Var(&labels, "l", "Filter by label (repeatable)")
-	fs.StringVar(&f.created, "created", "", `Relative or absolute created-date filter, e.g. "-7d", "week", "2026-01-01"`)
-	fs.StringVar(&f.updated, "updated", "", `Relative or absolute updated-date filter, e.g. "-30m", "month"`)
-	fs.BoolVar(&f.watching, "w", false, "Only tickets you are watching")
-	fs.StringVar(&f.jql, "jql", "", "Raw JQL, AND-ed together with the other flags")
-	fs.StringVar(&f.orderBy, "order-by", "", `Sort field (default "created")`)
-	fs.BoolVar(&f.reverse, "reverse", false, "Reverse the sort order (ascending instead of descending)")
-	jsonOut := fs.Bool("json", false, "Print matching tickets as a JSON array instead of styled text")
-	if err := fs.Parse(args); err != nil {
-		fatal("parsing flags: %v", err)
+	var f listFlags
+	defineListFilterFlags(fs, &f)
+	defineListOutputFlags(fs, &f)
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		fatal("usage: jira-thing list [filters] [-limit N] [-plain|-csv|-json] [-columns a,b] [-no-headers]")
 	}
-	f.labels = labels
-	return f, *jsonOut
+	f.filter.Labels, f.filter.Components = f.labels, f.components
+	if countTrue(f.jsonOut, f.plain, f.csv) > 1 {
+		fatal("pick one of -json, -plain or -csv")
+	}
+	return f
+}
+
+// countTrue counts the set flags.
+func countTrue(flags ...bool) int {
+	n := 0
+	for _, b := range flags {
+		if b {
+			n++
+		}
+	}
+	return n
 }
 
 // runList searches tickets using a flag-built JQL query, mirroring jira-cli's
 // `issue list` flag set. Flags combine with AND; an explicit -jql clause is
 // AND-ed in as well for anything the flags don't cover.
 func runList(args []string) {
-	f, jsonOut := parseListFlags(args)
-
-	jql := buildListJQL(f)
-	conn := mustConnect()
-	result, err := api.SearchIssues(conn, api.SearchQuery{
-		JQL:        jql,
-		Fields:     []string{"summary", "status", "priority", "updated"},
-		MaxResults: 100,
-	})
+	f := parseListFlags(args)
+	cols, err := ops.ParseColumns(f.columns)
 	if err != nil {
-		fatal("searching: %v", err)
+		fatal("%v", err)
 	}
-	if jsonOut {
-		printTicketsJSON(conn, result.Issues)
+	conn := mustConnect()
+	res, err := ops.ListTickets(conn, ops.ListRequest{Filter: f.filter, Columns: cols, Limit: f.limit})
+	if err != nil {
+		fatal("%s", termsafe.Clean(err.Error()))
 		return
 	}
-	if len(result.Issues) == 0 {
-		fmt.Println("No tickets found.")
-		return
-	}
-	fmt.Println(tui.HeadingStyle.Render(fmt.Sprintf("Found %d ticket(s):", len(result.Issues))))
-	fmt.Println()
-	printTasks(result.Issues)
+	printList(conn, res.Issues, f, cols)
 }
 
 // listedTicket is the JSON shape -json prints for each matching ticket.
@@ -115,123 +135,4 @@ func printTicketsJSON(conn api.JiraConnection, issues []map[string]any) {
 		fatal("rendering JSON result: %v", err)
 	}
 	fmt.Println(string(body))
-}
-
-// buildListJQL assembles a JQL query string from listFilters. Each populated
-// flag becomes an AND-ed clause; an empty listFilters produces a query that
-// returns all issues ordered by created date, matching jira-cli's default.
-func buildListJQL(f listFilters) string {
-	var clauses []string
-	if f.assignee != "" {
-		clauses = append(clauses, negatableClause("assignee", resolveUserToken(f.assignee)))
-	}
-	if f.reporter != "" {
-		clauses = append(clauses, negatableClause("reporter", resolveUserToken(f.reporter)))
-	}
-	if f.priority != "" {
-		clauses = append(clauses, negatableClause("priority", f.priority))
-	}
-	if f.status != "" {
-		clauses = append(clauses, negatableClause("status", f.status))
-	}
-	if f.project != "" {
-		clauses = append(clauses, fmt.Sprintf("project = %q", f.project))
-	}
-	if len(f.labels) > 0 {
-		clauses = append(clauses, labelsClause(f.labels))
-	}
-	if f.created != "" {
-		clauses = append(clauses, dateClause("created", f.created))
-	}
-	if f.updated != "" {
-		clauses = append(clauses, dateClause("updated", f.updated))
-	}
-	if f.watching {
-		clauses = append(clauses, "watcher = currentUser()")
-	}
-	if f.jql != "" {
-		clauses = append(clauses, "("+f.jql+")")
-	}
-
-	jql := strings.Join(clauses, " AND ")
-	orderBy := f.orderBy
-	if orderBy == "" {
-		orderBy = "created"
-	}
-	direction := "DESC"
-	if f.reverse {
-		direction = "ASC"
-	}
-	if jql == "" {
-		return fmt.Sprintf("ORDER BY %s %s", orderBy, direction)
-	}
-	return fmt.Sprintf("%s ORDER BY %s %s", jql, orderBy, direction)
-}
-
-// resolveUserToken translates jira-cli's shorthand user tokens: "me" -> currentUser().
-// Other values pass through unchanged (handled as quoted literals by negatableClause).
-func resolveUserToken(v string) string {
-	trimmed := strings.TrimPrefix(v, "~")
-	if trimmed != "me" {
-		return v
-	}
-	if strings.HasPrefix(v, "~") {
-		return "~currentUser()"
-	}
-	return "currentUser()"
-}
-
-// negatableClause builds a JQL clause supporting jira-cli's shorthand:
-//   - "x"      -> field is EMPTY
-//   - "~x"     -> field is not EMPTY
-//   - "~value" -> field != "value"
-//   - "value"  -> field = "value"
-//
-// "currentUser()"-style function calls (from resolveUserToken) are emitted unquoted.
-func negatableClause(field, value string) string {
-	negate := strings.HasPrefix(value, "~")
-	v := strings.TrimPrefix(value, "~")
-
-	switch {
-	case v == "x" && negate:
-		return fmt.Sprintf("%s is not EMPTY", field)
-	case v == "x":
-		return fmt.Sprintf("%s is EMPTY", field)
-	case negate:
-		return fmt.Sprintf("%s != %s", field, jqlLiteral(v))
-	default:
-		return fmt.Sprintf("%s = %s", field, jqlLiteral(v))
-	}
-}
-
-// jqlLiteral renders v as a JQL value: unquoted for function calls like
-// currentUser(), quoted otherwise.
-func jqlLiteral(v string) string {
-	if strings.HasSuffix(v, "()") {
-		return v
-	}
-	return fmt.Sprintf("%q", v)
-}
-
-// labelsClause builds a JQL "labels in (...)" clause from a label list.
-func labelsClause(labels []string) string {
-	quoted := make([]string, len(labels))
-	for i, l := range labels {
-		quoted[i] = fmt.Sprintf("%q", l)
-	}
-	return fmt.Sprintf("labels in (%s)", strings.Join(quoted, ", "))
-}
-
-// dateClause builds a JQL date comparison. Relative shorthand (leading "-", or
-// bare "day"/"week"/"month"/"year") is emitted unquoted per Jira's JQL date
-// function syntax; anything else is treated as an absolute date and quoted.
-func dateClause(field, value string) string {
-	switch value {
-	case "day", "week", "month", "year":
-		return fmt.Sprintf("%s >= startOf%s()", field, strings.ToUpper(value[:1])+value[1:])
-	}
-	if strings.HasPrefix(value, "-") {
-		return fmt.Sprintf("%s >= %s", field, value)
-	}
-	return fmt.Sprintf("%s >= %q", field, value)
 }
