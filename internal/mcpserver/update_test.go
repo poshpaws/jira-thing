@@ -55,3 +55,19 @@ func TestHandleUpdateTicket(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleUpdateTicket_ListEdits(t *testing.T) {
+	withConfig(t, config.Config{})
+	puts := 0
+	text := callAgile(t, handleUpdateTicket, updateServer(t, &puts), map[string]any{
+		"ticket_key": "K-1", "add_labels": "a, b", "remove_labels": "old", "remove_components": "web", "add_fix_versions": "v2", "dry_run": true,
+	})
+	for _, want := range []string{`"update": {`, `"add": "a"`, `"remove": "old"`, `"remove": {`, `"name": "web"`, `"name": "v2"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %s in %s", want, text)
+		}
+	}
+	if puts != 0 {
+		t.Errorf("dry run sent %d PUTs", puts)
+	}
+}

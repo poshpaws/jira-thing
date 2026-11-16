@@ -10,6 +10,8 @@ import (
 // template value is used; anything still missing is prompted for unless
 // nonInteractive is set.
 func resolveCreateFields(tmpl map[string]any, descriptionFile string, nonInteractive bool) error {
+	// Stdin carries the description, so it can't also answer prompts.
+	nonInteractive = nonInteractive || descriptionFile == stdinPath
 	description, err := readDescriptionFile(descriptionFile)
 	if err != nil {
 		return err

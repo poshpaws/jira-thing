@@ -35,7 +35,7 @@ func formatDiagnosis(d ops.Diagnosis) string {
 	var sb strings.Builder
 	// The masked token stays in the CLI's output: no part of a credential
 	// belongs in an agent's context.
-	fmt.Fprintf(&sb, "URL: %s\nEmail: %s\n\n", d.URL, d.Email)
+	fmt.Fprintf(&sb, "Profile: %s (credentials from %s)\nURL: %s\nEmail: %s\n\n", d.Profile, d.Source, d.URL, d.Email)
 	if d.TokenErr != nil {
 		fmt.Fprintf(&sb, "FAIL token format: %v", d.TokenErr)
 		return sb.String()

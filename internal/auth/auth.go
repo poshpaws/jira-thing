@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"jira-thing/internal/profile"
+
 	gokeyring "github.com/zalando/go-keyring"
 	"golang.org/x/term"
 )
@@ -52,29 +54,62 @@ func GetCredentials() (Credentials, error) {
 	return getCredentials(backend)
 }
 
-// getCredentials loads credentials from kr, falling back to interactive prompt.
+// credentialKeys are the keyring keys for one profile's credentials.
+type credentialKeys struct{ url, email, token string }
+
+// activeKeys returns the active profile's keyring keys: the original ones
+// for the default profile, "key@name" for a named one.
+func activeKeys() (credentialKeys, error) {
+	name, err := profile.Active()
+	if err != nil {
+		return credentialKeys{}, err
+	}
+	return credentialKeys{profile.Key(keyURL, name), profile.Key(keyEmail, name), profile.Key(keyToken, name)}, nil
+}
+
+// getCredentials uses the environment override when set, else loads the
+// active profile's credentials from kr, prompting for any that are missing.
 func getCredentials(kr Keyring) (Credentials, error) {
-	url, err := kr.Get(keyURL)
-	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
-		return Credentials{}, fmt.Errorf("reading URL from keyring: %w", err)
+	if creds, ok, err := envCredentials(); ok || err != nil {
+		return creds, err
 	}
-	email, err := kr.Get(keyEmail)
-	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
-		return Credentials{}, fmt.Errorf("reading email from keyring: %w", err)
+	keys, err := activeKeys()
+	if err != nil {
+		return Credentials{}, err
 	}
-	token, err := kr.Get(keyToken)
-	if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
-		return Credentials{}, fmt.Errorf("reading token from keyring: %w", err)
+	creds, err := readStored(kr, keys)
+	if err != nil {
+		return Credentials{}, err
 	}
-	if url == "" || email == "" || token == "" {
+	if creds.URL == "" || creds.Email == "" || creds.Token == "" {
 		return promptAndStore(kr)
 	}
-	return Credentials{URL: url, Email: email, Token: token}, nil
+	return creds, nil
+}
+
+// readStored reads one profile's credentials; missing keys come back empty.
+func readStored(kr Keyring, keys credentialKeys) (Credentials, error) {
+	var creds Credentials
+	for _, item := range []struct {
+		key, what string
+		dest      *string
+	}{{keys.url, "URL", &creds.URL}, {keys.email, "email", &creds.Email}, {keys.token, "token", &creds.Token}} {
+		v, err := kr.Get(item.key)
+		if err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
+			return Credentials{}, fmt.Errorf("reading %s from keyring: %w", item.what, err)
+		}
+		*item.dest = v
+	}
+	return creds, nil
 }
 
 // promptAndStore interactively collects credentials and persists them in kr.
 func promptAndStore(kr Keyring) (Credentials, error) {
-	fmt.Println("Jira credentials not found. Please enter them now.")
+	name, err := profile.Active()
+	if err != nil {
+		return Credentials{}, err
+	}
+	fmt.Printf("Jira credentials for profile %q not found. Please enter them now.\n", profile.Label(name))
 	creds, err := readCredentials()
 	if err != nil {
 		return Credentials{}, err
@@ -132,15 +167,19 @@ func ValidateToken(t string) error {
 	return nil
 }
 
-// storeCredentials writes credential values into kr.
+// storeCredentials writes credential values into kr under the active profile's keys.
 func storeCredentials(kr Keyring, creds Credentials) error {
-	if err := kr.Set(keyURL, creds.URL); err != nil {
+	keys, err := activeKeys()
+	if err != nil {
 		return err
 	}
-	if err := kr.Set(keyEmail, creds.Email); err != nil {
+	if err := kr.Set(keys.url, creds.URL); err != nil {
 		return err
 	}
-	return kr.Set(keyToken, creds.Token)
+	if err := kr.Set(keys.email, creds.Email); err != nil {
+		return err
+	}
+	return kr.Set(keys.token, creds.Token)
 }
 
 // ClearCredentials removes all stored Jira credentials from the keyring.
@@ -148,13 +187,19 @@ func ClearCredentials() error {
 	return clearCredentials(backend)
 }
 
-// clearCredentials deletes all credential keys from kr; not-found errors are ignored.
+// clearCredentials deletes the active profile's credential keys from kr;
+// not-found errors are ignored. Other profiles are left alone.
 func clearCredentials(kr Keyring) error {
-	for _, key := range []string{keyURL, keyEmail, keyToken} {
+	keys, err := activeKeys()
+	if err != nil {
+		return err
+	}
+	for _, key := range []string{keys.url, keys.email, keys.token} {
 		if err := kr.Delete(key); err != nil && !errors.Is(err, gokeyring.ErrNotFound) {
 			return fmt.Errorf("clearing %s: %w", key, err)
 		}
 	}
-	fmt.Println("Credentials cleared.")
+	name, _ := profile.Active()
+	fmt.Printf("Credentials cleared for profile %q.\n", profile.Label(name))
 	return nil
 }

@@ -88,3 +88,67 @@ func TestRunEdit_TypeAndPointsErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestRunEditAndCreate_Custom(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/field") {
+			json.NewEncoder(w).Encode([]map[string]any{{"id": "customfield_5", "name": "Due Soon", "schema": map[string]any{"type": "date"}}})
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(mockCreds(srv.URL))
+	out := captureStdout(func() { runEdit([]string{"PROJ-1", "-custom", "Due Soon=2026-12-31"}) })
+	fields, _ := bodies[0]["fields"].(map[string]any)
+	if fields["customfield_5"] != "2026-12-31" || !strings.Contains(out, "PROJ-1") {
+		t.Errorf("fields=%v out=%s", fields, out)
+	}
+	out = captureStdout(func() {
+		runCreate([]string{"-y", "-project", "P", "-summary", "S", "-custom", "due soon=2027-01-02", "-dry-run"})
+	})
+	if !strings.Contains(out, `"customfield_5": "2027-01-02"`) {
+		t.Errorf("create dry run = %s", out)
+	}
+	errOut := captureStderr(func() {
+		if !captureExit(func() { runEdit([]string{"PROJ-1", "-custom", "Due Soon=31/12"}) }) {
+			t.Error("expected exit on bad date")
+		}
+	})
+	if !strings.Contains(errOut, "not a date") {
+		t.Errorf("stderr = %s", errOut)
+	}
+}
+
+func TestRunEdit_ListEdits(t *testing.T) {
+	puts := startEditMeta(t, `{}`)
+	captureStdout(func() {
+		runEdit([]string{"PROJ-1", "-label", "new", "-label", "-old", "-component", "+api", "-fix-version", "-v1"})
+	})
+	body, _ := json.Marshal((*puts)[0])
+	want := `{"update":{"components":[{"add":{"name":"api"}}],"fixVersions":[{"remove":{"name":"v1"}}],"labels":[{"add":"new"},{"remove":"old"}]}}`
+	if string(body) != want {
+		t.Errorf("body = %s", body)
+	}
+}
+
+func TestRunEdit_ListEditsDryRunAndConflict(t *testing.T) {
+	puts := startEditMeta(t, `{}`)
+	out := captureStdout(func() { runEdit([]string{"PROJ-1", "-summary", "S", "-label", "-old", "-dry-run"}) })
+	if len(*puts) != 0 || !strings.Contains(out, `"fields": {`) || !strings.Contains(out, `"remove": "old"`) {
+		t.Errorf("puts=%v out=%s", *puts, out)
+	}
+	errOut := captureStderr(func() {
+		if !captureExit(func() { runEdit([]string{"PROJ-1", "-labels", "a", "-label", "b"}) }) {
+			t.Error("expected exit on -labels with -label")
+		}
+	})
+	if !strings.Contains(errOut, "replaced and edited at once") {
+		t.Errorf("stderr = %s", errOut)
+	}
+}

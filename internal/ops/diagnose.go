@@ -5,6 +5,7 @@ import (
 
 	"jira-thing/internal/api"
 	"jira-thing/internal/auth"
+	"jira-thing/internal/profile"
 )
 
 // maskedTokenEnds is how many characters of the token stay visible at each end.
@@ -14,6 +15,8 @@ const maskedTokenEnds = 3
 // first check that failed; checks after a failure are skipped. Hint, when
 // set, suggests a fix for APIErr.
 type Diagnosis struct {
+	Profile     string // the active profile, "default" when none is selected
+	Source      string // where the credentials came from
 	URL         string
 	Email       string
 	MaskedToken string
@@ -29,7 +32,11 @@ func (d Diagnosis) OK() bool { return d.TokenErr == nil && d.APIErr == nil }
 // Diagnose checks the credentials' token format, then calls the API as the
 // current user.
 func Diagnose(conn api.JiraConnection) Diagnosis {
-	d := Diagnosis{URL: conn.BaseURL, Email: conn.Email, MaskedToken: MaskToken(conn.APIToken)}
+	name, _ := profile.Active()
+	d := Diagnosis{
+		Profile: profile.Label(name), Source: auth.Source(),
+		URL: conn.BaseURL, Email: conn.Email, MaskedToken: MaskToken(conn.APIToken),
+	}
 	if d.TokenErr = auth.ValidateToken(conn.APIToken); d.TokenErr != nil {
 		return d
 	}

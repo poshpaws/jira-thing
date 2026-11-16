@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/auth"
+	"jira-thing/internal/profile"
 )
 
 func TestDiagnose_AllChecksPass(t *testing.T) {
@@ -40,5 +42,16 @@ func TestAPIHint(t *testing.T) {
 func TestMaskToken(t *testing.T) {
 	if got := MaskToken("abcdefghij"); got != "abc...hij" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestDiagnose_ReportsProfileAndSource(t *testing.T) {
+	t.Setenv(profile.EnvVar, "work")
+	for _, v := range []string{auth.EnvURL, auth.EnvEmail, auth.EnvToken} {
+		t.Setenv(v, "")
+	}
+	d := Diagnose(api.JiraConnection{BaseURL: "https://x", APIToken: "has space"})
+	if d.Profile != "work" || d.Source != "keyring" {
+		t.Errorf("profile=%q source=%q", d.Profile, d.Source)
 	}
 }

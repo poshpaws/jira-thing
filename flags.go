@@ -2,7 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"strings"
+
+	"jira-thing/internal/ops"
 )
 
 // flagTerminator is the argument that ends flag parsing, per the flag package.
@@ -53,4 +56,37 @@ func flagTakesNextArg(fs *flag.FlagSet, arg string) bool {
 	}
 	boolFlag, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return !ok || !boolFlag.IsBoolFlag()
+}
+
+// customFlag is the repeatable -custom "Name=value" flag; each value is
+// parsed as it is read, so a malformed one fails at flag parsing.
+type customFlag []ops.CustomValue
+
+func (c *customFlag) String() string { return fmt.Sprint(len(*c)) }
+
+func (c *customFlag) Set(s string) error {
+	v, err := ops.ParseCustom(s)
+	if err != nil {
+		return err
+	}
+	*c = append(*c, v)
+	return nil
+}
+
+// customHelp is the -custom flag's usage text.
+const customHelp = `Set any field: "Name=value" or "customfield_NNNNN=value" (repeatable; an empty value clears it). Lists are comma-separated`
+
+// listEditFlag is a repeatable add/remove flag such as -label: "name" or
+// "+name" adds, "-name" removes.
+type listEditFlag []ops.ListEdit
+
+func (l *listEditFlag) String() string { return fmt.Sprint(len(*l)) }
+
+func (l *listEditFlag) Set(s string) error {
+	e, err := ops.ParseListEdit(s)
+	if err != nil {
+		return err
+	}
+	*l = append(*l, e)
+	return nil
 }

@@ -193,6 +193,10 @@ func createTicketTool() mcp.Tool {
 		mcp.WithBoolean("dedupe_by_summary",
 			mcp.Description("If true, skip creating when an open ticket in the project has the same summary, and report that ticket instead. Use when retrying a create that may already have succeeded, and wait several seconds first: Jira search lags new tickets by about 3 seconds, and a retry inside that window still creates a duplicate."),
 		),
+		mcp.WithString("fix_versions",
+			mcp.Description("Comma-separated fix version names (e.g. v2.0)"),
+		),
+		customFieldsOption(),
 	)
 }
 
@@ -221,6 +225,10 @@ func createRequest(req mcp.CallToolRequest) (ops.CreateRequest, error) {
 	if err != nil {
 		return ops.CreateRequest{}, err
 	}
+	custom, err := customFields(req)
+	if err != nil {
+		return ops.CreateRequest{}, err
+	}
 	return ops.CreateRequest{
 		Project:     project,
 		Summary:     summary,
@@ -231,6 +239,8 @@ func createRequest(req mcp.CallToolRequest) (ops.CreateRequest, error) {
 		Components:  template.SplitLabels(req.GetString("components", "")),
 		Assignee:    req.GetString("assignee", ""),
 		Parent:      req.GetString("parent", ""),
+		Custom:      custom,
+		FixVersions: template.SplitLabels(req.GetString("fix_versions", "")),
 	}, nil
 }
 

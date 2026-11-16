@@ -32,6 +32,8 @@ type createFlags struct {
 	dryRun          bool
 	json            bool
 	dedupe          bool
+	custom          customFlag
+	fixVersions     stringList
 }
 
 // parseCreateFlags parses runCreate's flag set, exiting on a parse error.
@@ -39,7 +41,7 @@ func parseCreateFlags(args []string) createFlags {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	templatePath := fs.String("t", "", "Path to template file")
 	batchPath := fs.String("f", "", "Path to a JSON array of ticket templates for batch create")
-	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the description (overrides template/prompt)")
+	descriptionFile := fs.String("description-file", "", `Path to a markdown file for the description, or "-" for stdin (overrides template/prompt; stdin implies -y)`)
 	project := fs.String("project", "", "Project key or ID (e.g. PROJ) — overrides the template; with no template on the search path, create from flags alone")
 	summary := fs.String("summary", "", "Ticket summary — overrides the template, skipping the prompt")
 	issueType := fs.String("type", "", "Issue type name (e.g. Task, Bug, Story) — overrides the template")
@@ -53,12 +55,16 @@ func parseCreateFlags(args []string) createFlags {
 	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without creating anything")
 	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
 	dedupe := fs.Bool("dedupe-by-summary", false, "Skip creating if an open ticket in the project has the same summary")
+	var custom customFlag
+	fs.Var(&custom, "custom", customHelp)
+	var fixVersions stringList
+	fs.Var(&fixVersions, "fix-version", "Fix version name (repeatable, or comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		fatal("parsing flags: %v", err)
 	}
 	return createFlags{
 		*templatePath, *batchPath, *descriptionFile, *project, *summary, *issueType, *priority,
-		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut, *dedupe,
+		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut, *dedupe, custom, fixVersions,
 	}
 }
 
@@ -100,14 +106,16 @@ func runCreate(args []string) {
 // flags, each of which overrides whatever the template holds.
 func createRequest(tmpl map[string]any, flags createFlags) ops.CreateRequest {
 	return ops.CreateRequest{
-		Fields:     tmpl,
-		Project:    flags.project,
-		IssueType:  flags.issueType,
-		Priority:   flags.priority,
-		Labels:     template.SplitLabels(flags.labels),
-		Components: template.SplitLabels(flags.components),
-		Assignee:   flags.assignee,
-		Parent:     flags.epic,
+		Fields:      tmpl,
+		Project:     flags.project,
+		IssueType:   flags.issueType,
+		Priority:    flags.priority,
+		Labels:      template.SplitLabels(flags.labels),
+		Components:  template.SplitLabels(flags.components),
+		Assignee:    flags.assignee,
+		Parent:      flags.epic,
+		Custom:      []ops.CustomValue(flags.custom),
+		FixVersions: template.SplitLabels(strings.Join(flags.fixVersions, ",")),
 	}
 }
 
