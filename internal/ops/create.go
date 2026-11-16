@@ -31,6 +31,8 @@ type CreateRequest struct {
 	Components  []string
 	Assignee    string // "me", "unassign" or an account ID
 	Parent      string // epic/parent key, linked after the create
+	Custom      []CustomValue
+	FixVersions []string
 }
 
 // CreateOptions controls how a create runs.
@@ -61,6 +63,12 @@ func CreateTicket(conn api.JiraConnection, req CreateRequest, opts CreateOptions
 	if err != nil {
 		return CreateResult{}, err
 	}
+	// Custom values are kept apart from fields: PreparePayload strips every
+	// customfield_* key, since templates carry stale ones.
+	custom, err := ResolveCustomFields(conn, req.Custom)
+	if err != nil {
+		return CreateResult{}, err
+	}
 	existing, err := opts.Dedupe.Find(fields)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("%w; nothing created", err)
@@ -69,9 +77,9 @@ func CreateTicket(conn api.JiraConnection, req CreateRequest, opts CreateOptions
 		return CreateResult{Key: existing, URL: IssueURL(conn, existing), Status: StatusExists}, nil
 	}
 	if opts.DryRun {
-		return dryRunCreate(conn, fields, opts)
+		return dryRunCreate(conn, fields, custom, opts)
 	}
-	return submitCreate(conn, fields, opts.Dedupe)
+	return submitCreate(conn, fields, custom, opts.Dedupe)
 }
 
 // createFields overlays req's typed fields onto a copy of its base fields.
@@ -94,6 +102,9 @@ func createFields(conn api.JiraConnection, req CreateRequest) (map[string]any, e
 	}
 	if len(req.Components) > 0 {
 		fields["components"] = Components(req.Components)
+	}
+	if len(req.FixVersions) > 0 {
+		fields["fixVersions"] = NamedRefs(req.FixVersions)
 	}
 	if _, ok := fields["issuetype"]; !ok {
 		fields["issuetype"] = DefaultIssueType
@@ -120,7 +131,7 @@ func markdownDescription(fields map[string]any) {
 
 // dryRunCreate resolves the payload without sending it, recording the ticket
 // in the guard so later duplicates in the same run are still caught.
-func dryRunCreate(conn api.JiraConnection, fields map[string]any, opts CreateOptions) (CreateResult, error) {
+func dryRunCreate(conn api.JiraConnection, fields, custom map[string]any, opts CreateOptions) (CreateResult, error) {
 	label := opts.Label
 	if label == "" {
 		label = "an earlier ticket in this run"
@@ -130,15 +141,17 @@ func dryRunCreate(conn api.JiraConnection, fields map[string]any, opts CreateOpt
 	if err != nil {
 		return CreateResult{}, err
 	}
+	maps.Copy(payload, custom)
 	return CreateResult{Status: StatusDryRun, Payload: payload, Parent: parent}, nil
 }
 
 // submitCreate POSTs the ticket and links it to its parent, if it has one.
-func submitCreate(conn api.JiraConnection, fields map[string]any, guard *DedupeGuard) (CreateResult, error) {
+func submitCreate(conn api.JiraConnection, fields, custom map[string]any, guard *DedupeGuard) (CreateResult, error) {
 	payload, parent, err := PreparePayload(conn, fields)
 	if err != nil {
 		return CreateResult{}, err
 	}
+	maps.Copy(payload, custom)
 	created, err := api.CreateIssue(conn, payload)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("creating issue: %w", err)

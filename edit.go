@@ -4,8 +4,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"jira-thing/internal/api"
 	"jira-thing/internal/config"
@@ -14,6 +16,9 @@ import (
 	"jira-thing/internal/termsafe"
 	"jira-thing/internal/tui"
 )
+
+// editUsage is the edit command's usage line.
+const editUsage = "usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|NAME|EMAIL|ACCOUNT_ID] [-parent KEY] [-label [-]L]... [-component [-]C]... [-fix-version [-]V]... [-type T] [-points N] [-custom Name=value]... [-dry-run] [-json]"
 
 // editFlags holds runEdit's parsed flags and ticket key.
 type editFlags struct {
@@ -28,22 +33,29 @@ type editFlags struct {
 func parseEditFlags(args []string) editFlags {
 	fs := flag.NewFlagSet("edit", flag.ExitOnError)
 	summary := fs.String("summary", "", "New summary/title")
-	descriptionFile := fs.String("description-file", "", "Path to a markdown file for the new description")
+	descriptionFile := fs.String("description-file", "", `Path to a markdown file for the new description, or "-" for stdin`)
 	priority := fs.String("priority", "", "New priority name (e.g. High, Medium, Low)")
 	labels := fs.String("labels", "", "Comma-separated labels (replaces all existing labels)")
 	assignee := fs.String("assignee", "", `Who to assign: "me", "unassign", a name, an email, or a Jira account ID`)
 	parent := fs.String("parent", "", "Epic/parent ticket key to link this ticket to")
 	issueType := fs.String("type", "", "New issue type, e.g. Task (only types the ticket's edit screen allows)")
+	var custom customFlag
+	fs.Var(&custom, "custom", customHelp)
+	var labelEdits, componentEdits, versionEdits listEditFlag
+	fs.Var(&labelEdits, "label", `Add a label, or remove one with "-name" (repeatable; keeps the others)`)
+	fs.Var(&componentEdits, "component", `Add a component, or remove one with "-name" (repeatable)`)
+	fs.Var(&versionEdits, "fix-version", `Add a fix version, or remove one with "-name" (repeatable)`)
 	storyPoints := fs.String("points", "", `Story points, e.g. 3 or 0.5 (field: "story_points_field" in config, else the usual defaults)`)
 	dryRun := fs.Bool("dry-run", false, "Show the resolved payload without changing anything")
 	jsonOut := fs.Bool("json", false, "Print {key, url, status} as JSON instead of styled text")
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing edit <TICKET-KEY> [-summary S] [-description-file F] [-priority P] [-labels a,b] [-assignee me|unassign|NAME|EMAIL|ACCOUNT_ID] [-parent KEY] [-type T] [-points N] [-dry-run] [-json]")
+		fatal(editUsage)
 	}
 	req := ops.UpdateRequest{
 		Key: fs.Arg(0), Summary: *summary, Priority: *priority,
 		Labels: template.SplitLabels(*labels), Assignee: *assignee, Parent: *parent, IssueType: *issueType,
-		StoryPoints: parsePoints(*storyPoints), PointFields: configuredPointFields(),
+		StoryPoints: parsePoints(*storyPoints), PointFields: configuredPointFields(), Custom: []ops.CustomValue(custom),
+		ListEdits: ops.ListEdits{Labels: labelEdits, Components: componentEdits, FixVersions: versionEdits},
 	}
 	return editFlags{key: fs.Arg(0), req: req, descriptionFile: *descriptionFile, dryRun: *dryRun, json: *jsonOut}
 }
@@ -84,7 +96,7 @@ func runEdit(args []string) {
 	conn := mustConnect()
 	res, err := ops.UpdateTicket(conn, flags.req, flags.dryRun)
 	if errors.Is(err, ops.ErrNothingToUpdate) {
-		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent, -type, -points")
+		fatal("nothing to edit: pass at least one of -summary, -description-file, -priority, -labels, -assignee, -parent, -label, -component, -fix-version, -type, -points, -custom")
 	}
 	if err != nil {
 		fatal("%s", termsafe.Clean(err.Error()))
@@ -115,22 +127,47 @@ func reportEditResult(conn api.JiraConnection, res ops.UpdateResult, jsonOut boo
 // printEditDryRun shows what "edit" would send: the field-update PUT if any
 // fields were given, and the parent-link call if -parent was given.
 func printEditDryRun(conn api.JiraConnection, res ops.UpdateResult) {
-	if len(res.Fields) > 0 {
-		printDryRun("PUT", conn.BaseURL+api.IssueEndpoint+"/"+res.Key, res.Fields)
+	if body := api.EditBody(res.Fields, res.Update); len(body) > 0 {
+		printDryRun("PUT", conn.BaseURL+api.IssueEndpoint+"/"+res.Key, body)
 	}
 	if res.Parent != "" {
 		fmt.Printf("Would also link %s to parent %s\n", res.Key, res.Parent)
 	}
 }
 
-// readDescriptionFile returns the markdown in path, or "" when no path is given.
+// stdinPath is the -description-file value that reads standard input.
+const stdinPath = "-"
+
+// maxStdinDescription caps a description read from stdin, so a runaway pipe
+// fails clearly instead of being sent to Jira.
+const maxStdinDescription = 1 << 20
+
+// readDescriptionFile returns the markdown in path ("-" for stdin), or ""
+// when no path is given. Empty stdin is an error, not a cleared description.
 func readDescriptionFile(path string) (string, error) {
-	if path == "" {
+	switch path {
+	case "":
 		return "", nil
+	case stdinPath:
+		return readStdinDescription()
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- user-supplied CLI input
 	if err != nil {
 		return "", fmt.Errorf("reading description file: %w", err)
+	}
+	return string(data), nil
+}
+
+// readStdinDescription reads a markdown description piped on stdin.
+func readStdinDescription() (string, error) {
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxStdinDescription+1))
+	switch {
+	case err != nil:
+		return "", fmt.Errorf("reading description from stdin: %w", err)
+	case len(data) > maxStdinDescription:
+		return "", fmt.Errorf("description on stdin is over %d MB", maxStdinDescription>>20)
+	case strings.TrimSpace(string(data)) == "":
+		return "", errors.New("description on stdin is empty")
 	}
 	return string(data), nil
 }

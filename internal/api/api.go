@@ -181,10 +181,29 @@ func CreateIssue(conn JiraConnection, fields map[string]any) (map[string]any, er
 // UpdateIssue edits fields on an existing Jira issue (e.g. summary, description,
 // priority, labels, assignee). Only the fields present in the map are changed.
 func UpdateIssue(conn JiraConnection, issueKey string, fields map[string]any) error {
+	return EditIssue(conn, issueKey, EditBody(fields, nil))
+}
+
+// EditBody is the PUT body for an issue edit: fields set values outright,
+// and update holds Jira's add/remove verbs, e.g. {"labels": [{"add": "x"}]}.
+// A field must not appear in both. Empty parts are left out.
+func EditBody(fields, update map[string]any) map[string]any {
+	body := map[string]any{}
+	if len(fields) > 0 {
+		body["fields"] = fields
+	}
+	if len(update) > 0 {
+		body["update"] = update
+	}
+	return body
+}
+
+// EditIssue sends an edit body built by EditBody.
+func EditIssue(conn JiraConnection, issueKey string, editBody map[string]any) error {
 	if err := ValidateIssueKey(issueKey); err != nil {
 		return err
 	}
-	body, err := json.Marshal(map[string]any{"fields": fields})
+	body, err := json.Marshal(editBody)
 	if err != nil {
 		return err
 	}
@@ -455,9 +474,19 @@ func TransitionPayload(transitionID string, opts TransitionOptions) map[string]a
 
 // Field describes a Jira field as returned by GET /rest/api/3/field.
 type Field struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Custom bool   `json:"custom"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Custom bool        `json:"custom"`
+	Schema FieldSchema `json:"schema"`
+}
+
+// FieldSchema describes a field's value type: Type is e.g. "number",
+// "string", "option", "user", "date" or "array" (with Items naming the
+// element type), and Custom names a custom field's plugin type.
+type FieldSchema struct {
+	Type   string `json:"type"`
+	Items  string `json:"items,omitempty"`
+	Custom string `json:"custom,omitempty"`
 }
 
 // FetchFields retrieves every field known to the Jira instance (system and custom).

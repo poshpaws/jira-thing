@@ -109,6 +109,24 @@ Credentials are only prompted once. To update or remove them:
 jira-thing clear-auth
 ```
 
+## Profiles
+
+A profile is a separate set of stored credentials, plus optional config overrides, for working with more than one Jira site or account.
+
+```bash
+jira-thing -profile work me                # prompts for the work site's credentials the first time
+jira-thing -profile work list -a me        # -profile goes before the command
+export JIRA_THING_PROFILE=work             # or select it for the whole shell
+jira-thing -profile work serve-mcp         # an MCP server for the work site
+jira-thing -profile work clear-auth        # clears only that profile's credentials
+```
+
+- With no profile, jira-thing uses the credentials it always has; nothing changes for existing setups.
+- A profile's credentials are stored in the same keychain entry under keys ending `@NAME`. Names are 1–32 letters, digits, `-` or `_`.
+- `diagnose` shows the active profile and where its credentials came from.
+
+**CI and other places without a keychain:** set `JIRA_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`. When all three are set they're used instead of the keychain, whatever the profile. Setting only some of them is an error, so a stored URL is never paired with another account's token.
+
 ## Configuration
 
 `jira-thing` reads its configuration from `~/.config/jira-thing/jira-thing.json`. All fields are optional — only the features you use need their corresponding config values.
@@ -126,7 +144,10 @@ jira-thing clear-auth
   "confluence_space": "MYSPACE",
   "confluence_url": "https://yourorg.atlassian.net/wiki",
   "confluence_base_page_id": "12345678",
-  "ticket_hanger": "Toil Ticket Hangar"
+  "ticket_hanger": "Toil Ticket Hangar",
+  "profiles": {
+    "work": { "project": "OPS", "board": 7, "story_points_field": "customfield_10021" }
+  }
 }
 ```
 
@@ -134,6 +155,7 @@ jira-thing clear-auth
 |---|---|---|
 | `project` | `toil-check`, `toil-sync`, `epic list`, `sprint` | Jira project key (e.g. `PROJ`) |
 | `board` | `sprint` | Agile board ID for sprint commands. Default: the project's only sprint board |
+| `profiles` | everything | Per-profile overrides: with `-profile work`, the keys under `"work"` replace the matching top-level ones. See **Profiles** above |
 | `story_points_field` | `edit -points`, `point-check` | Story point custom field ID, tried before `customfield_10016` and `customfield_10308`. Find it with `diagnose -find-field "story point"` |
 | `toil_marker` | `toil-check`, `toil-sync` | Label that identifies toil tickets |
 | `toil_team` | `toil-check`, `toil-sync` | Legacy team label filter (used when `use_team_field` is false) |
@@ -183,7 +205,7 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-t` | `ticket_template.json` | Path to the template file |
 | `-f` | — | Path to a JSON array of templates; creates all of them non-interactively and reports how many succeeded |
 | `-non-interactive`, `-y` | `false` | Fail with a clear error instead of prompting for a missing summary |
-| `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt |
+| `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt. `-` reads it from stdin, which also turns on `-y` (stdin can't answer prompts), so pass `-summary` too |
 | `-project` | — | Project key (e.g. `PROJ`) or numeric ID — overrides the template. With no `-t` and no default template on the search path, the ticket is built from flags alone |
 | `-summary` | — | Ticket summary — overrides the template and skips the prompt |
 | `-type` | — | Issue type name (e.g. `Task`, `Bug`, `Story`) — overrides the template |
@@ -192,6 +214,8 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-components` | — | Comma-separated component names — overrides the template |
 | `-assignee` | — | `me`, `unassign`, a name or email (must match one user), or a Jira account ID |
 | `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
+| `-fix-version` | — | Fix version name; repeatable or comma-separated. The version must already exist in the project (see `release list`) |
+| `-custom` | — | Any other field as `"Name=value"` or `"customfield_NNNNN=value"`; repeatable. See **Custom fields** below |
 | `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. If an epic/parent is set, also prints the link step that runs right after the create. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
 | `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 | `-dedupe-by-summary` | `false` | Skip creating if an open ticket in the same project has the same summary (see below). Also works with `-f` |
@@ -270,14 +294,18 @@ jira-thing edit <TICKET-KEY> [flags]
 | Flag | Description |
 |---|---|
 | `-summary` | New summary/title |
-| `-description-file` | Path to a markdown file for the new description (replaces the existing one) |
+| `-description-file` | Path to a markdown file for the new description (replaces the existing one), or `-` to read it from stdin |
 | `-priority` | New priority name (e.g. High, Medium, Low) |
 | `-labels` | Comma-separated labels — replaces all existing labels |
+| `-label` | Add one label, or remove one with `-label -name`; repeatable, other labels are kept. Can't be combined with `-labels` |
+| `-component` | Add or remove (`-name`) one component; repeatable |
+| `-fix-version` | Add or remove (`-name`) one fix version; repeatable |
 | `-assignee` | `me`, `unassign`, a name or email (must match one user), or a Jira account ID |
 | `-parent` | Epic/parent ticket key to link this ticket to |
 | `-type` | New issue type, matched case-insensitively. Only types the ticket's edit screen allows; an unknown name lists them. Types with a different workflow or screen need **Move** in Jira |
 | `-points` | Story points, e.g. `3` or `0.5`. Written to `story_points_field` from config if it's on the ticket's edit screen, else the first of `customfield_10016`, `customfield_10308` that is |
-| `-dry-run` | Print the resolved payload (method, URL, JSON body) and exit — nothing is changed |
+| `-custom` | Any other field as `"Name=value"` or `"customfield_NNNNN=value"`; repeatable, empty value clears it. See **Custom fields** below |
+| `-dry-run` | Print the request (method, URL, and the JSON body with its `fields` and `update` parts) and exit — nothing is changed |
 | `-json` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 
 At least one flag is required. `-description-file` is parsed as markdown (not Jira wiki markup) — see the note under `update` below.
@@ -292,7 +320,34 @@ jira-thing edit PROJ-99 -priority High -labels bug,urgent -assignee me
 jira-thing edit PROJ-99 -priority High -dry-run   # preview, change nothing
 jira-thing edit PROJ-99 -priority High -json      # {"key":"PROJ-99","url":"https://...","status":"edited"}
 jira-thing edit PROJ-99 -type Task -points 0.5    # Bug → Task, half a point
+jira-thing edit PROJ-99 -label reviewed -label -stale -fix-version v2.1   # add, remove, add
+git log --oneline main..HEAD | jira-thing edit PROJ-99 -description-file -   # description from a pipe
 ```
+
+#### Custom fields
+
+`-custom` on `create` and `edit` sets any field by its name (case-insensitive) or ID, converting the value by the field's type:
+
+| Field type | Value | Sent as |
+|---|---|---|
+| Number | `3`, `0.5` | a number |
+| Text (single line) | `Platform` | a string |
+| Text (paragraph) | markdown | ADF |
+| Select list | `Red` | `{"value": "Red"}` |
+| User | `me`, a name, an email, an account ID | `{"accountId": …}` |
+| Date | `2026-12-31` | checked, then a string |
+| Version, component, priority | `v2.0` | `{"name": "v2.0"}` |
+| Sprint | `1234` (sprint ID) | a number |
+| Team | team ID | a string |
+| Lists of the above, labels | `a, b` | an array |
+
+```bash
+jira-thing edit PROJ-99 -custom "Story point estimate=3" -custom "Start date=2026-11-20"
+jira-thing create -y -project PROJ -summary "Spike" -custom "Team=8f2c…" -custom "Reviewers=me, ada"
+jira-thing edit PROJ-99 -custom "customfield_10021=" -dry-run    # clear a field
+```
+
+A name that matches several fields fails with their IDs; use the ID. Find fields with `diagnose -find-field "part of the name"`. Cascading selects and other unusual types aren't supported and say so. Templates still never copy custom fields; only `-custom` sets them.
 
 ---
 

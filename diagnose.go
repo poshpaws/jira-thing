@@ -64,7 +64,8 @@ func runConnectionChecks() {
 
 // printDiagnosis reports each check in order, stopping at the first failure.
 func printDiagnosis(d ops.Diagnosis) {
-	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Credentials loaded from keyring"))
+	fmt.Printf("  %s\n", tui.SuccessStyle.Render("✓ Credentials loaded from "+d.Source))
+	fmt.Printf("    Profile: %s\n", d.Profile)
 	fmt.Printf("    URL:   %s\n", d.URL)
 	fmt.Printf("    Email: %s\n", d.Email)
 	fmt.Printf("    Token: %s\n", d.MaskedToken)

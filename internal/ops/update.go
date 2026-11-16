@@ -22,6 +22,8 @@ type UpdateRequest struct {
 	Assignee    string // "me", "unassign", a name, an email or an account ID
 	Parent      string // epic/parent key to link to
 	IssueType   string // new issue type name, matched case-insensitively
+	Custom      []CustomValue
+	ListEdits   ListEdits // add/remove single labels, components and fix versions
 	StoryPoints *float64
 	// PointFields are the story point field IDs to try, first match on the
 	// edit screen wins; nil means DefaultStoryPointFields.
@@ -33,7 +35,8 @@ type UpdateResult struct {
 	Key         string
 	URL         string
 	Status      string
-	Fields      map[string]any // the PUT body; empty when only Parent changes
+	Fields      map[string]any // fields set outright; empty when only Parent changes
+	Update      map[string]any // add/remove verbs for list fields
 	Parent      string
 	IssueType   string // the new type's name, when the type changes
 	PointsField string // the field story points were written to
@@ -47,10 +50,14 @@ func UpdateTicket(conn api.JiraConnection, req UpdateRequest, dryRun bool) (Upda
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	if len(fields) == 0 && req.Parent == "" && req.IssueType == "" && req.StoryPoints == nil {
+	update, err := updateVerbs(req.ListEdits, fields)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if len(fields) == 0 && len(update) == 0 && req.Parent == "" && req.IssueType == "" && req.StoryPoints == nil {
 		return UpdateResult{}, ErrNothingToUpdate
 	}
-	res := UpdateResult{Key: req.Key, URL: IssueURL(conn, req.Key), Status: StatusEdited, Fields: fields, Parent: req.Parent}
+	res := UpdateResult{Key: req.Key, URL: IssueURL(conn, req.Key), Status: StatusEdited, Fields: fields, Update: update, Parent: req.Parent}
 	if err := applyMetaFields(conn, req, &res); err != nil {
 		return UpdateResult{}, err
 	}
@@ -58,7 +65,7 @@ func UpdateTicket(conn api.JiraConnection, req UpdateRequest, dryRun bool) (Upda
 		res.Status = StatusDryRun
 		return res, nil
 	}
-	return res, submitUpdate(conn, req.Key, fields, req.Parent)
+	return res, submitUpdate(conn, req.Key, api.EditBody(fields, update), req.Parent)
 }
 
 // updateFields builds the PUT body from the fields req actually sets.
@@ -74,13 +81,16 @@ func updateFields(conn api.JiraConnection, req UpdateRequest) (map[string]any, e
 	if len(req.Labels) > 0 {
 		fields["labels"] = req.Labels
 	}
+	if err := mergeCustom(conn, fields, req.Custom); err != nil {
+		return nil, err
+	}
 	return fields, setAssignee(conn, fields, req.Assignee)
 }
 
-// submitUpdate sends the field PUT (if any) and the parent link (if any).
-func submitUpdate(conn api.JiraConnection, key string, fields map[string]any, parent string) error {
-	if len(fields) > 0 {
-		if err := api.UpdateIssue(conn, key, fields); err != nil {
+// submitUpdate sends the edit PUT (if any) and the parent link (if any).
+func submitUpdate(conn api.JiraConnection, key string, body map[string]any, parent string) error {
+	if len(body) > 0 {
+		if err := api.EditIssue(conn, key, body); err != nil {
 			return fmt.Errorf("updating %s: %w", key, err)
 		}
 	}

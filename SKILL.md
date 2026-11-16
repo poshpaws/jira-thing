@@ -53,6 +53,7 @@ jira-thing create                                              # interactive, us
 jira-thing create -t /path/to/template.json
 jira-thing create -t template.json -y                          # fail fast instead of prompting
 jira-thing create -t template.json -y -description-file body.md # description from a markdown file, not the prompt
+cat plan.md | jira-thing create -project PROJ -summary "Plan" -description-file -   # from stdin (implies -y)
 jira-thing create -y -project PROJ -summary "Fix it" -type Bug -epic PROJ-10 # no template file at all
 ```
 
@@ -80,8 +81,8 @@ the classic Epic Link field) — no separate `epic add` call needed.
 
 First-class flags do the same as template fields, no template file needed:
 `-project`, `-summary`, `-type`, `-priority`, `-labels`, `-components` (comma-separated), `-assignee`
-(`me`/`unassign`/name/email/account ID), `-epic` (same as `parent`) — all override the
-template when both are given. `-dry-run` prints the exact JSON body without creating
+(`me`/`unassign`/name/email/account ID), `-epic` (same as `parent`), `-fix-version V` (repeatable), `-custom "Field=value"`
+(any other field, repeatable) — all override the template when both are given. `-dry-run` prints the exact JSON body without creating
 anything (plus the epic link step, if `-epic`/`parent` is set); `-json` prints `{key,url,status}` instead of styled text.
 
 **Retrying a create?** Add `-dedupe-by-summary` (also with `-f`): if an open
@@ -122,13 +123,18 @@ jira-thing edit PROJ-123 -assignee me
 jira-thing edit PROJ-123 -assignee unassign
 jira-thing edit PROJ-123 -parent PROJ-10
 jira-thing edit PROJ-123 -type Task -points 0.5 -dry-run
+jira-thing edit PROJ-123 -label reviewed -label -stale
 ```
 
-Flags: `-summary`, `-description-file` (markdown file, converted to ADF),
+Flags: `-summary`, `-description-file` (markdown file, converted to ADF; `-` reads stdin),
 `-priority`, `-labels` (comma-separated, replaces all existing labels),
+`-label NAME` / `-label -NAME` (add or remove one label, keeping the rest;
+repeatable), `-component` and `-fix-version` (same add/remove form),
 `-assignee` (`me`, `unassign`, a name, an email, or a Jira account ID), `-parent`
 (epic/parent key to link to), `-type` (issue type the edit screen allows; an
 unknown name lists the allowed ones), `-points` (story points, decimals OK),
+`-custom "Field name=value"` (any field by name or customfield ID, repeatable;
+value converted by the field's type, lists comma-separated, empty clears),
 `-dry-run` (print the payload, change nothing),
 `-json` (print `{key,url,status}` instead of styled text — parse this, not
 the styled output, when scripting). At least one flag is required.
@@ -174,6 +180,20 @@ jira-thing assign PROJ-123 default            # project's default assignee
 A name matching several users fails non-interactively and lists each
 candidate's account ID; retry with the right ID (or email). `-assignee` on
 `create`, `edit` and `transition` accepts names and emails the same way.
+
+---
+
+### Profiles and CI credentials
+
+```bash
+jira-thing -profile work list -a me      # -profile goes before the command
+JIRA_THING_PROFILE=work jira-thing me    # same, via the environment
+jira-thing diagnose                      # shows the active profile and credential source
+```
+
+`JIRA_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`, all three set, override stored
+credentials (CI). Config keys under `"profiles": {"work": {...}}` override the
+top-level ones for that profile.
 
 ---
 

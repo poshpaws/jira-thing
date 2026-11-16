@@ -47,6 +47,11 @@ var selectTransitionFn = tui.SelectTransition
 var osExit = os.Exit
 
 func main() {
+	args, err := applyGlobalFlags(os.Args)
+	if err != nil {
+		fatal("%v", err)
+	}
+	os.Args = args
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -173,7 +178,7 @@ func printUsage() {
 		{"create|cr -project/-summary/-type/-priority/-labels/-components/-assignee/-epic", "First-class field flags — override the template, no template needed"},
 		{"create|cr -f tickets.json [-dry-run]", "Batch-create tickets from a JSON array, non-interactively"},
 		{"update|up <TICKET-KEY> [-stdin]", "Add a comment via $EDITOR or stdin"},
-		{"edit|ed <TICKET-KEY> [flags]", "Edit fields on an existing ticket (summary/description/priority/labels/assignee/parent)"},
+		{"edit|ed <TICKET-KEY> [flags]", "Edit fields: summary, description, priority, labels (-label add/remove), assignee, parent, type, points, -custom"},
 		{"create|cr -dedupe-by-summary", "Skip creating if an open ticket in the project has the same summary"},
 		{"create|cr / edit|ed -json", "Print {key, url, status} as JSON instead of styled text"},
 		{"my-tasks|mt [-notupdated]", "List open tasks assigned to you"},
@@ -220,7 +225,8 @@ func printUsage() {
 		{"diagnose -find-field <search>", "Look up a field's real customfield ID by name"},
 		{"diagnose -list-fields", "Print every field on the Jira instance"},
 		{"diagnose -team <KEY>", "Print a ticket's Team custom field + ID"},
-		{"clear-auth", "Clear stored credentials"},
+		{"clear-auth", "Clear the active profile's stored credentials"},
+		{"-profile NAME <command>", "Use a named profile's credentials and config (or set JIRA_THING_PROFILE)"},
 		{"check-update|cu", "Check for newer releases on GitHub"},
 		{"self-update|su", "Download and install the latest release"},
 		{"version|--version|-v", "Show version"},

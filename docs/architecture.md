@@ -18,6 +18,11 @@ flowchart LR
     Ops --> ADF["internal/adf\nmarkdown <-> ADF"]
     Ops --> Tmpl["internal/template"]
     CLI --> Safe["internal/termsafe\nstrip escapes before printing"]
+    MCP --> Safe
+    Ops --> Auth["internal/auth\nkeychain or JIRA_* env"]
+    Ops --> Cfg["internal/config\nsettings + profile overrides"]
+    Auth --> Prof["internal/profile\nactive profile name"]
+    Cfg --> Prof
 
     API -->|HTTPS| Jira[(Jira Cloud / Confluence)]
 ```
@@ -34,14 +39,15 @@ flowchart LR
 |---|---|
 | `main` | Subcommand routing, flag parsing, prompts, styled output; calls `internal/ops` |
 | `internal/mcpserver` | MCP tool schemas and handlers; calls `internal/ops`; generates the README tool table |
-| `internal/ops` | Feature logic shared by every front end: create/update/batch, dedupe, clone, transitions, delete, worklog, whoami, templates, toil sync, diagnose |
+| `internal/ops` | Feature logic shared by every front end: create/update/batch (with custom fields and list edits), dedupe, clone, transitions, assign, watch, sprints, catalogues, list queries and columns, describe, delete, worklog, whoami, templates, toil sync, diagnose |
 | `internal/adf` | Markdown→ADF (goldmark) and ADF→markdown conversion |
-| `internal/termsafe` | Strips terminal control and bidi characters from Jira-authored text before it is printed |
+| `internal/termsafe` | Strips terminal control and bidi characters from Jira-authored text; `Line` also keeps a value on one line, for terminal and MCP output |
 | `internal/api` | HTTP requests to the Jira and Confluence REST APIs; validates issue keys before they enter a URL |
-| `internal/auth` | Credential load/store via the OS keyring |
+| `internal/auth` | Credential load/store via the OS keyring, per profile; `JIRA_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` override it |
+| `internal/profile` | The active profile name (`-profile` or `JIRA_THING_PROFILE`) and its keyring key suffix |
 | `internal/template` | Build, save, and load JSON ticket templates |
 | `internal/tui` | Bubble Tea pickers, tables and menus |
-| `internal/config` | `~/.config/jira-thing/jira-thing.json` settings |
+| `internal/config` | `~/.config/jira-thing/jira-thing.json` settings, with the active profile's `profiles` overrides applied |
 
 ## Class Diagram
 
@@ -135,7 +141,10 @@ flowchart TD
 | `worklog add`, `delete`, `clone`, `me` | `ops.LogWork` (duration checked locally), `ops.DeleteTicket` (inspects first, refuses subtasks without cascade), `ops.CloneTicket` (`-replace` rewrites summary and ADF text nodes on a copy), `ops.WhoAmI`; all but `me` take `-dry-run` |
 | `watch`/`unwatch <KEY> [WHO]`, `watchers <KEY>` | `ops.WatchTicket` resolves WHO through `ops.ResolveUser` (default: you) and calls `api.AddWatcher`/`RemoveWatcher`; ambiguous names reuse assign's picker via the generic `retryWithPick` |
 | `list [filters] [-plain\|-csv\|-json] [-columns]` | `ops.ListTickets` builds JQL with `ops.BuildListJQL` (shared with the MCP `search_tickets` filters) and pages via `api.SearchAll`; `ops.TicketRow` extracts column values for both front ends, and `listfmt.go` renders tables, CSV and JSON |
+| `create`/`edit -custom Name=value` | `ops.ResolveCustomFields` reads the field registry once, matches names or IDs (`ops.AmbiguousFieldError` on duplicates) and converts values by `schema.type`; create adds them after `PreparePayload`, which strips every `customfield_*` key from templates |
+| `edit -label [-]L -component [-]C -fix-version [-]V` | `ops.ListEdits` become Jira's `update` verbs (`{"labels": [{"add": …}, {"remove": …}]}`) beside `fields` in one PUT built by `api.EditBody`; a field both replaced and edited is refused, as Jira rejects it |
 | `edit -type T -points N` | `ops.UpdateTicket` reads the ticket's edit screen (`api.FetchEditMeta`) only when type or points change: the type must be in `issuetype.allowedValues`, and points go to the first of `ops.StoryPointFields(cfg)` on the screen. `point-check` reads the same list |
+| `-profile NAME <command>` | `applyGlobalFlags` (globalflags.go) removes the option and calls `profile.Select`, which sets `JIRA_THING_PROFILE` so `serve-mcp` and other child processes inherit it; `auth` reads `key@NAME` keychain entries and `config.Load` overlays `profiles[NAME]` |
 | `describe <KEY> -comments N` | `ops.DescribeTicket` adds the newest N comments in one request (`orderBy=-created`, reversed to read oldest first); `ops.CommentsMarkdown` renders them for both the CLI and `describe_ticket` |
 | `completion bash\|zsh` | Commands, aliases and sub-commands; `completion_test.go` parses every dispatch switch so a new command or alias without completion fails the build |
 | `describe <KEY>` | Render a ticket's fields, linked tickets (`api.ParseIssueLinks`) and description as markdown |
@@ -152,6 +161,7 @@ flowchart TD
 - **`executeRequest` helper** — eliminates duplicated HTTP status-check + JSON-decode logic across all API functions.
 - **`SearchQuery` struct** — groups the four search parameters to keep `SearchIssues` within the single-responsibility / argument-count guidelines.
 - **MCP-first, one `ops` layer** — before v0.27 the MCP handlers and the CLI each had their own copies of field building, assignee resolution, clone inheritance, transitions, dedupe and toil queries, and they had drifted (the CLI's toil JQL didn't escape quotes). Each now exists once in `internal/ops`, and `ops` results are plain structs, so `-json` output and MCP text describe the same thing.
+- **Profiles stay out of the way** — the default profile uses the original keychain keys and config, so existing installs see no change. Credentials resolve in a fixed order: all three `JIRA_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` variables, else the active profile's keychain keys, else a prompt. A partial set of variables is an error rather than being mixed with stored values.
 - **Edit screen, not guesses** — issue types and story point fields vary per project and instance. `edit` checks both against the ticket's edit metadata rather than a hard-coded list, so a wrong type or missing field fails before anything is sent, with the allowed values in the error. Types outside `allowedValues` need Jira's Move flow, which `edit` doesn't attempt.
 - **Deletes look before they leap** — `ops.DeleteTicket` fetches the ticket first, so every front end can show the summary and subtasks, and a ticket with subtasks is refused unless cascade is set rather than leaving Jira to fail half-way. The CLI needs a terminal to confirm in, or `-y`; the MCP tool tells agents to dry-run and confirm with the user.
 - **Filters quote everything** — `ops.BuildListJQL` quotes every value with JQL escaping (`currentUser()` and the `startOf…()` keywords are the only bare tokens) and accepts `--order-by` only as a field name, so a filter value can't change the query's shape. Raw `-jql` is the deliberate escape hatch. CSV cells that a spreadsheet would treat as formulas are prefixed with `'`.

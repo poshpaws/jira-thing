@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"jira-thing/internal/profile"
 )
 
 func TestLoad_ValidConfig(t *testing.T) {
@@ -88,5 +90,33 @@ func TestLoad_ConfluenceFields(t *testing.T) {
 	}
 	if cfg.TicketHanger != "Toil Tracker" {
 		t.Errorf("TicketHanger = %q, want Toil Tracker", cfg.TicketHanger)
+	}
+}
+
+func TestLoad_ProfileOverrides(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jira-thing.json")
+	data := `{"project":"HOME","board":1,"editor":"vi","profiles":{"work":{"project":"OPS","board":7},"broken":{"board":"seven"}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := ConfigPath
+	ConfigPath = func() string { return path }
+	t.Cleanup(func() { ConfigPath = old })
+
+	t.Setenv(profile.EnvVar, "")
+	if cfg, err := Load(); err != nil || cfg.Project != "HOME" || cfg.Board != 1 {
+		t.Errorf("default: %+v %v", cfg, err)
+	}
+	t.Setenv(profile.EnvVar, "work")
+	if cfg, err := Load(); err != nil || cfg.Project != "OPS" || cfg.Board != 7 || cfg.Editor != "vi" {
+		t.Errorf("work: %+v %v", cfg, err)
+	}
+	t.Setenv(profile.EnvVar, "nosuch")
+	if cfg, err := Load(); err != nil || cfg.Project != "HOME" {
+		t.Errorf("profile without overrides: %+v %v", cfg, err)
+	}
+	t.Setenv(profile.EnvVar, "broken")
+	if _, err := Load(); err == nil {
+		t.Error("expected a parse error for a bad profile")
 	}
 }

@@ -24,11 +24,17 @@ func ResolveAssignee(conn api.JiraConnection, assignee string) (any, error) {
 
 // Components turns component names into the Jira API's component object shape.
 func Components(names []string) []map[string]any {
-	components := make([]map[string]any, len(names))
+	return NamedRefs(names)
+}
+
+// NamedRefs wraps each name as {"name": name}, the form Jira takes for
+// components and versions.
+func NamedRefs(names []string) []map[string]any {
+	refs := make([]map[string]any, len(names))
 	for i, name := range names {
-		components[i] = map[string]any{"name": name}
+		refs[i] = map[string]any{"name": name}
 	}
-	return components
+	return refs
 }
 
 // setIfGiven stores value under key unless value is empty.
