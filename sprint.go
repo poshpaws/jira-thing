@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	sprintUsage     = "usage: jira-thing sprint <list|add> [options]"
+	sprintUsage     = "usage: jira-thing sprint <list|add|explore> [options]"
 	sprintListUsage = "usage: jira-thing sprint list [-b BOARD] [-p PROJECT] [-state STATE] [-current|-prev|-next|-sprint ID] [-jql JQL] [-json]"
 	sprintAddUsage  = "usage: jira-thing sprint add <current|next|SPRINT_ID> <TICKET-KEY...> [-b BOARD] [-p PROJECT] [-dry-run] [-json]"
 )
@@ -31,6 +31,8 @@ func runSprint(args []string) {
 		runSprintList(args[1:])
 	case "add":
 		runSprintAdd(args[1:])
+	case "explore":
+		runSprintExplore(args[1:])
 	default:
 		fatal("unknown sprint sub-command: %s\n%s", args[0], sprintUsage)
 	}

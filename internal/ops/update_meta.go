@@ -37,8 +37,8 @@ func applyMetaFields(conn api.JiraConnection, req UpdateRequest, res *UpdateResu
 	if req.IssueType == "" && req.StoryPoints == nil {
 		return nil
 	}
-	if req.StoryPoints != nil && (*req.StoryPoints < 0 || math.IsNaN(*req.StoryPoints) || math.IsInf(*req.StoryPoints, 0)) {
-		return ErrBadStoryPoints
+	if err := checkPoints(req.StoryPoints); err != nil {
+		return err
 	}
 	meta, err := api.FetchEditMeta(conn, req.Key)
 	if err != nil {
@@ -51,6 +51,14 @@ func applyMetaFields(conn api.JiraConnection, req UpdateRequest, res *UpdateResu
 	}
 	if req.StoryPoints != nil {
 		return setStoryPoints(meta, req, res)
+	}
+	return nil
+}
+
+// checkPoints rejects a negative or non-finite story point value; nil is fine.
+func checkPoints(p *float64) error {
+	if p != nil && (*p < 0 || math.IsNaN(*p) || math.IsInf(*p, 0)) {
+		return ErrBadStoryPoints
 	}
 	return nil
 }

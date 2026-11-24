@@ -27,6 +27,8 @@ type fakeJira struct {
 	created    []map[string]any
 	updates    []map[string]any
 	links      int
+	editFields []string // extra fields on every ticket's edit screen
+	sprintAdds []string // paths of add-to-sprint POSTs
 }
 
 func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +40,11 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"accountId": "acc-me"})
 	case strings.HasSuffix(r.URL.Path, "/search/jql"):
 		f.serveSearch(w)
+	case strings.HasSuffix(r.URL.Path, "/editmeta"):
+		f.serveEditMeta(w)
+	case strings.Contains(r.URL.Path, "/agile/1.0/sprint/"):
+		f.sprintAdds = append(f.sprintAdds, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/issue"):
 		f.created = append(f.created, body["fields"].(map[string]any))
 		w.WriteHeader(http.StatusCreated)
@@ -59,6 +66,15 @@ func (f *fakeJira) serveSearch(w http.ResponseWriter) {
 		issues = append(issues, map[string]any{"key": key, "fields": map[string]any{"summary": summary}})
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"issues": issues})
+}
+
+// serveEditMeta serves an edit screen holding f.editFields.
+func (f *fakeJira) serveEditMeta(w http.ResponseWriter) {
+	fields := map[string]any{}
+	for _, name := range f.editFields {
+		fields[name] = map[string]any{"name": name}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"fields": fields})
 }
 
 // serveUpdate treats a PUT setting "parent" as an epic/parent link, and any

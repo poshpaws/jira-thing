@@ -90,3 +90,15 @@ func (l *listEditFlag) Set(s string) error {
 	*l = append(*l, e)
 	return nil
 }
+
+// flagGiven reports whether the named flag was set on the command line,
+// as opposed to holding its default.
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			given = true
+		}
+	})
+	return given
+}

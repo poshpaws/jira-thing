@@ -151,20 +151,59 @@ func Save(tmpl map[string]any, path string) (string, error) {
 // Load reads a template from a JSON file and strips any excluded fields.
 // When path is empty, tries cwd, binary directory, platform config dir, then ~/.config/jira-thing.
 func Load(path string) (map[string]any, error) {
+	tmpl, _, err := find(path)
+	return tmpl, err
+}
+
+// find loads path, or the first template on the search path when path is
+// empty, also returning the file it read.
+func find(path string) (map[string]any, string, error) {
 	if path != "" {
-		return loadAndStrip(path)
+		tmpl, err := loadAndStrip(path)
+		return tmpl, path, err
 	}
 	candidates := candidatePaths()
 	for _, p := range candidates {
 		tmpl, err := loadAndStrip(p)
 		if err == nil {
-			return tmpl, nil
+			return tmpl, p, nil
 		}
 		if !os.IsNotExist(err) {
-			return nil, err
+			return nil, "", err
 		}
 	}
-	return nil, fmt.Errorf("%w; tried: %s", ErrTemplateNotFound, strings.Join(candidates, ", "))
+	return nil, "", fmt.Errorf("%w; tried: %s", ErrTemplateNotFound, strings.Join(candidates, ", "))
+}
+
+// LoadFromDir is Load with dir (the templates_dir setting) searched for the
+// default template before the usual search path, also returning the file it
+// read. An explicit path, or an empty dir, behaves exactly like Load.
+func LoadFromDir(path, dir string) (map[string]any, string, error) {
+	if path != "" || dir == "" {
+		return find(path)
+	}
+	file := filepath.Join(ExpandHome(dir), defaultTemplateFile)
+	tmpl, err := loadAndStrip(file)
+	switch {
+	case err == nil:
+		return tmpl, file, nil
+	case !os.IsNotExist(err):
+		return nil, "", err
+	}
+	return find("")
+}
+
+// ExpandHome replaces a leading "~/" with the user's home directory.
+func ExpandHome(path string) string {
+	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, rest)
 }
 
 // loadAndStrip reads a template file and strips excluded fields.

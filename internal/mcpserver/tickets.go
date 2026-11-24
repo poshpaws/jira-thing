@@ -7,6 +7,7 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
 	"jira-thing/internal/termsafe"
@@ -31,13 +32,13 @@ func registerTicketTools(s *server.MCPServer, conn api.JiraConnection) {
 
 func describeTicketTool() mcp.Tool {
 	return mcp.NewTool("describe_ticket",
-		mcp.WithDescription("Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description, optionally with its latest comments"),
+		mcp.WithDescription("Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description, with its latest comment (or the latest N)"),
 		mcp.WithString("ticket_key",
 			mcp.Required(),
 			mcp.Description("Jira ticket key (e.g. PROJ-42)"),
 		),
 		mcp.WithNumber("comments",
-			mcp.Description(fmt.Sprintf("Also return the latest N comments, oldest first (default 0, max %d)", ops.MaxDescribeComments)),
+			mcp.Description(fmt.Sprintf("Return the latest N comments, oldest first; 0 for none (default %d, max %d)", ops.DefaultDescribeComments, ops.MaxDescribeComments)),
 		),
 	)
 }
@@ -48,7 +49,7 @@ func handleDescribeTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		res, err := ops.DescribeTicket(conn, key, int(req.GetFloat("comments", 0)))
+		res, err := ops.DescribeTicket(conn, key, int(req.GetFloat("comments", ops.DefaultDescribeComments)))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -159,7 +160,7 @@ func handleAddComment(conn api.JiraConnection) server.ToolHandlerFunc {
 // --- create_ticket ---
 
 func createTicketTool() mcp.Tool {
-	return mcp.NewTool("create_ticket",
+	opts := append([]mcp.ToolOption{
 		mcp.WithDescription("Create a new Jira ticket with the specified fields"),
 		mcp.WithString("project",
 			mcp.Required(),
@@ -197,7 +198,9 @@ func createTicketTool() mcp.Tool {
 			mcp.Description("Comma-separated fix version names (e.g. v2.0)"),
 		),
 		customFieldsOption(),
-	)
+		templateOption(),
+	}, createFollowUpOptions()...)
+	return mcp.NewTool("create_ticket", opts...)
 }
 
 func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
@@ -209,7 +212,7 @@ func handleCreateTicket(conn api.JiraConnection) server.ToolHandlerFunc {
 		opts := ops.CreateOptions{Dedupe: ops.NewDedupeGuard(conn, req.GetBool("dedupe_by_summary", false))}
 		res, err := ops.CreateTicket(conn, createReq, opts)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("creating ticket: %v", err)), nil
+			return mcp.NewToolResultError("creating ticket: " + termsafe.Clean(err.Error())), nil
 		}
 		return mcp.NewToolResultText(formatCreateResult(res)), nil
 	}
@@ -229,7 +232,16 @@ func createRequest(req mcp.CallToolRequest) (ops.CreateRequest, error) {
 	if err != nil {
 		return ops.CreateRequest{}, err
 	}
-	return ops.CreateRequest{
+	cfg, err := config.Load()
+	if err != nil {
+		return ops.CreateRequest{}, fmt.Errorf("loading config: %w", err)
+	}
+	base, err := templateFields(req, cfg)
+	if err != nil {
+		return ops.CreateRequest{}, err
+	}
+	createReq := ops.CreateRequest{
+		Fields:      base,
 		Project:     project,
 		Summary:     summary,
 		IssueType:   req.GetString("issue_type", ""),
@@ -241,7 +253,10 @@ func createRequest(req mcp.CallToolRequest) (ops.CreateRequest, error) {
 		Parent:      req.GetString("parent", ""),
 		Custom:      custom,
 		FixVersions: template.SplitLabels(req.GetString("fix_versions", "")),
-	}, nil
+		Defaults:    ops.DefaultsFromConfig(cfg),
+	}
+	addCreateFollowUps(req, &createReq, cfg)
+	return createReq, nil
 }
 
 // formatCreateResult words a create result for the agent.
@@ -249,15 +264,7 @@ func formatCreateResult(res ops.CreateResult) string {
 	if res.Status == ops.StatusExists {
 		return fmt.Sprintf("Skipped: %s already has this summary and is still open; nothing created\nURL: %s", res.Key, res.URL)
 	}
-	msg := fmt.Sprintf("Created ticket: %s\nURL: %s", res.Key, res.URL)
-	switch {
-	case res.Parent == "":
-	case res.ParentErr != nil:
-		msg += fmt.Sprintf("\nWarning: created but failed to link to parent %s: %v", res.Parent, res.ParentErr)
-	default:
-		msg += fmt.Sprintf("\nLinked to parent: %s", res.Parent)
-	}
-	return msg
+	return fmt.Sprintf("Created ticket: %s\nURL: %s", res.Key, res.URL) + formatCreateFollowUps(res)
 }
 
 // --- list_transitions ---

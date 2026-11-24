@@ -195,6 +195,8 @@ func printUsage() {
 		{"sprint|sp list [-b BOARD] [-p PROJECT] [-state S]", "List a board's sprints (default board: config, else the project's sprint board)"},
 		{"sprint list -current|-prev|-next|-sprint ID [-jql J]", "List the issues in a sprint (-json)"},
 		{"sprint add <current|next|ID> <KEY...>", "Move tickets into a sprint (-dry-run, -json)"},
+		{"sprint explore [-b BOARD] [-all]", "Browse sprints and their issues side by side"},
+		{"epic explore [-p PROJECT]", "Browse epics and their issues side by side"},
 		{"worklog|wl add <KEY> <DURATION> [-comment C]", "Log time, e.g. \"2h 30m\" (-dry-run, -json)"},
 		{"delete <KEY> [-cascade] [-y]", "Permanently delete a ticket; asks first unless -y (-dry-run, -json)"},
 		{"clone <KEY> [-summary/-priority/-assignee/-labels] [-replace a:b]", "Copy a ticket, replacing text in summary and description (-dry-run, -json)"},
@@ -274,10 +276,14 @@ func fatal(format string, args ...any) {
 
 // runTemplate fetches a Jira ticket and saves it as a local JSON template.
 func runTemplate(args []string) {
+	if len(args) > 0 && args[0] == "list" {
+		runTemplateList(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("template", flag.ContinueOnError)
 	output := fs.String("o", "", "Output file path")
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
-		fatal("usage: jira-thing template <TICKET-KEY> [-o output.json]")
+		fatal("usage: jira-thing template <TICKET-KEY> [-o output.json]\n       jira-thing template list [-json]")
 	}
 	conn := mustConnect()
 	fmt.Printf("Fetching %s...\n", fs.Arg(0))
@@ -592,9 +598,12 @@ func runDescribe(args []string) {
 	fs := flag.NewFlagSet("describe", flag.ExitOnError)
 	plain := fs.Bool("plain", false, "Force plain text output, even on a terminal")
 	raw := fs.Bool("raw", false, "Print the stored issue fields as raw JSON (incl. ADF description)")
-	comments := fs.Int("comments", 0, fmt.Sprintf("Also show the latest N comments (max %d)", ops.MaxDescribeComments))
+	comments := fs.Int("comments", ops.DefaultDescribeComments, fmt.Sprintf("Show the latest N comments, 0 for none (max %d; -raw shows none unless given)", ops.MaxDescribeComments))
 	if err := fs.Parse(reorderFlagsBeforeKey(fs, args)); err != nil || fs.NArg() < 1 {
 		fatal("usage: jira-thing describe <TICKET-KEY> [-comments N] [-plain] [-raw]")
+	}
+	if *raw && !flagGiven(fs, "comments") {
+		*comments = 0 // keep -raw's output the bare issue for existing scripts
 	}
 	res, err := ops.DescribeTicket(mustConnect(), fs.Arg(0), *comments)
 	if err != nil {

@@ -47,7 +47,8 @@ func ListEpicIssues(conn JiraConnection, epicKey string) (SearchResult, error) {
 		Fields:     []string{"summary", "status", "priority", "updated"},
 		MaxResults: 100,
 	})
-	if parentErr == nil && result.Total > 0 {
+	// The search endpoint returns no total, so test for issues instead.
+	if parentErr == nil && len(result.Issues) > 0 {
 		return result, nil
 	}
 

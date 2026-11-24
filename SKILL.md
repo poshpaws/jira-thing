@@ -14,6 +14,7 @@ Go CLI tool for Jira and Confluence. Credentials stored in OS keyring (same cred
 - Fetch, search, create, edit, or describe Jira tickets
 - Create tickets non-interactively (`-y`/`-non-interactive`) or in a batch from a JSON array — the right path for agents/CI, since plain `create` can block on a prompt
 - Edit fields (summary, description, priority, labels, assignee, parent) on an existing ticket without the interactive TUI
+- `epic explore` and `sprint explore` are full-screen interactive views for people; agents should use `epic describe`, `sprint list -current` or the MCP tools instead
 - **Move a ticket to a new workflow state** — use `transition`, not `state`: `state` is a TUI picker and will hang/fail non-interactively. `transition <KEY>` with no state name lists what's available; states are entirely custom per board/instance, so always list first rather than guessing a name like "Done" or "In Review" exists
 - Add markdown comments to tickets (converted to ADF automatically)
 - Show the last comment on a ticket

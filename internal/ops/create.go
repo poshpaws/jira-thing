@@ -18,7 +18,7 @@ var ErrSummaryRequired = errors.New("summary is required")
 
 // CreateRequest describes a ticket to create. Fields is an optional base,
 // such as a loaded template or a batch entry; every non-empty typed field
-// overrides it. Bare-string project, issuetype and priority values are
+// overrides it, and Defaults fill whatever both leave unset. Bare-string project, issuetype and priority values are
 // wrapped into Jira's object shape.
 type CreateRequest struct {
 	Fields      map[string]any
@@ -33,6 +33,11 @@ type CreateRequest struct {
 	Parent      string // epic/parent key, linked after the create
 	Custom      []CustomValue
 	FixVersions []string
+	Sprint      string      // "current", "next" or a sprint ID, joined after the create
+	SprintScope SprintScope // board Sprint is looked up on; zero means the project's only sprint board
+	StoryPoints *float64    // set through the edit screen after the create
+	PointFields []string    // story point field IDs to try; nil means DefaultStoryPointFields
+	Defaults    CreateDefaults
 }
 
 // CreateOptions controls how a create runs.
@@ -45,15 +50,27 @@ type CreateOptions struct {
 }
 
 // CreateResult reports what a create did. Payload is the POST body, set for
-// both dry runs and real creates. ParentErr is set when the ticket was
-// created but linking it to Parent failed.
+// both dry runs and real creates. ParentErr, SprintErr and PointsErr are set
+// when the ticket was created but that follow-up step failed.
 type CreateResult struct {
-	Key       string
-	URL       string
-	Status    string
-	Payload   map[string]any
-	Parent    string
-	ParentErr error
+	Key         string
+	URL         string
+	Status      string
+	Payload     map[string]any
+	Parent      string
+	ParentErr   error
+	Sprint      api.Sprint // zero ID: no sprint requested
+	SprintErr   error
+	StoryPoints *float64
+	PointsField string // the field story points were written to
+	PointsErr   error
+}
+
+// createPlan is everything a create sends: the POST fields, the custom
+// field values merged into its payload, and the follow-ups after it.
+type createPlan struct {
+	fields, custom map[string]any
+	followUps      followUps
 }
 
 // CreateTicket creates a Jira ticket from req, or reports the open duplicate
@@ -69,6 +86,10 @@ func CreateTicket(conn api.JiraConnection, req CreateRequest, opts CreateOptions
 	if err != nil {
 		return CreateResult{}, err
 	}
+	follow, err := planFollowUps(conn, req, fields)
+	if err != nil {
+		return CreateResult{}, err
+	}
 	existing, err := opts.Dedupe.Find(fields)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("%w; nothing created", err)
@@ -76,10 +97,11 @@ func CreateTicket(conn api.JiraConnection, req CreateRequest, opts CreateOptions
 	if existing != "" {
 		return CreateResult{Key: existing, URL: IssueURL(conn, existing), Status: StatusExists}, nil
 	}
+	plan := createPlan{fields: fields, custom: custom, followUps: follow}
 	if opts.DryRun {
-		return dryRunCreate(conn, fields, custom, opts)
+		return dryRunCreate(conn, plan, opts)
 	}
-	return submitCreate(conn, fields, custom, opts.Dedupe)
+	return submitCreate(conn, plan, opts.Dedupe)
 }
 
 // createFields overlays req's typed fields onto a copy of its base fields.
@@ -106,6 +128,7 @@ func createFields(conn api.JiraConnection, req CreateRequest) (map[string]any, e
 	if len(req.FixVersions) > 0 {
 		fields["fixVersions"] = NamedRefs(req.FixVersions)
 	}
+	req.Defaults.apply(fields)
 	if _, ok := fields["issuetype"]; !ok {
 		fields["issuetype"] = DefaultIssueType
 	}
@@ -131,37 +154,41 @@ func markdownDescription(fields map[string]any) {
 
 // dryRunCreate resolves the payload without sending it, recording the ticket
 // in the guard so later duplicates in the same run are still caught.
-func dryRunCreate(conn api.JiraConnection, fields, custom map[string]any, opts CreateOptions) (CreateResult, error) {
+func dryRunCreate(conn api.JiraConnection, plan createPlan, opts CreateOptions) (CreateResult, error) {
 	label := opts.Label
 	if label == "" {
 		label = "an earlier ticket in this run"
 	}
-	opts.Dedupe.Remember(fields, label)
-	payload, parent, err := PreparePayload(conn, fields)
+	opts.Dedupe.Remember(plan.fields, label)
+	payload, parent, err := PreparePayload(conn, plan.fields)
 	if err != nil {
 		return CreateResult{}, err
 	}
-	maps.Copy(payload, custom)
-	return CreateResult{Status: StatusDryRun, Payload: payload, Parent: parent}, nil
+	maps.Copy(payload, plan.custom)
+	res := CreateResult{Status: StatusDryRun, Payload: payload, Parent: parent}
+	plan.followUps.report(&res)
+	return res, nil
 }
 
-// submitCreate POSTs the ticket and links it to its parent, if it has one.
-func submitCreate(conn api.JiraConnection, fields, custom map[string]any, guard *DedupeGuard) (CreateResult, error) {
-	payload, parent, err := PreparePayload(conn, fields)
+// submitCreate POSTs the ticket, links it to its parent if it has one, then
+// runs the sprint and story point follow-ups.
+func submitCreate(conn api.JiraConnection, plan createPlan, guard *DedupeGuard) (CreateResult, error) {
+	payload, parent, err := PreparePayload(conn, plan.fields)
 	if err != nil {
 		return CreateResult{}, err
 	}
-	maps.Copy(payload, custom)
+	maps.Copy(payload, plan.custom)
 	created, err := api.CreateIssue(conn, payload)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("creating issue: %w", err)
 	}
 	key := str(created, "key")
-	guard.Remember(fields, key)
+	guard.Remember(plan.fields, key)
 	res := CreateResult{Key: key, URL: IssueURL(conn, key), Status: StatusCreated, Payload: payload, Parent: parent}
 	if parent != "" {
 		res.ParentErr = api.AddIssuesToEpic(conn, parent, []string{key})
 	}
+	plan.followUps.apply(conn, &res)
 	return res, nil
 }
 

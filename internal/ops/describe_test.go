@@ -57,7 +57,7 @@ func TestCommentsMarkdown_QuotesBodies(t *testing.T) {
 func TestDescribeTicket_NoCommentsAndLimits(t *testing.T) {
 	calls := 0
 	res, err := DescribeTicket(describeJira(t, nil, &calls), "K-1", 5)
-	if err != nil || !strings.Contains(CommentsMarkdown(res), "_No comments._") {
+	if err != nil || CommentsMarkdown(res) != "" {
 		t.Errorf("res=%+v err=%v", res, err)
 	}
 	for _, n := range []int{-1, MaxDescribeComments + 1} {

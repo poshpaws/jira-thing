@@ -21,8 +21,9 @@ var completionCommands = []string{
 // completionSubcommands lists the sub-commands of each dispatching command,
 // completed as the second word. names holds the command and its aliases.
 var completionSubcommands = []struct{ names, subs []string }{
-	{[]string{"epic"}, []string{"list", "describe", "create", "add", "remove"}},
-	{[]string{"sprint", "sp"}, []string{"list", "add"}},
+	{[]string{"template", "te"}, []string{"list"}},
+	{[]string{"epic"}, []string{"list", "describe", "explore", "create", "add", "remove"}},
+	{[]string{"sprint", "sp"}, []string{"list", "add", "explore"}},
 	{[]string{"board"}, []string{"list"}},
 	{[]string{"project"}, []string{"list"}},
 	{[]string{"release"}, []string{"list"}},

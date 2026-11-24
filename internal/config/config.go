@@ -23,6 +23,12 @@ type Config struct {
 	ConfluenceURL        string `json:"confluence_url"` // e.g. "https://yourorg.atlassian.net/wiki"
 	TicketHanger         string `json:"ticket_hanger"`
 	ConfluenceBasePageID string `json:"confluence_base_page_id"` // root page ID for the space browser TUI
+	// Defaults for new tickets, used only when neither a flag nor the
+	// template sets the field.
+	DefaultPriority   string   `json:"default_priority"`
+	DefaultComponents []string `json:"default_components"`
+	DefaultLabels     []string `json:"default_labels"`
+	TemplatesDir      string   `json:"templates_dir"` // searched first for the default template
 	// Profiles holds per-profile overrides: when a profile is active, its
 	// object's keys replace the matching top-level ones.
 	Profiles map[string]json.RawMessage `json:"profiles,omitempty"`
