@@ -12,6 +12,10 @@ import (
 // MaxDescribeComments caps how many comments describe fetches.
 const MaxDescribeComments = 100
 
+// DefaultDescribeComments is how many comments describe shows when not told:
+// the latest one, so a ticket's current state is visible at a glance.
+const DefaultDescribeComments = 1
+
 // DescribeResult is a ticket plus its newest comments, oldest first.
 // CommentTotal counts every comment on the ticket.
 type DescribeResult struct {
@@ -46,16 +50,13 @@ func DescribeTicket(conn api.JiraConnection, key string, comments int) (Describe
 
 // CommentsMarkdown renders the fetched comments as a markdown section, which
 // both front ends append to their ticket view. Each body is a quoted block.
-// It is empty when none were asked for.
+// It is empty when none were asked for or the ticket has none.
 func CommentsMarkdown(res DescribeResult) string {
-	if res.Comments == nil {
+	if len(res.Comments) == 0 {
 		return ""
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n## Comments (latest %d of %d)\n\n", len(res.Comments), res.CommentTotal)
-	if len(res.Comments) == 0 {
-		sb.WriteString("_No comments._\n")
-	}
 	for _, c := range res.Comments {
 		author := termsafe.Line(str(c.Author, "displayName"))
 		fmt.Fprintf(&sb, "### %s — %s\n\n%s\n\n", author, termsafe.Line(shortTimestamp(c.Created)), QuoteBlock(adf.ToMarkdown(c.Body)))

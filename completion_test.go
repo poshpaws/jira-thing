@@ -122,7 +122,7 @@ func TestCompletion_CoversEveryDispatchCase(t *testing.T) {
 func TestRunCompletion_Subcommands(t *testing.T) {
 	bash := captureStdout(func() { runCompletion([]string{"bash"}) })
 	zsh := captureStdout(func() { runCompletion([]string{"zsh"}) })
-	if !strings.Contains(bash, `sprint|sp) COMPREPLY=( $(compgen -W "list add" -- "$cur") ) ;;`) {
+	if !strings.Contains(bash, `sprint|sp) COMPREPLY=( $(compgen -W "list add explore" -- "$cur") ) ;;`) {
 		t.Errorf("bash sub-commands missing:\n%s", bash)
 	}
 	if !strings.Contains(zsh, "worklog|wl) compadd add ;;") {

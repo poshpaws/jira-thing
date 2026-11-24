@@ -88,7 +88,7 @@ func menuActions() []menuAction {
 		{"My Tasks", "List open tasks assigned to you", menuMyTasks},
 		{"Search", "Search tickets by JQL", menuSearch},
 		{"Describe Ticket", "View full ticket details", menuDescribe},
-		{"Create Ticket", "Create a ticket from a template", func(api.JiraConnection) { runCreate(nil) }},
+		{"Create Ticket", "Create a ticket from a template, optionally into a sprint with points", menuCreateTicket},
 		{"Change State", "Move a ticket to a new workflow state", func(api.JiraConnection) { runState(nil) }},
 		{"Update Fields", "Edit summary, priority, labels, or assignee", menuUpdateFields},
 		{"Assign Ticket", "Assign a ticket by name, email or account ID", menuAssign},
@@ -103,11 +103,13 @@ func menuActions() []menuAction {
 		{"Delete Ticket", "Permanently delete a ticket", menuDeleteTicket},
 		{"Boards", "List Agile boards", menuListBoards},
 		{"Sprints", "List sprints on a board and their issues", menuListSprints},
+		{"Sprint Explorer", "Browse sprints and their issues side by side", menuSprintExplorer},
 		{"Add to Sprint", "Move tickets into the current, next or a numbered sprint", menuAddToSprint},
 		{"Projects", "List accessible projects", menuListProjects},
 		{"Releases", "List a project's releases/versions", menuListVersions},
 		{"List Epics", "List every epic in a project", menuListEpics},
 		{"Describe Epic", "List the issues under an epic", menuDescribeEpic},
+		{"Epic Explorer", "Browse epics and their issues side by side", menuEpicExplorer},
 		{"Create Epic", "Create a new epic", menuCreateEpic},
 		{"Add to Epic", "Add issues to an epic", menuAddToEpic},
 		{"Remove from Epic", "Remove issues from their epic", menuRemoveFromEpic},
@@ -192,37 +194,7 @@ func browseWithQuickActions(conn api.JiraConnection, tickets []tui.Ticket, fetch
 		printMenuErr("TUI: %v", err)
 		return
 	}
-	switch res.Action {
-	case tui.ActionView:
-		issue, err := api.FetchIssue(conn, res.Key)
-		if err != nil {
-			printMenuErr("fetching %s: %v", res.Key, err)
-			return
-		}
-		renderDescribe(issue, false, false)
-	case tui.ActionOpen:
-		target := conn.BaseURL + "/browse/" + res.Key
-		if err := openBrowser(target); err != nil {
-			printMenuErr("opening browser: %v", err)
-			return
-		}
-		fmt.Printf("Opened %s\n", target)
-	case tui.ActionTransition:
-		menuTransitionTicket(conn, res.Key)
-	case tui.ActionCopyKey:
-		if err := copyToClipboard(res.Key); err != nil {
-			printMenuErr("copying key: %v", err)
-			return
-		}
-		fmt.Printf("Copied %s to clipboard\n", res.Key)
-	case tui.ActionCopyURL:
-		target := conn.BaseURL + "/browse/" + res.Key
-		if err := copyToClipboard(target); err != nil {
-			printMenuErr("copying url: %v", err)
-			return
-		}
-		fmt.Printf("Copied %s to clipboard\n", target)
-	}
+	performQuickAction(conn, res.Action, res.Key)
 }
 
 // menuTransitionTicket runs the same transition flow as the `state` command,

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/ops"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -15,6 +16,7 @@ import (
 
 func registerTemplateTools(s *server.MCPServer, conn api.JiraConnection) {
 	s.AddTool(fetchTemplateTool(), handleFetchTemplate(conn))
+	s.AddTool(listTemplatesTool(), handleListTemplates())
 	s.AddTool(createTicketsBatchTool(), handleCreateTicketsBatch(conn))
 }
 
@@ -60,11 +62,13 @@ func createTicketsBatchTool() mcp.Tool {
 	return mcp.NewTool("create_tickets_batch",
 		mcp.WithDescription("Create several Jira tickets in one call. Each entry is a ticket object, e.g. "+
 			`{"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. `+
-			"Entries are created independently: one failing does not stop the rest, and the result reports each one."),
+			"Entries are created independently: one failing does not stop the rest, and the result reports each one. "+
+			`An entry may also carry "sprint" ("current", "next" or a sprint ID) and "points" (a number), applied right after its create.`),
 		mcp.WithString("tickets",
 			mcp.Required(),
 			mcp.Description("JSON array of ticket objects. project and summary are required per entry; issuetype defaults "+
-				"to Task; description is markdown; parent links the ticket to an epic after creation"),
+				"to Task; description is markdown; parent links the ticket to an epic after creation; sprint and points "+
+				"join a sprint and set story points after creation"),
 		),
 		mcp.WithBoolean("dedupe_by_summary",
 			mcp.Description("If true, skip entries whose summary matches an open ticket in the same project, or an "+
@@ -86,8 +90,14 @@ func handleCreateTicketsBatch(conn api.JiraConnection) server.ToolHandlerFunc {
 		if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) == 0 {
 			return mcp.NewToolResultError("tickets must be a non-empty JSON array of ticket objects"), nil
 		}
+		cfg, err := config.Load()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("loading config: %v", err)), nil
+		}
 		dryRun := req.GetBool("dry_run", false)
-		items := ops.CreateTicketsBatch(conn, entries, req.GetBool("dedupe_by_summary", false), dryRun)
+		batch := ops.ConfigBatchOptions(cfg)
+		batch.Dedupe, batch.DryRun = req.GetBool("dedupe_by_summary", false), dryRun
+		items := ops.CreateTicketsBatch(conn, entries, batch)
 		return mcp.NewToolResultText(formatBatchItems(items, dryRun)), nil
 	}
 }

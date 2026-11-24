@@ -72,6 +72,7 @@ type model struct {
 	fetcher             TicketFetcher
 	refreshing          bool
 	refreshErr          error
+	showHelp            bool
 }
 
 // ShowTable launches the interactive table TUI. Returns selected tickets.
@@ -162,7 +163,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRefresh(msg), nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "?":
+			m.showHelp = !m.showHelp
+			return m, nil
+		case "esc":
+			if m.showHelp {
+				m.showHelp = false
+				return m, nil
+			}
+			m.quitting = true
+			return m, tea.Quit
+		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
 		case "enter", " ":
@@ -276,31 +287,6 @@ func (m *model) unmarkRow(idx int) {
 		rows[idx][colKey] = m.tickets[idx].Key
 		m.table.SetRows(rows)
 	}
-}
-
-func (m model) View() string {
-	if m.quitting {
-		return ""
-	}
-	return m.tableView()
-}
-
-func (m model) tableView() string {
-	help := "\n  ↑/↓/j/k navigate • g/G top/bottom • enter/space select • s save & quit"
-	if m.quickActionsEnabled {
-		help += " • v view • o open • m transition • c copy url • ctrl+k copy key"
-		if m.fetcher != nil {
-			help += " • ctrl+r refresh"
-		}
-	}
-	help += " • q quit\n"
-	status := fmt.Sprintf("  %d ticket(s) selected", len(m.selected))
-	if m.refreshing {
-		status += "  (refreshing...)"
-	} else if m.refreshErr != nil {
-		status += fmt.Sprintf("  (refresh failed: %v)", m.refreshErr)
-	}
-	return "\n" + m.table.View() + "\n" + status + help
 }
 
 // truncDate returns the first 10 chars of a date string.

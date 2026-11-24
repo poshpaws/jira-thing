@@ -13,13 +13,15 @@ import (
 // runEpic dispatches epic sub-commands: list, describe, create, add, remove.
 func runEpic(args []string) {
 	if len(args) < 1 {
-		fatal("usage: jira-thing epic <list|describe|create|add|remove> [options]")
+		fatal("usage: jira-thing epic <list|describe|explore|create|add|remove> [options]")
 	}
 	switch args[0] {
 	case "list":
 		runEpicList(args[1:])
 	case "describe":
 		runEpicDescribe(args[1:])
+	case "explore":
+		runEpicExplore(args[1:])
 	case "create":
 		runEpicCreate(args[1:])
 	case "add":
@@ -27,7 +29,7 @@ func runEpic(args []string) {
 	case "remove":
 		runEpicRemove(args[1:])
 	default:
-		fatal("unknown epic sub-command: %s\nusage: jira-thing epic <list|describe|create|add|remove> [options]", args[0])
+		fatal("unknown epic sub-command: %s\nusage: jira-thing epic <list|describe|explore|create|add|remove> [options]", args[0])
 	}
 }
 

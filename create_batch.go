@@ -13,10 +13,12 @@ import (
 
 // runBatchCreate reads a JSON array of ticket templates from path and creates
 // each one non-interactively, continuing past per-ticket failures and
-// reporting how many of the total succeeded. With dryRun, resolves and prints
-// each ticket's payload instead of creating anything. With dedupe, entries
-// duplicating an open ticket, or an earlier entry, are skipped.
-func runBatchCreate(path string, dryRun, dedupe bool) {
+// reporting how many of the total succeeded. With DryRun, resolves and prints
+// each ticket's payload instead of creating anything. With Dedupe, entries
+// duplicating an open ticket, or an earlier entry, are skipped. Defaults
+// fill each entry's unset fields.
+func runBatchCreate(path string, batch ops.BatchOptions) {
+	dryRun := batch.DryRun
 	tickets := loadBatchTickets(path)
 	conn := mustConnect()
 	if dryRun {
@@ -24,7 +26,7 @@ func runBatchCreate(path string, dryRun, dedupe bool) {
 	} else {
 		fmt.Printf("Creating %d ticket(s) from %s...\n", len(tickets), path)
 	}
-	items := ops.CreateTicketsBatch(conn, tickets, dedupe, dryRun)
+	items := ops.CreateTicketsBatch(conn, tickets, batch)
 	for _, it := range items {
 		printBatchItem(conn, it, len(items))
 	}
@@ -45,7 +47,7 @@ func printBatchItem(conn api.JiraConnection, it ops.BatchItem, total int) {
 	case it.Result.Status == ops.StatusDryRun:
 		fmt.Printf("\n[%d/%d]\n", it.Index+1, total)
 		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, it.Result.Payload)
-		printParentLinkStep(it.Result.Parent)
+		printFollowUpSteps(it.Result)
 	default:
 		fmt.Printf("  %s %s  %s\n", tui.SuccessStyle.Render("Created:"), tui.KeyStyle.Render(termsafe.Clean(it.Result.Key)), termsafe.Clean(it.Summary))
 	}

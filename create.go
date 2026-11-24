@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,8 +9,10 @@ import (
 
 	"jira-thing/internal/adf"
 	"jira-thing/internal/api"
+	"jira-thing/internal/config"
 	"jira-thing/internal/ops"
 	"jira-thing/internal/template"
+	"jira-thing/internal/termsafe"
 	"jira-thing/internal/tui"
 )
 
@@ -34,12 +35,33 @@ type createFlags struct {
 	dedupe          bool
 	custom          customFlag
 	fixVersions     stringList
+	followUp        createFollowUpFlags
+	named           string
+	noTemplate      bool
+}
+
+// createFollowUpFlags are the create flags applied after the ticket exists.
+type createFollowUpFlags struct {
+	sprint *string
+	board  *int
+	points *string
+}
+
+// addCreateFollowUpFlags defines -sprint, -board and -points on fs.
+func addCreateFollowUpFlags(fs *flag.FlagSet) createFollowUpFlags {
+	return createFollowUpFlags{
+		sprint: fs.String("sprint", "", `Sprint to add the new ticket to: "current", "next" or a sprint ID`),
+		board:  fs.Int("board", 0, `Board -sprint is looked up on (default: "board" in config for its project, else the project's only sprint board)`),
+		points: fs.String("points", "", `Story points, e.g. 3 or 0.5, set after the create (field: "story_points_field" in config, else the usual defaults)`),
+	}
 }
 
 // parseCreateFlags parses runCreate's flag set, exiting on a parse error.
 func parseCreateFlags(args []string) createFlags {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	templatePath := fs.String("t", "", "Path to template file")
+	noTemplate := fs.Bool("no-template", false, `Ignore templates on the search path and start from flags alone (see also -T standard)`)
+	named := fs.String("T", "", `Named template to start from (see "template list"): a file in templates_dir, or the built-in "standard" or "toil"`)
 	batchPath := fs.String("f", "", "Path to a JSON array of ticket templates for batch create")
 	descriptionFile := fs.String("description-file", "", `Path to a markdown file for the description, or "-" for stdin (overrides template/prompt; stdin implies -y)`)
 	project := fs.String("project", "", "Project key or ID (e.g. PROJ) — overrides the template; with no template on the search path, create from flags alone")
@@ -59,12 +81,13 @@ func parseCreateFlags(args []string) createFlags {
 	fs.Var(&custom, "custom", customHelp)
 	var fixVersions stringList
 	fs.Var(&fixVersions, "fix-version", "Fix version name (repeatable, or comma-separated)")
+	followUp := addCreateFollowUpFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		fatal("parsing flags: %v", err)
 	}
 	return createFlags{
 		*templatePath, *batchPath, *descriptionFile, *project, *summary, *issueType, *priority,
-		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut, *dedupe, custom, fixVersions,
+		*labels, *components, *assignee, *epic, *nonInteractive, *dryRun, *jsonOut, *dedupe, custom, fixVersions, followUp, *named, *noTemplate,
 	}
 }
 
@@ -73,19 +96,25 @@ func parseCreateFlags(args []string) createFlags {
 // in the template are used as-is; missing fields are prompted for unless
 // -non-interactive/-y is set, in which case a missing summary is a fatal
 // error. First-class flags (-type, -priority, -labels, -components,
-// -assignee, -epic) always override whatever the template holds, so a ticket
+// -assignee, -epic, -sprint, -points) always override whatever the template holds, so a ticket
 // can be created end-to-end from flags with no template at all. With -f,
 // every entry in the JSON array is created non-interactively and the command
 // reports how many succeeded. -dedupe-by-summary skips any ticket that would
 // duplicate an open one.
 func runCreate(args []string) {
 	flags := parseCreateFlags(args)
+	cfg, err := config.Load()
+	if err != nil {
+		fatal("loading config: %v", err)
+	}
 	if flags.batchPath != "" {
-		runBatchCreate(flags.batchPath, flags.dryRun, flags.dedupe)
+		batch := ops.ConfigBatchOptions(cfg)
+		batch.Dedupe, batch.DryRun = flags.dedupe, flags.dryRun
+		runBatchCreate(flags.batchPath, batch)
 		return
 	}
 
-	tmpl := loadCreateTemplate(flags.templatePath, flags.project != "")
+	tmpl := createBase(flags, cfg)
 	if flags.summary != "" {
 		tmpl["summary"] = flags.summary
 	}
@@ -95,9 +124,12 @@ func runCreate(args []string) {
 
 	conn := mustConnect()
 	opts := ops.CreateOptions{Dedupe: ops.NewDedupeGuard(conn, flags.dedupe), DryRun: flags.dryRun}
-	res, err := ops.CreateTicket(conn, createRequest(tmpl, flags), opts)
+	req := createRequest(tmpl, flags)
+	req.Defaults = ops.DefaultsFromConfig(cfg)
+	addCreateFollowUps(&req, flags, cfg)
+	res, err := ops.CreateTicket(conn, req, opts)
 	if err != nil {
-		fatal("%v", err)
+		fatal("%s", termsafe.Clean(err.Error()))
 	}
 	reportCreateResult(conn, res, flags.json)
 }
@@ -119,6 +151,24 @@ func createRequest(tmpl map[string]any, flags createFlags) ops.CreateRequest {
 	}
 }
 
+// addCreateFollowUps adds -sprint and -points to req, exiting on a
+// non-numeric -points.
+func addCreateFollowUps(req *ops.CreateRequest, flags createFlags, cfg config.Config) {
+	req.StoryPoints = parsePoints(*flags.followUp.points)
+	if req.StoryPoints != nil {
+		req.PointFields = ops.StoryPointFields(cfg)
+	}
+	req.Sprint = *flags.followUp.sprint
+	if req.Sprint == "" {
+		return
+	}
+	project := flags.project
+	if project == "" {
+		project = ops.FieldsProject(req.Fields)
+	}
+	req.SprintScope = ops.CreateSprintScope(cfg, *flags.followUp.board, project)
+}
+
 // reportCreateResult prints what the create did: the duplicate that made it
 // unnecessary, the dry-run payload, or the new ticket.
 func reportCreateResult(conn api.JiraConnection, res ops.CreateResult, jsonOut bool) {
@@ -127,10 +177,10 @@ func reportCreateResult(conn api.JiraConnection, res ops.CreateResult, jsonOut b
 		reportDuplicate(res, jsonOut)
 	case ops.StatusDryRun:
 		printDryRun("POST", conn.BaseURL+api.IssueEndpoint, res.Payload)
-		printParentLinkStep(res.Parent)
+		printFollowUpSteps(res)
 	default:
-		if err := ops.ParentLinkError(res); err != nil {
-			fatal("%v", err)
+		if err := ops.FollowUpError(res); err != nil {
+			fatal("%s", termsafe.Clean(err.Error()))
 		}
 		reportCreated(res, jsonOut)
 	}
@@ -145,33 +195,27 @@ func reportCreated(res ops.CreateResult, jsonOut bool) {
 	}
 	fmt.Printf("%s %s\n", tui.SuccessStyle.Render("Created ticket:"), tui.KeyStyle.Render(res.Key))
 	fmt.Printf("URL: %s\n", res.URL)
+	if res.Sprint.ID != 0 {
+		fmt.Printf("Sprint: %s\n", ops.SprintLabel(res.Sprint))
+	}
+	if res.PointsField != "" {
+		fmt.Printf("Story points: %v (%s)\n", *res.StoryPoints, res.PointsField)
+	}
 }
 
-// loadCreateTemplate loads the template at path, exiting with a pointer to
-// the search path (and how to specify one directly) when none was found.
-// With allowNone (a -project flag was given) and no path, a missing default
-// template yields an empty one, so a ticket can be created from flags alone.
-func loadCreateTemplate(path string, allowNone bool) map[string]any {
-	tmpl, err := template.Load(path)
-	if path == "" && allowNone && errors.Is(err, template.ErrTemplateNotFound) {
-		return map[string]any{}
+// printFollowUpSteps notes what a real create does right after the POST,
+// which the create payload itself doesn't contain: the epic/parent link,
+// the sprint and the story points.
+func printFollowUpSteps(res ops.CreateResult) {
+	if res.Parent != "" {
+		fmt.Printf("\nThen: link the new ticket to %s (sets \"parent\", falling back to the classic \"Epic Link\" field)\n", res.Parent)
 	}
-	if err != nil {
-		if path == "" {
-			fatal("no template found in search path.\n\nCreate one first:\n  jira-thing template <TICKET-KEY> [-o ticket_template.json]\n\nThen place ticket_template.json in one of:\n  - current directory\n  - same directory as the jira-thing binary\n  - $XDG_CONFIG_HOME/jira-thing/\n  - ~/.config/jira-thing/\n\nOr specify a path directly:\n  jira-thing create -t /path/to/template.json")
-		}
-		fatal("loading template: %v", err)
+	if res.Sprint.ID != 0 {
+		fmt.Printf("Then: add the new ticket to sprint %s\n", ops.SprintLabel(res.Sprint))
 	}
-	return tmpl
-}
-
-// printParentLinkStep notes the epic/parent link a real create makes right
-// after the POST, which the create payload itself doesn't contain.
-func printParentLinkStep(parentKey string) {
-	if parentKey == "" {
-		return
+	if res.StoryPoints != nil {
+		fmt.Printf("Then: set story points to %v on the new ticket's edit screen\n", *res.StoryPoints)
 	}
-	fmt.Printf("\nThen: link the new ticket to %s (sets \"parent\", falling back to the classic \"Epic Link\" field)\n", parentKey)
 }
 
 // promptAssigneeChoice asks the user whether to use self or the original assignee in the template.

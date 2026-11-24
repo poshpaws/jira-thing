@@ -57,6 +57,16 @@ func ScopeFromConfig(cfg config.Config, boardID int, project string) SprintScope
 	return SprintScope{BoardID: boardID, Project: project}
 }
 
+// CreateSprintScope picks the board a new ticket's sprint is looked up on:
+// board when given, the configured board when the ticket is in the
+// configured project, else the ticket project's only sprint board.
+func CreateSprintScope(cfg config.Config, board int, project string) SprintScope {
+	if board == 0 && project == cfg.Project {
+		board = cfg.Board
+	}
+	return SprintScope{BoardID: board, Project: project}
+}
+
 // BoardChoiceError means the project has several sprint boards; Boards lists
 // them so the caller can name one.
 type BoardChoiceError struct {

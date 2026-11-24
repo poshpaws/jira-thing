@@ -136,6 +136,10 @@ jira-thing -profile work clear-auth        # clears only that profile's credenti
   "project": "PROJ",
   "board": 42,
   "story_points_field": "customfield_10016",
+  "default_priority": "Medium",
+  "default_components": ["Backend"],
+  "default_labels": ["triage"],
+  "templates_dir": "~/work/jira-templates",
   "toil_marker": "TOIL_LABEL",
   "toil_team": "Team-Name",
   "team": "c4cb9231-6ac0-44e7-bd76-64331a96af81",
@@ -154,9 +158,13 @@ jira-thing -profile work clear-auth        # clears only that profile's credenti
 | Field | Used by | Description |
 |---|---|---|
 | `project` | `toil-check`, `toil-sync`, `epic list`, `sprint` | Jira project key (e.g. `PROJ`) |
-| `board` | `sprint` | Agile board ID for sprint commands. Default: the project's only sprint board |
+| `board` | `sprint`, `create -sprint` | Agile board ID for sprint commands. Default: the project's only sprint board. `create -sprint` only uses it for tickets in `project` |
 | `profiles` | everything | Per-profile overrides: with `-profile work`, the keys under `"work"` replace the matching top-level ones. See **Profiles** above |
-| `story_points_field` | `edit -points`, `point-check` | Story point custom field ID, tried before `customfield_10016` and `customfield_10308`. Find it with `diagnose -find-field "story point"` |
+| `default_priority` | `create`, `create_ticket`, `create_tickets_batch` | Priority name for new tickets that don't set one |
+| `default_components` | `create`, `create_ticket`, `create_tickets_batch` | Component names for new tickets that don't set any |
+| `default_labels` | `create`, `create_ticket`, `create_tickets_batch` | Labels for new tickets that don't set any. Not merged: a template or flag with its own labels replaces these |
+| `templates_dir` | `create`, `template list`, `create_ticket` | Directory holding named templates (`create -T NAME` reads `NAME.json`), also searched first for `ticket_template.json`. Default for named templates: `~/.config/jira-thing/templates`. `~/` is expanded |
+| `story_points_field` | `edit -points`, `create -points`, `point-check` | Story point custom field ID, tried before `customfield_10016` and `customfield_10308`. Find it with `diagnose -find-field "story point"` |
 | `toil_marker` | `toil-check`, `toil-sync` | Label that identifies toil tickets |
 | `toil_team` | `toil-check`, `toil-sync` | Legacy team label filter (used when `use_team_field` is false) |
 | `team` | `toil-check`, `toil-sync` | Jira Team field UUID (used when `use_team_field` is true) |
@@ -189,6 +197,32 @@ jira-thing template PROJ-42
 # Template saved to ticket_template.json
 ```
 
+#### Named templates
+
+`create -T NAME` starts from a named template instead of a file path, from any directory. A named template is `NAME.json` in the templates directory: `templates_dir` from config, else `~/.config/jira-thing/templates/`. Save one there with `-o`:
+
+```bash
+jira-thing template PROJ-42 -o ~/.config/jira-thing/templates/bug.json
+jira-thing create -T bug -summary "Login fails on Safari" -y
+```
+
+Two are built in, so `-T` works with no files at all:
+
+| Name | Fields |
+|---|---|
+| `standard` | A `Task` in the configured `project` |
+| `toil` | `standard` plus the labels `toil-check` looks for: `toil_marker`, and `toil_team` unless `use_team_field` is true. Only exists when `toil_marker` is set. With `use_team_field`, set the Team field with `-custom` |
+
+A file with the same name replaces a built-in. Names use letters, digits, `-` and `_` only. `template list` shows what's available and where each one comes from:
+
+```bash
+jira-thing template list [-json]
+# Templates in /Users/me/.config/jira-thing/templates (use with: create -T NAME)
+#   bug                  /Users/me/.config/jira-thing/templates/bug.json
+#   standard             built-in
+#   toil                 built-in
+```
+
 ---
 
 ### `create` — create a ticket from a template
@@ -203,10 +237,12 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | Flag | Default | Description |
 |---|---|---|
 | `-t` | `ticket_template.json` | Path to the template file |
+| `-T` | — | Named template to start from (see **Named templates** above). Can't be combined with `-t` |
+| `-no-template` | `false` | Ignore templates on the search path and build the ticket from flags (plus config defaults) alone. Can't be combined with `-t` or `-T` |
 | `-f` | — | Path to a JSON array of templates; creates all of them non-interactively and reports how many succeeded |
 | `-non-interactive`, `-y` | `false` | Fail with a clear error instead of prompting for a missing summary |
 | `-description-file` | — | Path to a markdown file used as the description, overriding both the template and the prompt. `-` reads it from stdin, which also turns on `-y` (stdin can't answer prompts), so pass `-summary` too |
-| `-project` | — | Project key (e.g. `PROJ`) or numeric ID — overrides the template. With no `-t` and no default template on the search path, the ticket is built from flags alone |
+| `-project` | — | Project key (e.g. `PROJ`) or numeric ID — overrides the template. A default template on the search path is **still used** for its other fields (labels, components, priority…); pass `-no-template` to build from flags alone. With no default template on the search path, the ticket is built from flags alone anyway |
 | `-summary` | — | Ticket summary — overrides the template and skips the prompt |
 | `-type` | — | Issue type name (e.g. `Task`, `Bug`, `Story`) — overrides the template |
 | `-priority` | — | Priority name (e.g. `High`, `Medium`, `Low`) — overrides the template |
@@ -214,9 +250,12 @@ jira-thing create -f tickets.json [-dry-run]   # batch: create every entry in a 
 | `-components` | — | Comma-separated component names — overrides the template |
 | `-assignee` | — | `me`, `unassign`, a name or email (must match one user), or a Jira account ID |
 | `-epic` | — | Epic/parent ticket key to link this ticket to — overrides the template |
+| `-sprint` | — | Sprint to add the new ticket to right after the create: `current`, `next` or a sprint ID. Resolved before anything is created, so a bad selector (or `prev`, a closed sprint) creates nothing |
+| `-board` | `board` in config | Board `-sprint` is looked up on. The configured `board` is only used when the ticket is in the configured `project`; otherwise the ticket's project must have exactly one sprint board |
+| `-points` | — | Story points (e.g. `3`, `0.5`), set on the new ticket's edit screen right after the create, because most create screens don't carry the field. Uses `story_points_field` from config, else the usual defaults (same as `edit -points`) |
 | `-fix-version` | — | Fix version name; repeatable or comma-separated. The version must already exist in the project (see `release list`) |
 | `-custom` | — | Any other field as `"Name=value"` or `"customfield_NNNNN=value"`; repeatable. See **Custom fields** below |
-| `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. If an epic/parent is set, also prints the link step that runs right after the create. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
+| `-dry-run` | `false` | Print the resolved payload (method, URL, JSON body exactly as it will be POSTed) and exit — no ticket is created. Also prints the follow-up steps that run right after the create: the epic/parent link, the sprint add and the story points. With `-f`, previews every entry in the batch, continuing past per-ticket resolution errors |
 | `-json` | `false` | Print `{"key", "url", "status"}` as a single line of JSON instead of styled text |
 | `-dedupe-by-summary` | `false` | Skip creating if an open ticket in the same project has the same summary (see below). Also works with `-f` |
 
@@ -226,7 +265,11 @@ These first-class flags mean a ticket can be created end-to-end with no template
 
 **Reference fields accept bare strings.** `project`, `issuetype` and `priority` can be written as plain strings in a template or batch entry — `"project": "PROJ"` is sent as `{"key": "PROJ"}` (an all-digit value such as `"10315"` as `{"id": "10315"}`), `"issuetype": "Bug"` as `{"name": "Bug"}`. The full object form still works unchanged.
 
-**Template search path** (when `-t` is not specified): current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`.
+**Defaults from config.** A field is taken from flags first, then the template (or batch entry), then `default_priority`, `default_components` or `default_labels` in config. A default only fills a field nothing else set; it never merges with one that is set.
+
+**Template search path** (when neither `-t`, `-T` nor `-no-template` is given): `templates_dir` from config (if set) → current directory → binary directory → `$XDG_CONFIG_HOME/jira-thing/` → `~/.config/jira-thing/`. A template found this way is named on stderr (`Using template: <path>`), except with `-json`, since the command line doesn't show it.
+
+**Follow-up steps.** The epic/parent link, `-sprint` and `-points` are applied after the ticket exists. In a `-f` batch file (and `create_tickets_batch`), an entry does the same with `"parent"`, `"sprint"` (`"current"`, `"next"` or a sprint ID, as a string or number) and `"points"` (a number); a bad `sprint` or `points` fails only that entry, before it is created. If one of them fails, the ticket is still created; the command names it, says which step failed, and exits non-zero so a script notices.
 
 A template can set `"parent": "PROJ-10"` to link the new ticket to an epic/parent immediately after creation — same `parent`-then-`Epic Link` fallback as `epic add`, no separate call needed. `-epic` does the same from the command line.
 
@@ -476,7 +519,7 @@ Opens a persistent home-screen TUI covering the full set of ticket operations ji
 jira-thing menu
 ```
 
-Pick an action from the list; you'll be prompted for whatever it needs directly in the terminal. After an action finishes, press enter to return to the menu. Unlike the one-shot commands, a failed action (bad key, invalid JQL) reports the error and drops you back at the menu instead of exiting the program.
+Pick an action from the list; you'll be prompted for whatever it needs directly in the terminal. After an action finishes, press enter to return to the menu. Unlike the one-shot commands, a failed action (bad key, invalid JQL) reports the error and drops you back at the menu instead of exiting the program. **Create Ticket** first asks for an optional sprint (`current`, `next` or an ID) and story points, the same as `create -sprint` and `-points`, then runs the usual create prompts.
 
 Every action that needs a ticket key (Update Fields, Change State, Add Comment, Clone, Delete, Link/Unlink, etc.) opens a picker pre-populated with your open tasks instead of a bare text prompt — pick one with `enter`, or select the first row (**✎ Type a ticket key manually…**) to type any key, including tickets not assigned to you.
 
@@ -570,6 +613,7 @@ jira-thing epic describe <EPIC-KEY>                      # list issues under a s
 jira-thing epic create -p PROJ -n NAME -s SUMMARY        # create an epic
 jira-thing epic add <EPIC-KEY> <ISSUE-1> [ISSUE-2 ...]   # add issues to an epic
 jira-thing epic remove <ISSUE-1> [ISSUE-2 ...]           # remove issues from their epic
+jira-thing epic explore [-p PROJECT]                     # browse epics and their issues side by side
 ```
 
 `epic list` defaults to the `project` key set in `~/.config/jira-thing/jira-thing.json`; pass `-p` to override, or set the config value if neither is present and the command errors out.
@@ -588,11 +632,39 @@ jira-thing sprint list -prev -jql "assignee = currentUser()"
 jira-thing sprint list -sprint 1234 -json       # issues in sprint 1234, as JSON
 jira-thing sprint add current PROJ-1 PROJ-2     # move tickets into the active sprint
 jira-thing sprint add next PROJ-3 -dry-run      # show the request, move nothing
+jira-thing sprint explore                       # browse sprints and their issues side by side
 ```
 
 The board comes from `-b BOARD`, then `"board"` in config, then the only sprint board in `-p PROJECT` (default: config's `"project"`). A project with several sprint boards fails with a list of them; pass `-b` or set `"board"`. "Sprint board" means any board that isn't kanban: company-managed scrum boards and team-managed boards alike.
 
 `-current` is the active sprint (the latest started, if several are active), `-prev` the last closed sprint and `-next` the first future one. `sprint add` takes `current`, `next` or a sprint ID, and sends more than 50 keys in batches. `-json` prints `{sprintId, sprintName, keys, status}`.
+
+---
+
+### Explorer — epics or sprints beside their issues
+
+```bash
+jira-thing epic explore              # epics in the configured project
+jira-thing epic explore -p PROJ
+jira-thing sprint explore            # active and future sprints, opening on the active one
+jira-thing sprint explore -all       # include closed sprints
+```
+
+A full-screen view with the epics or sprints on the left and the selected one's issues on the right. Issues load as you move through the list and are kept until you reload. The menu has **Epic Explorer** and **Sprint Explorer** entries too.
+
+| Key | Action |
+|---|---|
+| `tab` / `shift+tab` | Switch between the list and the issues |
+| `↑`/`↓`, `j`/`k`, `g`/`G` | Move |
+| `enter`, `→` | Open the selected epic or sprint's issues |
+| `esc`, `←` | Back to the list (quits from the list) |
+| `v` / `o` / `m` | View, open in the browser, or move the issue to another state |
+| `c` / `ctrl+k` | Copy the issue's URL or key |
+| `r` | Reload the open epic or sprint |
+| `?` | Help |
+| `q` | Quit |
+
+After `v`, `o`, `m`, `c` or `ctrl+k`, the action runs and you're asked to press enter, then the explorer reopens on the same epic or sprint. The ticket table (my-tasks, search) also has `?` help now.
 
 ---
 
@@ -759,7 +831,7 @@ jira-thing last-comment <TICKET-KEY> [-plain] [-raw]
 
 ### `describe` — dump full ticket as rendered markdown
 
-Fetches a Jira ticket and renders its key, summary, status, priority, assignee, linked tickets, and description as formatted markdown in the terminal. Linked tickets appear under a **Linked Tickets** heading as `<relation> <KEY>: <summary> (<status>)` — e.g. `is blocked by PROJ-9: Upstream (Done)` — and the section is omitted when the ticket has no links.
+Fetches a Jira ticket and renders its key, summary, status, priority, assignee, linked tickets, and description as formatted markdown in the terminal. Linked tickets appear under a **Linked Tickets** heading as `<relation> <KEY>: <summary> (<status>)` — e.g. `is blocked by PROJ-9: Upstream (Done)` — and the section is omitted when the ticket has no links. The latest comment follows under **Comments**, if the ticket has any. The table and explorer `v` (view) key shows the same.
 
 ```bash
 jira-thing describe <TICKET-KEY> [-comments N] [-plain] [-raw]
@@ -767,9 +839,9 @@ jira-thing describe <TICKET-KEY> [-comments N] [-plain] [-raw]
 
 | Flag | Description |
 |---|---|
-| `-comments` | Also show the latest N comments (max 100), oldest first, under **Comments (latest N of TOTAL)** |
+| `-comments` | How many of the latest comments to show, oldest first, under **Comments (latest N of TOTAL)**. Default `1`; `0` for none; max 100. The section is left out when the ticket has no comments |
 | `-plain` | Force plain text output even on a terminal (auto-detected anyway when piped) |
-| `-raw` | Print the stored issue fields as raw JSON, including the ADF description, instead of rendering markdown. With `-comments`, prints `{issue, comments, commentTotal}` |
+| `-raw` | Print the stored issue fields as raw JSON, including the ADF description, instead of rendering markdown. Comments are left out unless `-comments` is given (so existing scripts keep the bare issue); with it, prints `{issue, comments, commentTotal}` |
 
 **Example:**
 
@@ -1259,9 +1331,9 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `create_epic` | Create an epic. Jira has two incompatible epic models depending on how the project is configured (team-managed vs company-managed); this tool sets the classic "Epic Name" field when the instance has one, and is a no-op on team-managed projects where it doesn't exist. |
 | `create_subtask` | Create a subtask under an existing Jira ticket. Inherits project, priority, labels, and components from the parent. |
 | `create_ticket` | Create a new Jira ticket with the specified fields |
-| `create_tickets_batch` | Create several Jira tickets in one call. Each entry is a ticket object, e.g. {"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. Entries are created independently: one failing does not stop the rest, and the result reports each one. |
+| `create_tickets_batch` | Create several Jira tickets in one call. Each entry is a ticket object, e.g. {"project":"PROJ","issuetype":"Task","summary":"...","description":"markdown","labels":["x"],"parent":"PROJ-10"}. Entries are created independently: one failing does not stop the rest, and the result reports each one. An entry may also carry "sprint" ("current", "next" or a sprint ID) and "points" (a number), applied right after its create. |
 | `delete_ticket` | Permanently delete a Jira ticket. This cannot be undone: run with dry_run first and confirm with the user. |
-| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description, optionally with its latest comments |
+| `describe_ticket` | Fetch a Jira ticket's full details including summary, status, priority, assignee, linked tickets, and description, with its latest comment (or the latest N) |
 | `diagnose_connection` | Check jira-thing's Jira connection: the configured URL and email, the API token's format (no part of the token is returned), and an authenticated API call. Use when other tools fail with auth or connection errors; the result suggests a fix for 401/403 failures. |
 | `fetch_template` | Fetch a Jira ticket's reusable fields (project, issue type, priority, labels, components, description, assignee) as a JSON template, for use as the base of create_tickets_batch entries. By default the assignee becomes a marker meaning "whoever creates from this template". Saving a template as the CLI's default is left to the user (jira-thing template KEY), so an agent can't change what later creates use. |
 | `last_comment` | Fetch the most recent comment on a Jira ticket, rendered as markdown |
@@ -1274,6 +1346,7 @@ Generated from the tool registrations in `internal/mcpserver` — run `make gen-
 | `list_projects` | List every Jira project the current user can access |
 | `list_sprint_issues` | List the issues in a sprint (up to 100). Defaults to the current sprint. |
 | `list_sprints` | List the sprints on a board, oldest first. |
+| `list_templates` | List the named ticket templates create_ticket can start from (its template argument): the user's files in the templates directory, and the built-ins "standard" (a Task in the configured project) and "toil" (adds the toil labels, when toil_marker is configured). A file overrides a built-in of the same name. Templates are read-only to agents. |
 | `list_toil_tickets` | List toil tickets for the project/team configured in ~/.config/jira-thing/jira-thing.json (project, toil_marker label, and team filter). Fails if those aren't configured — this tool is specific to instances that have set up toil tracking. |
 | `list_transitions` | List the workflow states a Jira ticket can currently move to. Boards customise workflows heavily (a personal board may have 4 states, a client board 12), so always call this before transition_ticket rather than assuming a state name is valid. |
 | `list_versions` | List a project's releases/versions, newest release date first. Archived releases are hidden unless include_archived is set. |

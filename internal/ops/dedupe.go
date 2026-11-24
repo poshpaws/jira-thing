@@ -59,15 +59,21 @@ func (g *DedupeGuard) Remember(fields map[string]any, label string) {
 
 // dedupeScope returns the project and summary a duplicate is matched on.
 func dedupeScope(fields map[string]any) (project, summary string, err error) {
-	template.NormaliseRefFields(fields)
-	project = nestedStr(fields, "project", "key")
-	if project == "" {
-		project = nestedStr(fields, "project", "id")
-	}
+	project = FieldsProject(fields)
 	if project == "" {
 		return "", "", ErrDedupeNeedsProject
 	}
 	return project, str(fields, "summary"), nil
+}
+
+// FieldsProject returns the project key (or ID) named in create fields,
+// wrapping a bare-string project into Jira's object shape first.
+func FieldsProject(fields map[string]any) string {
+	template.NormaliseRefFields(fields)
+	if key := nestedStr(fields, "project", "key"); key != "" {
+		return key
+	}
+	return nestedStr(fields, "project", "id")
 }
 
 // seenKey normalises a project and summary the way Jira matches are compared.

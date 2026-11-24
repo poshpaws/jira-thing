@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -164,5 +165,31 @@ func TestFormatSelected_WithTickets(t *testing.T) {
 	got := FormatSelected(tickets)
 	if got == "No tickets selected." {
 		t.Error("expected formatted output, got empty message")
+	}
+}
+
+func TestTable_HelpOverlay(t *testing.T) {
+	m := newModel([]Ticket{{Key: "P-1"}})
+	m.quickActionsEnabled = true
+	next, _ := m.Update(key("?"))
+	m = next.(model)
+	if !m.showHelp || !strings.Contains(m.View(), "copy its URL") {
+		t.Fatalf("help not shown:\n%s", m.View())
+	}
+	next, _ = m.Update(key("esc"))
+	m = next.(model)
+	if m.showHelp || m.quitting {
+		t.Errorf("esc should close help only: help=%v quitting=%v", m.showHelp, m.quitting)
+	}
+	if !strings.Contains(m.View(), "? help") {
+		t.Error("the key hints should mention ? help")
+	}
+}
+
+func TestTableView_RefreshErrorIsSanitised(t *testing.T) {
+	m := newModel([]Ticket{{Key: "PROJ-1"}})
+	m.refreshErr = fmt.Errorf("boom\x1b]8;;evil\x07\nforged")
+	if view := m.View(); strings.Contains(view, "\x1b]8") || strings.Contains(view, "\nforged") {
+		t.Errorf("view = %q", view)
 	}
 }

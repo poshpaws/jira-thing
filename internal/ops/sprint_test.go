@@ -186,3 +186,24 @@ func TestAddToSprint_Rejects(t *testing.T) {
 		t.Error("expected bad key to be rejected")
 	}
 }
+
+func TestCreateSprintScope(t *testing.T) {
+	cfg := config.Config{Project: "PROJ", Board: 9}
+	tests := []struct {
+		name    string
+		board   int
+		project string
+		want    SprintScope
+	}{
+		{"explicit board wins", 3, "PROJ", SprintScope{BoardID: 3, Project: "PROJ"}},
+		{"configured project uses configured board", 0, "PROJ", SprintScope{BoardID: 9, Project: "PROJ"}},
+		{"other project ignores configured board", 0, "OTHER", SprintScope{Project: "OTHER"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CreateSprintScope(cfg, tt.board, tt.project); got != tt.want {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
